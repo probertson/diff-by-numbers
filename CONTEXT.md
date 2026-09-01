@@ -64,13 +64,16 @@ text format, not a unit of meaning, and is never shown to the Reviewer as one.
 **Change Request**:
 A Reviewer's request for an edit, raised at a Step and attached to it. Collected
 during the Walkthrough and acted on only once the Walkthrough ends — never
-mid-flight. Distinct from a question, which is answered live and changes nothing.
+mid-flight. A proposal rather than an instruction: it resolves to *addressed* or
+*declined*, and a decline carries the Authoring Agent's reasoning. Distinct from a
+question, which is answered live and changes nothing.
 _Avoid_: comment, note, feedback, todo
 
 **Revision Round**:
 The Authoring Agent working the collected Change Requests, followed by a fresh
-Walkthrough over just the resulting changes. Repeats until the Reviewer approves
-with nothing outstanding.
+Walkthrough over just the resulting changes. Its Brief maps every Change Request
+to its resolution, so a decline is read before any code. Repeats until the Reviewer
+finishes a Walkthrough having raised nothing.
 _Avoid_: fix pass, iteration, follow-up
 
 **Coverage Ledger**:
