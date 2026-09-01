@@ -10,6 +10,7 @@ reliably map a row of it back to a line of source — so it cannot attach a Chan
 Request to a place in the code. Owning the render loop is what makes anchoring
 possible at all.
 
-The MVP anchors Change Requests at Excerpt granularity, which is coarse enough that this
-tension does not yet bite. It will bite the day someone wants both line-level
-anchoring and delta's output.
+This tension is live, not hypothetical. Change Requests and question Anchors both point at
+a Reviewer-selected *line range* (ADR-0011), so dbn must know precisely what sits on every
+row. Adopting an external renderer would mean giving that up, or reconstructing the mapping
+from its output. That is the cost anyone proposing delta or difftastic has to pay.

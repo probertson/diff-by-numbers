@@ -82,8 +82,15 @@ an Excerpt and renders as a manifest of files and counts. A claim, not a dismiss
 Reviewer may expand it into real Excerpts at any time.
 _Avoid_: skip, noise, ignore, suppress
 
+**Anchor**:
+dbn's composed reference to a Reviewer-selected line range — repository, file, line numbers,
+Step name, and the code itself. Self-contained by design, so it survives being pasted into a
+chat whose context has since been compacted. It exists because the expensive part of raising
+a point during review is the pointing, not the saying.
+_Avoid_: reference, citation, pointer, location
+
 **Change Request**:
-A Reviewer's request for an edit, raised at a Step and attached to it. Collected
+A Reviewer's request for an edit, raised against an Anchor. Collected
 during the Walkthrough and acted on only once the Walkthrough ends — never
 mid-flight. A proposal rather than an instruction: it resolves to *addressed* or
 *declined*, and a decline carries the Authoring Agent's reasoning. Distinct from a
