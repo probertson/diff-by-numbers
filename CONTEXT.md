@@ -48,8 +48,16 @@ Agent names, carrying whatever Excerpts across whatever files that idea touches.
 Steps are ordered so each is comprehensible given only the Steps before it.
 _Avoid_: chunk, chunk set, section, slice
 
+**Change Set**:
+The complete set of changes under review. May span several repositories, each contributing
+its own range — by default everything that would ship, being the merge-base with that
+repository's default branch plus its working tree. Always named by the Authoring Agent,
+never discovered by dbn, which assumes nothing about the session's working directory.
+_Avoid_: the diff, the changes, the branch
+
 **Excerpt**:
-A contiguous range of lines in one file that the Authoring Agent chose to show,
+A contiguous range of lines in one file of one repository that the Authoring Agent chose
+to show,
 sized and bounded for comprehension rather than by any tool's output format. May
 include unchanged lines for reference. Named as an editorial selection, because
 that is what it is. A Step is made of Excerpts.
@@ -60,6 +68,19 @@ A single line that differs between the two sides of the changes under review.
 The atom of coverage, and the only unit dbn derives for itself. Git hunks are
 parsed to find Changed Lines and then discarded — a hunk is an artifact of a
 text format, not a unit of meaning, and is never shown to the Reviewer as one.
+
+**Opaque Change**:
+A change with no line-level representation — a modified binary file, a mode change, a
+pure rename carrying no content delta. Accounted for by the Coverage Ledger alongside
+Changed Lines, since it would otherwise be invisible to the completeness guarantee.
+_Avoid_: binary change, non-text change
+
+**Acknowledgement**:
+The Authoring Agent's declaration that a set of changes is mechanical and need not be
+read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of
+an Excerpt and renders as a manifest of files and counts. A claim, not a dismissal: the
+Reviewer may expand it into real Excerpts at any time.
+_Avoid_: skip, noise, ignore, suppress
 
 **Change Request**:
 A Reviewer's request for an edit, raised at a Step and attached to it. Collected
@@ -78,7 +99,8 @@ _Avoid_: fix pass, iteration, follow-up
 
 **Coverage Ledger**:
 dbn's own record, derived from git rather than from the Authoring Agent, of every
-Changed Line in the changes under review and whether some Excerpt has shown it. A
-Walkthrough cannot be completed while Changed Lines remain unshown. It constrains
+Changed Line and Opaque Change under review, and whether each has been shown by an
+Excerpt or covered by an Acknowledgement. A Walkthrough cannot be completed while any
+remains unaccounted for. It constrains
 completeness only — never ordering, grouping or size.
 _Avoid_: checklist, manifest, progress
