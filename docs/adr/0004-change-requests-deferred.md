@@ -1,6 +1,6 @@
 # Change Requests are collected, not applied mid-Walkthrough
 
-Questions are answered live and change nothing. Change Requests are attached to
+Questions are asked in the harness chat and change nothing. Change Requests are attached to
 their Steps and acted on only once the Walkthrough ends, then reviewed in a fresh
 Revision Round over just the resulting changes.
 

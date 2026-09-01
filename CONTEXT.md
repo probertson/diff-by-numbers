@@ -94,7 +94,7 @@ A Reviewer's request for an edit, raised against an Anchor. Collected
 during the Walkthrough and acted on only once the Walkthrough ends — never
 mid-flight. A proposal rather than an instruction: it resolves to *addressed* or
 *declined*, and a decline carries the Authoring Agent's reasoning. Distinct from a
-question, which is answered live and changes nothing.
+question, which is asked in the harness chat and changes nothing.
 _Avoid_: comment, note, feedback, todo
 
 **Revision Round**:
