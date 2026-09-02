@@ -1,0 +1,138 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/probertson/diff-by-numbers/internal/review"
+)
+
+// DefaultPort is where dbn listens unless told otherwise. It is fixed rather
+// than negotiated so a single MCP registration works for every session.
+const DefaultPort = 7373
+
+// Daemon owns the review Session and serves it over MCP. It holds the lock
+// because it is the part that is concurrent; the core stays free of it.
+type Daemon struct {
+	mu      sync.Mutex
+	session *review.Session
+}
+
+func New() *Daemon {
+	return &Daemon{session: review.NewSession()}
+}
+
+// Serve listens on the loopback interface only. A review surface has no reason
+// to be reachable from the network.
+func (d *Daemon) Serve(port int) error {
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return fmt.Errorf("dbn could not listen on port %d: %w", port, err)
+	}
+	fmt.Printf("dbn listening on http://127.0.0.1:%d (MCP at /mcp)\n", port)
+	return http.Serve(listener, d.handler())
+}
+
+func (d *Daemon) handler() http.Handler {
+	mux := http.NewServeMux()
+	// The SDK applies no cross-origin protection when this is nil, and dbn is
+	// about to be a surface that renders source code.
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return d.mcpServer() },
+		&mcp.StreamableHTTPOptions{CrossOriginProtection: &http.CrossOriginProtection{}}))
+
+	mux.HandleFunc("GET /dump", func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		fmt.Fprint(w, d.session.Dump())
+	})
+
+	// Abandoning is the Reviewer's act, so it is reachable from the CLI and not
+	// exposed as an MCP tool: an agent cannot dismiss a review of its own work.
+	mux.HandleFunc("POST /abandon", func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if err := d.session.Abandon(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "Walkthrough abandoned")
+	})
+	return mux
+}
+
+func (d *Daemon) mcpServer() *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "dbn",
+		Version: "0.1.0",
+	}, nil)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "post_walkthrough",
+		Description: "Post a Walkthrough of your changes for the Reviewer to work through. " +
+			"Send it once and completely: the Reviewer navigates it without involving you. " +
+			"Order Steps so each is comprehensible given only the Steps before it, and send " +
+			"line ranges rather than code — dbn reads the working tree itself.",
+	}, d.postWalkthrough)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "fetch_results",
+		Description: "Ask how the review went. Returns immediately whether or not the Reviewer " +
+			"has finished; it never waits. Call it once the Reviewer says they are done.",
+	}, d.fetchResults)
+
+	return server
+}
+
+func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in wireWalkthrough) (*mcp.CallToolResult, postResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if err := d.session.Post(in.toDomain()); err != nil {
+		var rejection *review.Rejection
+		if errors.As(err, &rejection) {
+			return nil, postResult{
+				Accepted: false,
+				Reason:   string(rejection.Reason),
+				Detail:   rejection.Detail,
+			}, nil
+		}
+		return nil, postResult{}, err
+	}
+	return nil, postResult{Accepted: true}, nil
+}
+
+func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, fetchResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	results, err := d.session.Results()
+	if err != nil {
+		return nil, fetchResult{}, err
+	}
+
+	message := "no Walkthrough is posted; post one before asking how the review went"
+	switch {
+	case results.Posted && results.Finished:
+		message = "the Reviewer has finished the Walkthrough"
+	case results.Posted:
+		message = "the Reviewer has not finished the Walkthrough yet"
+	}
+
+	notes := make([]string, 0, len(results.ChangeRequests))
+	for _, request := range results.ChangeRequests {
+		notes = append(notes, request.Note)
+	}
+
+	return nil, fetchResult{
+		Posted:         results.Posted,
+		Finished:       results.Finished,
+		Message:        message,
+		ChangeRequests: notes,
+	}, nil
+}
