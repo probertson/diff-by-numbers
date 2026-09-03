@@ -250,7 +250,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "→ Step " + key
 			m.client.intent("/goto/" + key)
 			return m, m.refresh()
-		case "L":
+		case "l", "L":
 			m.mode = modeList
 			m.crCursor = 0
 			return m, nil
@@ -282,6 +282,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "y":
 				return m, m.copyAnchor()
+			case "e":
+				if cr, ok := m.commentAtCursor(); ok {
+					m.editingID = cr.ID
+					m.pendingCode = cr.Anchor
+					m.note.SetValue(cr.Note)
+					m.note.Focus()
+					m.mode = modeNote
+					return m, textarea.Blink
+				}
+				m.status = "no comment on this line to edit"
+				return m, nil
 			case "c":
 				excerpt, first, last, ok := m.cursor.selection()
 				if !ok {
@@ -420,7 +431,7 @@ func (m model) View() string {
 
 	switch m.mode {
 	case modeNote:
-		hint := dimSt.Render(keybar("enter to add", "⌥⏎/ctrl+j newline", "esc cancel"))
+		hint := dimSt.Render(keybar("enter add", "shift+enter newline", "esc cancel"))
 		return header + "\n\n" + m.noteView() + "\n" + hint
 	case modeList:
 		return header + "\n\n" + m.listView() + "\n" + dimSt.Render(keybar("↑/↓ move", "e edit", "d withdraw", "esc back"))
@@ -490,6 +501,22 @@ func (m model) doneView() string {
 	return b.String()
 }
 
+// commentAtCursor returns the Change Request anchored over the cursor's line, if
+// there is one, so it can be edited in place.
+func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
+		return daemon.ChangeRequestWire{}, false
+	}
+	line := m.cursor.lines[m.cursor.cursor]
+	file := m.view.Step.Excerpts[line.excerpt].File
+	for _, cr := range m.view.ChangeRequests {
+		if cr.Step == m.view.Position && cr.File == file && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+			return cr, true
+		}
+	}
+	return daemon.ChangeRequestWire{}, false
+}
+
 // commentedLines is the set of "file:line" in the current Step that carry a
 // Change Request, so the diff can mark them.
 func (m model) commentedLines() map[string]bool {
@@ -539,10 +566,14 @@ func (m model) footer() string {
 	case m.view == nil || !m.view.Posted:
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
-		return keybar("enter/→ begin", m.jumpHint(), "↑/↓ scroll", "L list", "F finish", "q quit")
+		return keybar("enter begin", m.jumpHint(), "↑/↓ scroll", "l list", "f finish", "q quit")
 	default:
-		return keybar("↑/↓ move", "space/v select", "y copy", "c comment", "→/enter next",
-			"←/p back", m.jumpHint(), "g Brief", "L list", "F finish", "q quit")
+		tokens := []string{"↑/↓ move", "<space>/v select", "y copy", "c comment"}
+		if _, ok := m.commentAtCursor(); ok {
+			tokens = append(tokens, "e edit")
+		}
+		tokens = append(tokens, "←/→ Step", "g Brief", "l list", "f finish", "q quit")
+		return keybar(tokens...)
 	}
 }
 
