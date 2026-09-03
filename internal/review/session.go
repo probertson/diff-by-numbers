@@ -10,12 +10,11 @@ type Results struct {
 	// agent does not wait for this; it asks and is told.
 	Finished       bool
 	ChangeRequests []ChangeRequest
-}
-
-// ChangeRequest is a Reviewer's request for an edit. A proposal rather than an
-// instruction: it resolves to addressed or declined.
-type ChangeRequest struct {
-	Note string
+	// Brief and StepReports let the agent re-ground itself when it comes to work
+	// the Change Requests, since its own context may have moved on or been
+	// compacted since it posted (ADR-0008).
+	Brief       Brief
+	StepReports []StepReport
 }
 
 // Session holds the one Walkthrough currently under review. Several concurrent
@@ -31,7 +30,10 @@ type Session struct {
 	position int
 	// seen records which Steps the Reviewer has visited. A Step becomes seen the
 	// moment it is in view, whether reached by advancing, going back, or jumping.
-	seen map[int]bool
+	seen           map[int]bool
+	changeRequests []ChangeRequest
+	nextCRID       int
+	finished       bool
 }
 
 // NewSession returns a Session with no Walkthrough posted. The resolver turns
@@ -73,6 +75,9 @@ func (s *Session) Post(w Walkthrough) error {
 	s.ledger = ledger
 	s.position = 0
 	s.seen = map[int]bool{}
+	s.changeRequests = nil
+	s.nextCRID = 0
+	s.finished = false
 	return nil
 }
 
@@ -124,7 +129,17 @@ func (s *Session) Results() (Results, error) {
 	if s.walkthrough == nil {
 		return Results{Posted: false}, nil
 	}
-	return Results{Posted: true, Finished: false}, nil
+	reports := make([]StepReport, len(s.walkthrough.Steps))
+	for i, step := range s.walkthrough.Steps {
+		reports[i] = StepReport{Number: i + 1, Name: step.Name, Status: s.stepStatus(i + 1)}
+	}
+	return Results{
+		Posted:         true,
+		Finished:       s.finished,
+		ChangeRequests: s.ChangeRequests(),
+		Brief:          s.walkthrough.Brief,
+		StepReports:    reports,
+	}, nil
 }
 
 // Advance moves the Reviewer one position forward: from the Brief to Step 1, or

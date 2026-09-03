@@ -3,7 +3,11 @@
 // of its own. Logic accreting here is the signal it belongs in the core.
 package daemon
 
-import "github.com/probertson/diff-by-numbers/internal/review"
+import (
+	"fmt"
+
+	"github.com/probertson/diff-by-numbers/internal/review"
+)
 
 // The wire types are separate from the domain types on purpose. Their struct
 // tags are the contract the Authoring Agent is held to — a schema it cannot
@@ -52,11 +56,28 @@ type postResult struct {
 	Detail   string `json:"detail,omitempty" jsonschema:"What specifically to fix"`
 }
 
+type changeRequestWire struct {
+	ID       int    `json:"id"`
+	Step     int    `json:"step" jsonschema:"The Step number this Change Request was raised on"`
+	Location string `json:"location" jsonschema:"Where in the code it points: file, line range, and side"`
+	Anchor   string `json:"anchor" jsonschema:"The full anchored context, ready to act on: the code and where it lives"`
+	Note     string `json:"note" jsonschema:"What the Reviewer asked for"`
+}
+
+type stepReportWire struct {
+	Number int    `json:"number"`
+	Name   string `json:"name"`
+	Status string `json:"status" jsonschema:"unseen, seen, or flagged"`
+}
+
 type fetchResult struct {
-	Posted         bool     `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
-	Finished       bool     `json:"finished" jsonschema:"Whether the Reviewer has completed the Walkthrough"`
-	Message        string   `json:"message"`
-	ChangeRequests []string `json:"change_requests"`
+	Posted         bool                `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
+	Finished       bool                `json:"finished" jsonschema:"Whether the Reviewer has completed the Walkthrough"`
+	Message        string              `json:"message"`
+	Ask            string              `json:"ask" jsonschema:"What the review was originally about, so you can re-ground yourself if your context has moved on"`
+	Approach       string              `json:"approach"`
+	ChangeRequests []changeRequestWire `json:"change_requests"`
+	Steps          []stepReportWire    `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
 }
 
 func (w wireWalkthrough) toDomain() review.Walkthrough {
@@ -97,4 +118,27 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 		ChangeSet: review.ChangeSet{Repositories: repositories},
 		Steps:     steps,
 	}
+}
+
+func toFetchResult(r review.Results, message string) fetchResult {
+	out := fetchResult{
+		Posted:   r.Posted,
+		Finished: r.Finished,
+		Message:  message,
+		Ask:      r.Brief.Ask,
+		Approach: r.Brief.Approach,
+	}
+	for _, cr := range r.ChangeRequests {
+		out.ChangeRequests = append(out.ChangeRequests, changeRequestWire{
+			ID:       cr.ID,
+			Step:     cr.Step,
+			Location: fmt.Sprintf("%s:%d-%d (%s)", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine, cr.Anchor.Side),
+			Anchor:   cr.Anchor.Render(),
+			Note:     cr.Note,
+		})
+	}
+	for _, sr := range r.StepReports {
+		out.Steps = append(out.Steps, stepReportWire{Number: sr.Number, Name: sr.Name, Status: string(sr.Status)})
+	}
+	return out
 }

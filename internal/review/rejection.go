@@ -34,6 +34,10 @@ const (
 	RejectedNoSuchStep RejectionReason = "no_such_step"
 	// RejectedBadSelection means an Anchor selection is malformed or out of range.
 	RejectedBadSelection RejectionReason = "bad_selection"
+	// RejectedNoSuchChangeRequest means a withdrawal names an unknown Change Request.
+	RejectedNoSuchChangeRequest RejectionReason = "no_such_change_request"
+	// RejectedWalkthroughFinished means an edit was attempted after finishing.
+	RejectedWalkthroughFinished RejectionReason = "walkthrough_finished"
 )
 
 // Rejection is a refusal that names its cause.

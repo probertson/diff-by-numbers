@@ -1,6 +1,10 @@
 package daemon
 
-import "github.com/probertson/diff-by-numbers/internal/review"
+import (
+	"fmt"
+
+	"github.com/probertson/diff-by-numbers/internal/review"
+)
 
 // The view wire types are the private protocol between the daemon and the TUI:
 // one process owns the review, the other only draws it. Exported because the
@@ -48,15 +52,25 @@ type CoverageWire struct {
 }
 
 type ViewWire struct {
-	Posted       bool             `json:"posted"`
-	Brief        BriefWire        `json:"brief"`
-	StepNames    []string         `json:"step_names"`
-	StepCount    int              `json:"step_count"`
-	Position     int              `json:"position"`
-	Step         *StepWire        `json:"step,omitempty"`
-	Coverage     CoverageWire     `json:"coverage"`
-	Repositories []RepositoryWire `json:"repositories"`
-	Seen         []bool           `json:"seen"`
+	Posted         bool                `json:"posted"`
+	Brief          BriefWire           `json:"brief"`
+	StepNames      []string            `json:"step_names"`
+	StepCount      int                 `json:"step_count"`
+	Position       int                 `json:"position"`
+	Step           *StepWire           `json:"step,omitempty"`
+	Coverage       CoverageWire        `json:"coverage"`
+	Repositories   []RepositoryWire    `json:"repositories"`
+	Seen           []bool              `json:"seen"`
+	StepStatuses   []string            `json:"step_statuses"`
+	ChangeRequests []ChangeRequestWire `json:"change_requests"`
+	Finished       bool                `json:"finished"`
+}
+
+type ChangeRequestWire struct {
+	ID       int    `json:"id"`
+	Step     int    `json:"step"`
+	Location string `json:"location"`
+	Note     string `json:"note"`
 }
 
 func toViewWire(v review.ViewModel) ViewWire {
@@ -73,6 +87,17 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Position:  v.Position,
 		Coverage:  CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
 		Seen:      v.Seen,
+		Finished:  v.Finished,
+	}
+	for _, st := range v.StepStatuses {
+		wire.StepStatuses = append(wire.StepStatuses, string(st))
+	}
+	for _, cr := range v.ChangeRequests {
+		wire.ChangeRequests = append(wire.ChangeRequests, ChangeRequestWire{
+			ID: cr.ID, Step: cr.Step,
+			Location: fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
+			Note:     cr.Note,
+		})
 	}
 	for _, repository := range v.Repositories {
 		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})

@@ -4,12 +4,14 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -68,16 +70,29 @@ type refreshMsg struct {
 type tickMsg struct{}
 
 type model struct {
-	client   client
-	view     *daemon.ViewWire
-	lostErr  error
-	viewport viewport.Model
-	cursor   stepCursor
-	status   string
-	width    int
-	height   int
-	ready    bool
+	client     client
+	view       *daemon.ViewWire
+	lostErr    error
+	viewport   viewport.Model
+	cursor     stepCursor
+	status     string
+	mode       mode
+	note       textinput.Model
+	crCursor   int    // selected row in the change-request list
+	pendingSel [3]int // excerpt, first, last awaiting a note
+	width      int
+	height     int
+	ready      bool
 }
+
+type mode int
+
+const (
+	modeReview mode = iota // walking Steps
+	modeNote               // typing a Change Request note
+	modeList               // the Change Request list
+	modeDone               // the finish summary
+)
 
 func (m *model) inStep() bool {
 	return m.view != nil && m.view.Posted && m.view.Position > 0 && m.view.Step != nil
@@ -96,6 +111,25 @@ func (m model) Init() tea.Cmd {
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+func (c client) raiseChangeRequest(excerpt, first, last int, note string) bool {
+	body, _ := json.Marshal(map[string]any{
+		"excerpt_index": excerpt, "first_line": first, "last_line": last, "note": note,
+	})
+	response, err := http.Post(c.base+"/changerequest", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+func (c client) withdraw(id int) {
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/changerequest/%d", c.base, id), nil)
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }
 
 func (m *model) copyAnchor() tea.Cmd {
@@ -131,6 +165,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		headerHeight, footerHeight := 2, 2
 		m.viewport = viewport.New(msg.Width, max(1, msg.Height-headerHeight-footerHeight))
+		if m.note.Width == 0 {
+			ti := textinput.New()
+			ti.Placeholder = "what should change here?"
+			ti.CharLimit = 500
+			m.note = ti
+		}
 		m.ready = true
 		m.syncCursor()
 		m.viewport.SetContent(m.content())
@@ -161,6 +201,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		switch m.mode {
+		case modeNote:
+			return m.updateNote(msg)
+		case modeList:
+			return m.updateList(key)
+		case modeDone:
+			if key == "q" || key == "ctrl+c" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -198,8 +251,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "y":
 				return m, m.copyAnchor()
+			case "c":
+				excerpt, first, last, ok := m.cursor.selection()
+				if !ok {
+					m.status = "selection spans two Excerpts — narrow it to one"
+					return m, nil
+				}
+				m.mode = modeNote
+				m.note.SetValue("")
+				m.note.Focus()
+				m.pendingSel = [3]int{excerpt, first, last}
+				return m, textinput.Blink
 			}
 			return m, nil
+		}
+
+		switch key {
+		case "L":
+			m.mode = modeList
+			m.crCursor = 0
+			return m, nil
+		case "F":
+			m.client.intent("/finish")
+			m.mode = modeDone
+			return m, m.refresh()
 		}
 	}
 
@@ -208,6 +283,62 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, isKey := msg.(tea.KeyMsg)
+	if isKey {
+		switch key.String() {
+		case "esc":
+			m.mode = modeReview
+			m.note.Blur()
+			return m, nil
+		case "enter":
+			note := m.note.Value()
+			if note != "" {
+				if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
+					m.status = "Change Request raised"
+					m.cursor.sel = -1
+				} else {
+					m.status = "could not raise the Change Request"
+				}
+			}
+			m.mode = modeReview
+			m.note.Blur()
+			return m, m.refresh()
+		}
+	}
+	var cmd tea.Cmd
+	m.note, cmd = m.note.Update(msg)
+	return m, cmd
+}
+
+func (m model) updateList(key string) (tea.Model, tea.Cmd) {
+	list := m.view.ChangeRequests
+	switch key {
+	case "esc", "L", "q":
+		m.mode = modeReview
+		return m, nil
+	case "up", "k":
+		if m.crCursor > 0 {
+			m.crCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.crCursor < len(list)-1 {
+			m.crCursor++
+		}
+		return m, nil
+	case "d", "x":
+		if m.crCursor < len(list) {
+			m.client.withdraw(list[m.crCursor].ID)
+			if m.crCursor > 0 {
+				m.crCursor--
+			}
+		}
+		return m, m.refresh()
 	}
 	return m, nil
 }
@@ -236,6 +367,15 @@ func (m model) View() string {
 		footer = accentSt.Render(m.status) + "\n" + footer
 	}
 
+	switch m.mode {
+	case modeNote:
+		return header + "\n\n" + m.noteView() + "\n" + footer
+	case modeList:
+		return header + "\n\n" + m.listView() + "\n" + dimSt.Render("↑/↓ move  ·  d withdraw  ·  esc back")
+	case modeDone:
+		return header + "\n\n" + m.doneView() + "\n" + dimSt.Render("q quit")
+	}
+
 	var body string
 	if m.inStep() {
 		body = renderStep(m.view.Step, m.cursor, m.bodyHeight())
@@ -243,6 +383,49 @@ func (m model) View() string {
 		body = m.viewport.View()
 	}
 	return header + "\n\n" + body + "\n" + footer
+}
+
+func (m model) noteView() string {
+	return labelSt.Render("New Change Request") + "\n\n" +
+		dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel[1], m.pendingSel[2])) + "\n\n" +
+		m.note.View() + "\n\n" + dimSt.Render("enter to raise  ·  esc to cancel")
+}
+
+func (m model) listView() string {
+	list := m.view.ChangeRequests
+	if len(list) == 0 {
+		return dimSt.Render("No Change Requests raised yet.")
+	}
+	var b strings.Builder
+	b.WriteString(labelSt.Render(fmt.Sprintf("%d Change Request(s)", len(list))) + "\n\n")
+	for i, cr := range list {
+		cursor := "  "
+		if i == m.crCursor {
+			cursor = accentSt.Render("▸ ")
+		}
+		b.WriteString(fmt.Sprintf("%sStep %d  %s\n     %s\n", cursor, cr.Step, dimSt.Render(cr.Location), cr.Note))
+	}
+	return b.String()
+}
+
+func (m model) doneView() string {
+	var b strings.Builder
+	b.WriteString(labelSt.Render("Review finished") + "\n\n")
+	if m.view != nil {
+		seen, flagged := 0, 0
+		for _, st := range m.view.StepStatuses {
+			switch st {
+			case "seen":
+				seen++
+			case "flagged":
+				flagged++
+			}
+		}
+		b.WriteString(fmt.Sprintf("%d Steps seen, %d flagged, %d Change Request(s) raised.\n\n",
+			seen, flagged, len(m.view.ChangeRequests)))
+		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
+	}
+	return b.String()
 }
 
 func (m model) bodyHeight() int {

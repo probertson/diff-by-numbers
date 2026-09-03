@@ -56,6 +56,10 @@ type ViewModel struct {
 	Repositories []Repository
 	// Seen[i] reports whether Step i+1 has been visited.
 	Seen []bool
+	// StepStatuses[i] is the derived disposition of Step i+1.
+	StepStatuses   []StepStatus
+	ChangeRequests []ChangeRequest
+	Finished       bool
 }
 
 // View reports what should be on screen right now.
@@ -81,7 +85,10 @@ func (s *Session) View() ViewModel {
 			Seen:  s.ledger.seenBy(w.Steps, s.position),
 			Total: s.ledger.total(),
 		},
-		Seen: s.seenFlags(),
+		Seen:           s.seenFlags(),
+		StepStatuses:   s.stepStatuses(),
+		ChangeRequests: s.ChangeRequests(),
+		Finished:       s.finished,
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)

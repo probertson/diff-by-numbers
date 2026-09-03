@@ -58,6 +58,47 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprint(w, d.session.Dump())
 	})
 
+	mux.HandleFunc("POST /changerequest", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ExcerptIndex int    `json:"excerpt_index"`
+			FirstLine    int    `json:"first_line"`
+			LastLine     int    `json:"last_line"`
+			Note         string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad change-request", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		_, err := d.session.RaiseChangeRequest(review.AnchorTarget{
+			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine,
+		}, req.Note)
+		d.mu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+
+	mux.HandleFunc("DELETE /changerequest/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "id must be a number", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		err = d.session.WithdrawChangeRequest(id)
+		d.mu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+
+	mux.HandleFunc("POST /finish", d.navHandler(func() error { return d.session.Finish() }))
+
 	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ExcerptIndex int `json:"excerpt_index"`
@@ -189,20 +230,10 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	message := "no Walkthrough is posted; post one before asking how the review went"
 	switch {
 	case results.Posted && results.Finished:
-		message = "the Reviewer has finished the Walkthrough"
+		message = "the Reviewer has finished; work the Change Requests below, then post a Revision Round"
 	case results.Posted:
 		message = "the Reviewer has not finished the Walkthrough yet"
 	}
 
-	notes := make([]string, 0, len(results.ChangeRequests))
-	for _, request := range results.ChangeRequests {
-		notes = append(notes, request.Note)
-	}
-
-	return nil, fetchResult{
-		Posted:         results.Posted,
-		Finished:       results.Finished,
-		Message:        message,
-		ChangeRequests: notes,
-	}, nil
+	return nil, toFetchResult(results, message), nil
 }
