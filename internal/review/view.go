@@ -1,9 +1,11 @@
 package review
 
-// Line is one row of resolved file content.
+// Line is one row of resolved file content, tagged with whether git considers it
+// a Changed Line (versus reference context the Excerpt included for readability).
 type Line struct {
-	Number int
-	Text   string
+	Number  int
+	Text    string
+	Changed bool
 }
 
 // Resolver turns an Excerpt into the lines it names. The core performs no I/O:
@@ -92,6 +94,9 @@ func (s *Session) stepView(position int) *StepView {
 		if err != nil {
 			excerpts = append(excerpts, ExcerptView{Excerpt: excerpt, Problem: err.Error()})
 			continue
+		}
+		for i := range lines {
+			lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, lines[i].Number)
 		}
 		excerpts = append(excerpts, ExcerptView{Excerpt: excerpt, Lines: lines})
 	}

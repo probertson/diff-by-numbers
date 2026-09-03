@@ -7,8 +7,9 @@ import "github.com/probertson/diff-by-numbers/internal/review"
 // TUI imports them; still internal to the module.
 
 type LineWire struct {
-	Number int    `json:"number"`
-	Text   string `json:"text"`
+	Number  int    `json:"number"`
+	Text    string `json:"text"`
+	Changed bool   `json:"changed"`
 }
 
 type ExcerptWire struct {
@@ -91,7 +92,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 				Problem:    excerpt.Problem,
 			}
 			for _, line := range excerpt.Lines {
-				excerptWire.Lines = append(excerptWire.Lines, LineWire{Number: line.Number, Text: line.Text})
+				excerptWire.Lines = append(excerptWire.Lines, LineWire{Number: line.Number, Text: line.Text, Changed: line.Changed})
 			}
 			step.Excerpts = append(step.Excerpts, excerptWire)
 		}

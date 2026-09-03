@@ -141,6 +141,8 @@ var (
 	warnSt   = lipgloss.NewStyle().Bold(true).Foreground(warn)
 	labelSt  = lipgloss.NewStyle().Bold(true)
 	gutterSt = lipgloss.NewStyle().Foreground(subtle)
+	addSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#207520", Dark: "#87d787"})
+	delSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a01010", Dark: "#ff8787"})
 )
 
 func (m model) View() string {
@@ -237,7 +239,17 @@ func (m model) step() string {
 			continue
 		}
 		for _, line := range excerpt.Lines {
-			b.WriteString(gutterSt.Render(fmt.Sprintf("%5d │ ", line.Number)) + line.Text + "\n")
+			gutter := gutterSt.Render(fmt.Sprintf("%5d │ ", line.Number))
+			if line.Changed {
+				marker := excerpt.Side // "new" -> +, "old" -> -
+				sign, style := "+", addSt
+				if marker == "old" {
+					sign, style = "-", delSt
+				}
+				b.WriteString(gutter + style.Render(sign+" "+line.Text) + "\n")
+			} else {
+				b.WriteString(gutter + dimSt.Render("  ") + line.Text + "\n")
+			}
 		}
 	}
 	return b.String()

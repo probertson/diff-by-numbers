@@ -157,3 +157,30 @@ func mustAdvance(t *testing.T, session *review.Session) {
 		t.Fatalf("expected to advance, got %v", err)
 	}
 }
+
+func TestResolvedLinesAreMarkedChangedOrReference(t *testing.T) {
+	walkthrough := validWalkthrough()
+	// Excerpt covers 12-34; only 20-22 actually changed. The rest are reference.
+	session := sessionDeriving(changed("src/fetch.ts", 20, 22))
+	mustPost(t, session, walkthrough)
+	mustAdvance(t, session)
+
+	lines := session.View().Step.Excerpts[0].Lines
+	changedNumbers := map[int]bool{}
+	for _, line := range lines {
+		if line.Changed {
+			changedNumbers[line.Number] = true
+		}
+	}
+
+	for _, n := range []int{20, 21, 22} {
+		if !changedNumbers[n] {
+			t.Errorf("expected line %d to be marked changed", n)
+		}
+	}
+	for _, n := range []int{12, 19, 23, 34} {
+		if changedNumbers[n] {
+			t.Errorf("expected line %d to be reference, not changed", n)
+		}
+	}
+}
