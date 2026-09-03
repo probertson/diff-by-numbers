@@ -36,7 +36,7 @@ func validWalkthrough() review.Walkthrough {
 }
 
 func TestAPostedWalkthroughIsAcceptedAndAwaitsTheReviewer(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 
 	err := session.Post(validWalkthrough())
 
@@ -56,7 +56,7 @@ func TestAPostedWalkthroughIsAcceptedAndAwaitsTheReviewer(t *testing.T) {
 }
 
 func TestASecondWalkthroughIsRejectedWhileOneIsActive(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
 	err := session.Post(validWalkthrough())
@@ -86,7 +86,7 @@ func assertRejected(t *testing.T, err error, want review.RejectionReason) {
 }
 
 func TestAWalkthroughOverAnEmptyChangeSetIsRejected(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	walkthrough := validWalkthrough()
 	walkthrough.ChangeSet.Repositories = nil
 
@@ -113,7 +113,7 @@ func TestAMalformedBriefIsRejectedNamingTheProblem(t *testing.T) {
 
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
-			session := review.NewSession()
+			session := newSession()
 			walkthrough := validWalkthrough()
 			breakIt(&walkthrough)
 
@@ -125,7 +125,7 @@ func TestAMalformedBriefIsRejectedNamingTheProblem(t *testing.T) {
 }
 
 func TestInferredProvenanceNeedsNoCitation(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	walkthrough := validWalkthrough()
 	walkthrough.Brief.Provenance = review.Provenance{Kind: review.ProvenanceInferred}
 
@@ -170,7 +170,7 @@ func TestAMalformedStepIsRejectedNamingTheProblem(t *testing.T) {
 
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
-			session := review.NewSession()
+			session := newSession()
 			walkthrough := validWalkthrough()
 			breakIt(&walkthrough)
 
@@ -182,7 +182,7 @@ func TestAMalformedStepIsRejectedNamingTheProblem(t *testing.T) {
 }
 
 func TestDumpRendersThePostedWalkthroughAsText(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
 	dump := session.Dump()
@@ -205,7 +205,7 @@ func TestDumpRendersThePostedWalkthroughAsText(t *testing.T) {
 }
 
 func TestDumpSaysSoWhenNoWalkthroughIsPosted(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 
 	dump := session.Dump()
 
@@ -215,7 +215,7 @@ func TestDumpSaysSoWhenNoWalkthroughIsPosted(t *testing.T) {
 }
 
 func TestDumpCountsASingleStepInTheSingular(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
 	dump := session.Dump()
@@ -226,7 +226,7 @@ func TestDumpCountsASingleStepInTheSingular(t *testing.T) {
 }
 
 func TestAWalkthroughCanBePostedOnceTheLastIsAbandoned(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
 	if err := session.Abandon(); err != nil {
@@ -239,7 +239,7 @@ func TestAWalkthroughCanBePostedOnceTheLastIsAbandoned(t *testing.T) {
 }
 
 func TestAbandoningWithNothingPostedIsRejected(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 
 	err := session.Abandon()
 
@@ -247,7 +247,7 @@ func TestAbandoningWithNothingPostedIsRejected(t *testing.T) {
 }
 
 func TestResultsReportThatNothingIsPostedRatherThanUnfinished(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 
 	results, err := session.Results()
 
@@ -260,7 +260,7 @@ func TestResultsReportThatNothingIsPostedRatherThanUnfinished(t *testing.T) {
 }
 
 func TestResultsReportAPostedWalkthroughAsPosted(t *testing.T) {
-	session := review.NewSession()
+	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
 	results, err := session.Results()
@@ -283,7 +283,7 @@ func TestAnExcerptFileEscapingItsRepositoryIsRejected(t *testing.T) {
 
 	for name, file := range cases {
 		t.Run(name, func(t *testing.T) {
-			session := review.NewSession()
+			session := newSession()
 			walkthrough := validWalkthrough()
 			walkthrough.Steps[0].Excerpts[0].File = file
 
@@ -297,7 +297,7 @@ func TestAnExcerptFileEscapingItsRepositoryIsRejected(t *testing.T) {
 func TestAnExcerptFileInsideItsRepositoryIsAccepted(t *testing.T) {
 	for _, file := range []string{"src/fetch.ts", "src/../src/fetch.ts", "./src/fetch.ts"} {
 		t.Run(file, func(t *testing.T) {
-			session := review.NewSession()
+			session := newSession()
 			walkthrough := validWalkthrough()
 			walkthrough.Steps[0].Excerpts[0].File = file
 
@@ -317,7 +317,7 @@ func TestAChangeSetNamingABlankOrRelativeRepositoryIsRejected(t *testing.T) {
 
 	for name, repository := range cases {
 		t.Run(name, func(t *testing.T) {
-			session := review.NewSession()
+			session := newSession()
 			walkthrough := validWalkthrough()
 			walkthrough.ChangeSet.Repositories = []review.Repository{repository}
 			walkthrough.Steps[0].Excerpts[0].Repository = repository.Root

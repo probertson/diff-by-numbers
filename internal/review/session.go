@@ -22,11 +22,17 @@ type ChangeRequest struct {
 // Walkthroughs are deliberately out of scope until the multiplexed inbox exists.
 type Session struct {
 	walkthrough *Walkthrough
+	resolver    Resolver
+	// position is where the Reviewer is: 0 for the Brief, 1..len(Steps) for a
+	// Step. It lives here rather than in any UI so that a reattaching surface
+	// finds the review where it was left.
+	position int
 }
 
-// NewSession returns a Session with no Walkthrough posted.
-func NewSession() *Session {
-	return &Session{}
+// NewSession returns a Session with no Walkthrough posted. The resolver is what
+// turns Excerpts into lines when a view is drawn; the core itself reads nothing.
+func NewSession(resolver Resolver) *Session {
+	return &Session{resolver: resolver}
 }
 
 // Post submits a Walkthrough for review.
@@ -39,6 +45,7 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 	s.walkthrough = &w
+	s.position = 0
 	return nil
 }
 
@@ -60,4 +67,17 @@ func (s *Session) Results() (Results, error) {
 		return Results{Posted: false}, nil
 	}
 	return Results{Posted: true, Finished: false}, nil
+}
+
+// Advance moves the Reviewer one position forward: from the Brief to Step 1, or
+// from a Step to the next. At the last Step it stays put — running out of road
+// is not an error.
+func (s *Session) Advance() error {
+	if s.walkthrough == nil {
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to advance through")
+	}
+	if s.position < len(s.walkthrough.Steps) {
+		s.position++
+	}
+	return nil
 }

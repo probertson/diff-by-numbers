@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/review"
+	"github.com/probertson/diff-by-numbers/internal/workingtree"
 )
 
 // DefaultPort is where dbn listens unless told otherwise. It is fixed rather
@@ -24,7 +26,7 @@ type Daemon struct {
 }
 
 func New() *Daemon {
-	return &Daemon{session: review.NewSession()}
+	return &Daemon{session: review.NewSession(workingtree.NewResolver())}
 }
 
 // Serve listens on the loopback interface only. A review surface has no reason
@@ -52,6 +54,26 @@ func (d *Daemon) Handler() http.Handler {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		fmt.Fprint(w, d.session.Dump())
+	})
+
+	mux.HandleFunc("GET /view", func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		view := toViewWire(d.session.View())
+		d.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(view); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	mux.HandleFunc("POST /advance", func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if err := d.session.Advance(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
 	})
 
 	// Abandoning is the Reviewer's act, so it is reachable from the CLI and not

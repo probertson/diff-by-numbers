@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/tui"
 )
 
 func main() {
@@ -21,7 +22,7 @@ func main() {
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: dbn <serve|dump|abandon> [flags]")
+		return tui.Run(daemon.DefaultPort)
 	}
 
 	switch args[0] {
@@ -50,7 +51,7 @@ func run(args []string, out io.Writer) error {
 		return abandon(*port, out)
 
 	default:
-		return fmt.Errorf("unknown command %q; usage: dbn <serve|dump|abandon> [flags]", args[0])
+		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|dump|abandon> [flags]", args[0])
 	}
 }
 
