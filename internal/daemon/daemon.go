@@ -35,10 +35,12 @@ func (d *Daemon) Serve(port int) error {
 		return fmt.Errorf("dbn could not listen on port %d: %w", port, err)
 	}
 	fmt.Printf("dbn listening on http://127.0.0.1:%d (MCP at /mcp)\n", port)
-	return http.Serve(listener, d.handler())
+	return http.Serve(listener, d.Handler())
 }
 
-func (d *Daemon) handler() http.Handler {
+// Handler is the daemon's HTTP surface: MCP at /mcp, plus the Reviewer's own
+// endpoints. Exported so it can be exercised over a real connection.
+func (d *Daemon) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// The SDK applies no cross-origin protection when this is nil, and dbn is
 	// about to be a surface that renders source code.
