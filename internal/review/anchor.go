@@ -93,7 +93,7 @@ func (a Anchor) Render() string {
 				marker = "-"
 			}
 		}
-		fmt.Fprintf(&b, "%s %5d | %s\n", marker, line.Number, line.Text)
+		fmt.Fprintf(&b, "%s %5d | %s\n", marker, line.Number, strings.ReplaceAll(line.Text, "\t", "    "))
 	}
 	return b.String()
 }

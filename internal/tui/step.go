@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
@@ -173,7 +174,8 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		if commented[fmt.Sprintf("%s:%d", step.Excerpts[line.excerpt].File, line.number)] {
 			note = "✎"
 		}
-		row := fmt.Sprintf("%s%s %5d │ %s", note, sign, line.number, line.text)
+		text := strings.ReplaceAll(line.text, "\t", "    ") // tabs display wider than one cell
+		row := fmt.Sprintf("%s%s %5d │ %s", note, sign, line.number, text)
 		row = truncateTo(row, width-2) // leave room for the caret
 		caret := "  "
 		if i == cur.cursor {
