@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
@@ -20,15 +21,35 @@ func main() {
 	}
 }
 
+// version is the build stamp. It is a var, not a const, so a release build can
+// override it with -ldflags "-X main.version=...".
+var version = "0.1.0-dev"
+
+// defaultPort is the port dbn listens on and the TUI attaches to, overridable
+// with DBN_PORT so several daemons can run side by side (tests, or two repos).
+func defaultPort() int {
+	if raw := os.Getenv("DBN_PORT"); raw != "" {
+		if p, err := strconv.Atoi(raw); err == nil {
+			return p
+		}
+	}
+	return daemon.DefaultPort
+}
+
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return tui.Run(daemon.DefaultPort)
+		return tui.Run(defaultPort())
 	}
 
 	switch args[0] {
+	case "version", "--version", "-v":
+		// A build stamp so a Reviewer can tell which dbn a daemon is running,
+		// which matters once several people share the review workflow.
+		fmt.Fprintln(out, "dbn "+version)
+		return nil
 	case "serve":
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-		port := flags.Int("port", daemon.DefaultPort, "port to listen on")
+		port := flags.Int("port", defaultPort(), "port to listen on")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -36,7 +57,7 @@ func run(args []string, out io.Writer) error {
 
 	case "dump":
 		flags := flag.NewFlagSet("dump", flag.ContinueOnError)
-		port := flags.Int("port", daemon.DefaultPort, "port the daemon is listening on")
+		port := flags.Int("port", defaultPort(), "port the daemon is listening on")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -44,7 +65,7 @@ func run(args []string, out io.Writer) error {
 
 	case "abandon":
 		flags := flag.NewFlagSet("abandon", flag.ContinueOnError)
-		port := flags.Int("port", daemon.DefaultPort, "port the daemon is listening on")
+		port := flags.Int("port", defaultPort(), "port the daemon is listening on")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
