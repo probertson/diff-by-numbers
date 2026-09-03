@@ -270,11 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "v", " ":
 				m.cursor.toggleSelect()
-				if m.cursor.sel >= 0 {
-					m.status = "selecting — ↑/↓ extend · y copy · c comment · esc stop"
-				} else {
-					m.status = ""
-				}
+				m.status = ""
 				return m, nil
 			case "esc":
 				m.cursor.sel = -1
@@ -299,6 +295,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "selection spans two Excerpts — narrow it to one"
 					return m, nil
 				}
+				m.editingID = 0 // c always adds a fresh comment, never edits
 				m.mode = modeNote
 				m.note.SetValue("")
 				m.note.Focus()
@@ -329,6 +326,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if isKey {
 		switch key.String() {
 		case "esc":
+			m.editingID = 0
 			m.mode = modeReview
 			m.note.Blur()
 			return m, nil
@@ -343,12 +341,12 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
 					m.status = "comment added"
-					m.cursor.sel = -1
 				} else {
 					m.status = "could not add the comment"
 				}
 			}
 			m.editingID = 0
+			m.cursor.sel = -1
 			m.mode = modeReview
 			m.note.Blur()
 			return m, m.refresh()
@@ -419,33 +417,74 @@ func (m model) View() string {
 	if !m.ready {
 		return "attaching…"
 	}
-	header := m.header()
-	footerText := m.footer()
-	if m.width > 1 {
-		footerText = lipgloss.NewStyle().Width(m.width).Render(footerText)
-	}
-	footer := dimSt.Render(footerText)
-	if m.status != "" {
-		footer = accentSt.Render(m.status) + "\n" + footer
-	}
 
+	var body, persistent, stateful string
 	switch m.mode {
 	case modeNote:
-		hint := dimSt.Render(keybar("enter add", "shift+enter newline", "esc cancel"))
-		return header + "\n\n" + m.noteView() + "\n" + hint
+		body = m.noteView()
+		persistent = keybar("enter add", "shift+enter newline", "esc cancel")
 	case modeList:
-		return header + "\n\n" + m.listView() + "\n" + dimSt.Render(keybar("↑/↓ move", "e edit", "d withdraw", "esc back"))
+		body = m.listView()
+		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "esc back")
 	case modeDone:
-		return header + "\n\n" + m.doneView() + "\n" + dimSt.Render("q quit")
+		body = m.doneView()
+		persistent = "q quit"
+	default:
+		if m.inStep() {
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
+		} else {
+			body = m.viewport.View()
+		}
+		persistent = m.footer()
+		// The stateful line: a transient message if there is one, otherwise the
+		// hint for whatever the cursor is currently on.
+		stateful = m.status
+		if stateful == "" {
+			stateful = m.contextualHint()
+		}
 	}
 
-	var body string
-	if m.inStep() {
-		body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
-	} else {
-		body = m.viewport.View()
+	return m.frame(m.header(), body, stateful, persistent)
+}
+
+// frame assembles a screen with the persistent shortcut line pinned to the very
+// bottom, a stateful (coloured) line just above it, and the body filling the gap
+// so the shortcuts sit in the same place on every page.
+func (m model) frame(header, body, stateful, persistent string) string {
+	wrap := func(text string) string {
+		if m.width > 1 {
+			return lipgloss.NewStyle().Width(m.width).Render(text)
+		}
+		return text
 	}
-	return header + "\n\n" + body + "\n" + footer
+	top := header + "\n\n" + body
+
+	var bottom string
+	if stateful != "" {
+		bottom = accentSt.Render(wrap(stateful)) + "\n"
+	}
+	bottom += dimSt.Render(wrap(persistent))
+
+	gap := m.height - lipgloss.Height(top) - lipgloss.Height(bottom)
+	if gap < 1 {
+		gap = 1
+	}
+	return top + strings.Repeat("\n", gap) + bottom
+}
+
+// contextualHint describes what the key with a state-dependent meaning does right
+// now: extending a selection, or editing the comment under the cursor.
+func (m model) contextualHint() string {
+	if !m.inStep() {
+		return ""
+	}
+	if m.cursor.sel >= 0 {
+		return "selecting — ↑/↓ extend · y copy · c comment · esc stop"
+	}
+	if _, ok := m.commentAtCursor(); ok {
+		return "e edit this comment"
+	}
+	return ""
 }
 
 func (m model) noteView() string {
@@ -566,14 +605,10 @@ func (m model) footer() string {
 	case m.view == nil || !m.view.Posted:
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
-		return keybar("enter begin", m.jumpHint(), "↑/↓ scroll", "l list", "f finish", "q quit")
+		return keybar("enter begin", m.navHint(), "↑/↓ scroll", "l list", "f finish", "q quit")
 	default:
-		tokens := []string{"↑/↓ move", "<space>/v select", "y copy", "c comment"}
-		if _, ok := m.commentAtCursor(); ok {
-			tokens = append(tokens, "e edit")
-		}
-		tokens = append(tokens, "←/→ Step", "g Brief", "l list", "f finish", "q quit")
-		return keybar(tokens...)
+		return keybar("↑/↓ move", "<space>/v select", "y copy", "c comment",
+			m.navHint(), "g Brief", "l list", "f finish", "q quit")
 	}
 }
 
@@ -591,15 +626,16 @@ func keybar(tokens ...string) string {
 
 // jumpHint labels the number-jump with the real Step count, and says how to
 // reach Steps past 9.
-func (m model) jumpHint() string {
+func (m model) navHint() string {
 	n := m.view.StepCount
-	if n <= 1 {
-		return "1 Step"
+	switch {
+	case n <= 1:
+		return "→ go to Step"
+	case n <= 9:
+		return fmt.Sprintf("←/→/1-%d go to Step", n)
+	default:
+		return "←/→/1-9 go to Step (→ for later)"
 	}
-	if n <= 9 {
-		return fmt.Sprintf("1-%d go to Step", n)
-	}
-	return "1-9 go to Step (→ for later)"
 }
 
 func (m model) content() string {
