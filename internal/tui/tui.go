@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,19 +70,20 @@ type refreshMsg struct {
 type tickMsg struct{}
 
 type model struct {
-	client     client
-	view       *daemon.ViewWire
-	lostErr    error
-	viewport   viewport.Model
-	cursor     stepCursor
-	status     string
-	mode       mode
-	note       textinput.Model
-	crCursor   int    // selected row in the change-request list
-	pendingSel [3]int // excerpt, first, last awaiting a note
-	width      int
-	height     int
-	ready      bool
+	client      client
+	view        *daemon.ViewWire
+	lostErr     error
+	viewport    viewport.Model
+	cursor      stepCursor
+	status      string
+	mode        mode
+	note        textarea.Model
+	crCursor    int    // selected row in the change-request list
+	pendingSel  [3]int // excerpt, first, last awaiting a note
+	pendingCode string // the code being commented on, shown above the note input
+	width       int
+	height      int
+	ready       bool
 }
 
 type mode int
@@ -165,12 +166,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		headerHeight, footerHeight := 2, 2
 		m.viewport = viewport.New(msg.Width, max(1, msg.Height-headerHeight-footerHeight))
-		if m.note.Width == 0 {
-			ti := textinput.New()
-			ti.Placeholder = "what should change here?"
-			ti.CharLimit = 500
-			m.note = ti
+		if m.note.Value() == "" && !m.note.Focused() {
+			ta := textarea.New()
+			ta.Placeholder = "what should change here?"
+			ta.CharLimit = 1000
+			ta.ShowLineNumbers = false
+			m.note = ta
 		}
+		m.note.SetWidth(max(20, msg.Width-4))
+		m.note.SetHeight(4)
 		m.ready = true
 		m.syncCursor()
 		m.viewport.SetContent(m.content())
@@ -217,11 +221,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "enter", " ", "n":
+		case "enter", "n", "right":
 			m.status = ""
 			m.client.intent("/advance")
 			return m, m.refresh()
-		case "p":
+		case "p", "left":
 			m.status = ""
 			m.client.intent("/back")
 			return m, m.refresh()
@@ -230,8 +234,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.client.intent("/goto/0")
 			return m, m.refresh()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			m.status = ""
+			m.status = "→ Step " + key
 			m.client.intent("/goto/" + key)
+			return m, m.refresh()
+		case "L":
+			m.mode = modeList
+			m.crCursor = 0
+			return m, nil
+		case "f", "F":
+			m.client.intent("/finish")
+			m.mode = modeDone
 			return m, m.refresh()
 		}
 
@@ -243,8 +255,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j":
 				m.cursor.move(1)
 				return m, nil
-			case "v":
+			case "v", " ":
 				m.cursor.toggleSelect()
+				if m.cursor.sel >= 0 {
+					m.status = "selecting — ↑/↓ to extend, y copy, c comment"
+				} else {
+					m.status = ""
+				}
 				return m, nil
 			case "esc":
 				m.cursor.sel = -1
@@ -261,21 +278,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.note.SetValue("")
 				m.note.Focus()
 				m.pendingSel = [3]int{excerpt, first, last}
-				return m, textinput.Blink
+				if code, ok := m.client.composeAnchor(excerpt, first, last); ok {
+					m.pendingCode = code
+				} else {
+					m.pendingCode = ""
+				}
+				return m, textarea.Blink
 			}
 			return m, nil
 		}
 
-		switch key {
-		case "L":
-			m.mode = modeList
-			m.crCursor = 0
-			return m, nil
-		case "F":
-			m.client.intent("/finish")
-			m.mode = modeDone
-			return m, m.refresh()
-		}
 	}
 
 	// Only the Brief scrolls through the viewport; a Step is cursor-driven.
@@ -295,7 +307,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeReview
 			m.note.Blur()
 			return m, nil
-		case "enter":
+		case "ctrl+d", "ctrl+s":
 			note := m.note.Value()
 			if note != "" {
 				if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
@@ -362,7 +374,11 @@ func (m model) View() string {
 		return "attaching…"
 	}
 	header := m.header()
-	footer := dimSt.Render(m.footer())
+	footerText := m.footer()
+	if m.width > 1 {
+		footerText = lipgloss.NewStyle().Width(m.width).Render(footerText)
+	}
+	footer := dimSt.Render(footerText)
 	if m.status != "" {
 		footer = accentSt.Render(m.status) + "\n" + footer
 	}
@@ -378,7 +394,7 @@ func (m model) View() string {
 
 	var body string
 	if m.inStep() {
-		body = renderStep(m.view.Step, m.cursor, m.bodyHeight())
+		body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
 	} else {
 		body = m.viewport.View()
 	}
@@ -386,9 +402,13 @@ func (m model) View() string {
 }
 
 func (m model) noteView() string {
+	code := m.pendingCode
+	if code == "" {
+		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel[1], m.pendingSel[2]))
+	}
 	return labelSt.Render("New Change Request") + "\n\n" +
-		dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel[1], m.pendingSel[2])) + "\n\n" +
-		m.note.View() + "\n\n" + dimSt.Render("enter to raise  ·  esc to cancel")
+		code + "\n" +
+		m.note.View() + "\n\n" + dimSt.Render("ctrl+d to raise  ·  esc to cancel")
 }
 
 func (m model) listView() string {
@@ -428,6 +448,24 @@ func (m model) doneView() string {
 	return b.String()
 }
 
+// commentedLines is the set of "file:line" in the current Step that carry a
+// Change Request, so the diff can mark them.
+func (m model) commentedLines() map[string]bool {
+	out := map[string]bool{}
+	if m.view == nil {
+		return out
+	}
+	for _, cr := range m.view.ChangeRequests {
+		if cr.Step != m.view.Position {
+			continue
+		}
+		for n := cr.FirstLine; n <= cr.LastLine; n++ {
+			out[fmt.Sprintf("%s:%d", cr.File, n)] = true
+		}
+	}
+	return out
+}
+
 func (m model) bodyHeight() int {
 	h := m.height - 5
 	if h < 4 {
@@ -459,10 +497,23 @@ func (m model) footer() string {
 	case m.view == nil || !m.view.Posted:
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
-		return "enter begin  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
+		return "enter/→ begin  ·  " + m.jumpHint() + "  ·  ↑/↓ scroll  ·  L list  ·  F finish  ·  q quit"
 	default:
-		return "↑/↓ move  ·  v select  ·  y copy Anchor  ·  enter next  ·  p back  ·  g Brief  ·  q quit"
+		return "↑/↓ move  ·  space/v select  ·  y copy  ·  c comment  ·  →/enter next  ·  ←/p back  ·  " + m.jumpHint() + "  ·  g Brief  ·  L list  ·  F finish  ·  q quit"
 	}
+}
+
+// jumpHint labels the number-jump with the real Step count, and says how to
+// reach Steps past 9.
+func (m model) jumpHint() string {
+	n := m.view.StepCount
+	if n <= 1 {
+		return "1 Step"
+	}
+	if n <= 9 {
+		return fmt.Sprintf("1-%d go to Step", n)
+	}
+	return "1-9 go to Step (→ for later)"
 }
 
 func (m model) content() string {
@@ -479,8 +530,15 @@ func (m model) brief() string {
 	var b strings.Builder
 	brief := m.view.Brief
 
-	b.WriteString(labelSt.Render("Ask") + "\n" + brief.Ask + "\n\n")
-	b.WriteString(labelSt.Render("Approach") + "\n" + brief.Approach + "\n\n")
+	wrap := func(text string) string {
+		if m.viewport.Width > 1 {
+			return lipgloss.NewStyle().Width(m.viewport.Width).Render(text)
+		}
+		return text
+	}
+
+	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Ask) + "\n\n")
+	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
 
 	b.WriteString(labelSt.Render("Provenance") + "\n")
 	if brief.ProvenanceKind == "stated" {

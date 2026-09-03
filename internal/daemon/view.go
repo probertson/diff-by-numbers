@@ -67,10 +67,13 @@ type ViewWire struct {
 }
 
 type ChangeRequestWire struct {
-	ID       int    `json:"id"`
-	Step     int    `json:"step"`
-	Location string `json:"location"`
-	Note     string `json:"note"`
+	ID        int    `json:"id"`
+	Step      int    `json:"step"`
+	File      string `json:"file"`
+	FirstLine int    `json:"first_line"`
+	LastLine  int    `json:"last_line"`
+	Location  string `json:"location"`
+	Note      string `json:"note"`
 }
 
 func toViewWire(v review.ViewModel) ViewWire {
@@ -95,6 +98,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 	for _, cr := range v.ChangeRequests {
 		wire.ChangeRequests = append(wire.ChangeRequests, ChangeRequestWire{
 			ID: cr.ID, Step: cr.Step,
+			File: cr.Anchor.File, FirstLine: cr.Anchor.FirstLine, LastLine: cr.Anchor.LastLine,
 			Location: fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
 			Note:     cr.Note,
 		})

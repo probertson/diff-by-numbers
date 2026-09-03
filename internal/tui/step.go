@@ -93,13 +93,33 @@ func (c stepCursor) inSelection(i int) bool {
 }
 
 var (
-	cursorSt = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"})
-	selSt    = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#d7e7ff", Dark: "#003a5f"})
+	caretSt      = lipgloss.NewStyle().Bold(true).Foreground(accent)                                         // the moving cursor
+	cursorLineSt = lipgloss.NewStyle().Bold(true)                                                            // cursor line, no selection
+	selSt        = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#cfe6ff", Dark: "#0a3550"}) // an active selection range
+	commentSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}) // a line carrying a Change Request
 )
 
+// truncateTo clips a plain (ANSI-free) string to w cells, marking the cut with an
+// ellipsis. Code lines are truncated rather than wrapped: a wrapped code line
+// throws off the terminal's line accounting and garbles the frame.
+func truncateTo(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w == 1 {
+		return "…"
+	}
+	return string(r[:w-1]) + "…"
+}
+
 // renderStep draws the Step with the cursor and selection, windowed to height
-// rows so a long Step stays navigable.
-func renderStep(step *daemon.StepWire, cur stepCursor, height int) string {
+// rows so a long Step stays navigable, and every row clipped to width so nothing
+// overflows the terminal.
+func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, width, height int) string {
 	var b bytes.Buffer
 	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+step.Explanation+"\n")
 	if step.OversizeJustification != "" {
@@ -149,14 +169,26 @@ func renderStep(step *daemon.StepWire, cur stepCursor, height int) string {
 				sign = "-"
 			}
 		}
-		row := fmt.Sprintf("%s %5d │ %s", sign, line.number, line.text)
+		note := " "
+		if commented[fmt.Sprintf("%s:%d", step.Excerpts[line.excerpt].File, line.number)] {
+			note = "✎"
+		}
+		row := fmt.Sprintf("%s%s %5d │ %s", note, sign, line.number, line.text)
+		row = truncateTo(row, width-2) // leave room for the caret
+		caret := "  "
+		if i == cur.cursor {
+			caret = caretSt.Render("▸ ")
+		}
+		selActive := cur.sel >= 0
 		switch {
+		case selActive && cur.inSelection(i):
+			fmt.Fprint(&b, caret+selSt.Render(row)+"\n")
 		case i == cur.cursor:
-			fmt.Fprint(&b, cursorSt.Render("▸")+selSt.Render(row)+"\n")
-		case cur.inSelection(i):
-			fmt.Fprint(&b, " "+selSt.Render(row)+"\n")
+			fmt.Fprint(&b, caret+cursorLineSt.Render(row)+"\n")
+		case note == "✎":
+			fmt.Fprint(&b, caret+commentSt.Render(row)+"\n")
 		default:
-			fmt.Fprint(&b, " "+row+"\n")
+			fmt.Fprint(&b, caret+row+"\n")
 		}
 	}
 	return b.String()
