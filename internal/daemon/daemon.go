@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,10 +68,17 @@ func (d *Daemon) Handler() http.Handler {
 		}
 	})
 
-	mux.HandleFunc("POST /advance", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /advance", d.navHandler(func() error { return d.session.Advance() }))
+	mux.HandleFunc("POST /back", d.navHandler(func() error { return d.session.Back() }))
+	mux.HandleFunc("POST /goto/{n}", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.PathValue("n"))
+		if err != nil {
+			http.Error(w, "position must be a number", http.StatusBadRequest)
+			return
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		if err := d.session.Advance(); err != nil {
+		if err := d.session.GoTo(n); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -89,6 +97,20 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "Walkthrough abandoned")
 	})
 	return mux
+}
+
+// navHandler adapts a no-argument navigation intent to an HTTP handler under the
+// daemon lock, so navigation stays serialized against posts and fetches.
+func (d *Daemon) navHandler(intent func() error) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if err := intent(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}
 }
 
 func (d *Daemon) mcpServer() *mcp.Server {

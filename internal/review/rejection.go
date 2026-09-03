@@ -30,6 +30,8 @@ const (
 	RejectedUncoveredChanges RejectionReason = "uncovered_changes"
 	// RejectedOversizedStep means a Step exceeds the budget without justifying it.
 	RejectedOversizedStep RejectionReason = "oversized_step"
+	// RejectedNoSuchStep means a navigation names a position that does not exist.
+	RejectedNoSuchStep RejectionReason = "no_such_step"
 )
 
 // Rejection is a refusal that names its cause.

@@ -56,6 +56,7 @@ type ViewWire struct {
 	Step         *StepWire        `json:"step,omitempty"`
 	Coverage     CoverageWire     `json:"coverage"`
 	Repositories []RepositoryWire `json:"repositories"`
+	Seen         []bool           `json:"seen"`
 }
 
 func toViewWire(v review.ViewModel) ViewWire {
@@ -71,6 +72,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 		StepCount: v.StepCount,
 		Position:  v.Position,
 		Coverage:  CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
+		Seen:      v.Seen,
 	}
 	for _, repository := range v.Repositories {
 		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})

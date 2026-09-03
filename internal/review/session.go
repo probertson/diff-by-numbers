@@ -29,6 +29,9 @@ type Session struct {
 	// Step. It lives here rather than in any UI so that a reattaching surface
 	// finds the review where it was left.
 	position int
+	// seen records which Steps the Reviewer has visited. A Step becomes seen the
+	// moment it is in view, whether reached by advancing, going back, or jumping.
+	seen map[int]bool
 }
 
 // NewSession returns a Session with no Walkthrough posted. The resolver turns
@@ -69,7 +72,20 @@ func (s *Session) Post(w Walkthrough) error {
 	s.walkthrough = &w
 	s.ledger = ledger
 	s.position = 0
+	s.seen = map[int]bool{}
 	return nil
+}
+
+// moveTo places the Reviewer at a position and records a Step as seen. It is the
+// single path every navigation goes through, so seen-tracking cannot be skipped.
+func (s *Session) moveTo(position int) {
+	s.position = position
+	if position > 0 {
+		if s.seen == nil {
+			s.seen = map[int]bool{}
+		}
+		s.seen[position] = true
+	}
 }
 
 // validateNewSideResolves rejects a new-side Excerpt whose range the working
@@ -119,7 +135,33 @@ func (s *Session) Advance() error {
 		return reject(RejectedNoWalkthrough, "there is no Walkthrough to advance through")
 	}
 	if s.position < len(s.walkthrough.Steps) {
-		s.position++
+		s.moveTo(s.position + 1)
 	}
+	return nil
+}
+
+// Back moves the Reviewer one position toward the Brief, so an earlier change
+// can be revisited once a later one has given it meaning. At the Brief it stays.
+func (s *Session) Back() error {
+	if s.walkthrough == nil {
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to move back through")
+	}
+	if s.position > 0 {
+		s.moveTo(s.position - 1)
+	}
+	return nil
+}
+
+// GoTo jumps straight to a position: 0 for the Brief, 1..len(Steps) for a Step.
+// Navigation is entirely local — the Authoring Agent is never consulted.
+func (s *Session) GoTo(position int) error {
+	if s.walkthrough == nil {
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to navigate")
+	}
+	if position < 0 || position > len(s.walkthrough.Steps) {
+		return reject(RejectedNoSuchStep,
+			"there is no Step %d; this Walkthrough has %d", position, len(s.walkthrough.Steps))
+	}
+	s.moveTo(position)
 	return nil
 }

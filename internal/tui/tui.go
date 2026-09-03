@@ -52,8 +52,8 @@ func (c client) view() (*daemon.ViewWire, error) {
 	return &view, nil
 }
 
-func (c client) advance() {
-	response, err := http.Post(c.base+"/advance", "text/plain", nil)
+func (c client) intent(path string) {
+	response, err := http.Post(c.base+path, "text/plain", nil)
 	if err != nil {
 		return // the next poll will surface the daemon being gone
 	}
@@ -106,13 +106,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refresh(), tick())
 
 	case refreshMsg:
+		positionChanged := false
 		if msg.err != nil {
 			m.lostErr = msg.err
 		} else {
+			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
+				positionChanged = true
+			}
 			m.lostErr = nil
 			m.view = msg.view
 		}
 		if m.ready {
+			if msg.view != nil && (m.view == nil || positionChanged) {
+				m.viewport.GotoTop()
+			}
 			m.viewport.SetContent(m.content())
 		}
 		return m, nil
@@ -121,8 +128,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "enter", " ", "n":
-			m.client.advance()
+		case "enter", " ", "n", "right", "l":
+			m.client.intent("/advance")
+			return m, m.refresh()
+		case "p", "left", "h":
+			m.client.intent("/back")
+			return m, m.refresh()
+		case "g":
+			m.client.intent("/goto/0") // g for the Brief (top)
+			return m, m.refresh()
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			m.client.intent("/goto/" + msg.String())
 			return m, m.refresh()
 		}
 	}
@@ -177,11 +193,11 @@ func (m model) footer() string {
 	case m.view == nil || !m.view.Posted:
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
-		return "enter begin  ·  ↑/↓ scroll  ·  q quit"
+		return "enter begin  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
 	case m.view.Position < m.view.StepCount:
-		return "enter next Step  ·  ↑/↓ scroll  ·  q quit"
+		return "enter next  ·  p back  ·  g Brief  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
 	default:
-		return "last Step  ·  ↑/↓ scroll  ·  q quit"
+		return "last Step  ·  p back  ·  g Brief  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
 	}
 }
 
@@ -217,7 +233,11 @@ func (m model) brief() string {
 
 	b.WriteString(labelSt.Render("Steps") + "\n")
 	for i, name := range m.view.StepNames {
-		b.WriteString(fmt.Sprintf("  %2d. %s\n", i+1, name))
+		mark := " "
+		if i < len(m.view.Seen) && m.view.Seen[i] {
+			mark = "✓"
+		}
+		b.WriteString(fmt.Sprintf("  %s %2d. %s\n", dimSt.Render(mark), i+1, name))
 	}
 	return b.String()
 }

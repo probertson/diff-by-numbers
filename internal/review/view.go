@@ -54,6 +54,8 @@ type ViewModel struct {
 	Step         *StepView
 	Coverage     Coverage
 	Repositories []Repository
+	// Seen[i] reports whether Step i+1 has been visited.
+	Seen []bool
 }
 
 // View reports what should be on screen right now.
@@ -79,6 +81,7 @@ func (s *Session) View() ViewModel {
 			Seen:  s.ledger.seenBy(w.Steps, s.position),
 			Total: s.ledger.total(),
 		},
+		Seen: s.seenFlags(),
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)
@@ -107,4 +110,12 @@ func (s *Session) stepView(position int) *StepView {
 		OversizeJustification: step.OversizeJustification,
 		Excerpts:              excerpts,
 	}
+}
+
+func (s *Session) seenFlags() []bool {
+	flags := make([]bool, len(s.walkthrough.Steps))
+	for i := range flags {
+		flags[i] = s.seen[i+1]
+	}
+	return flags
 }
