@@ -58,6 +58,29 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprint(w, d.session.Dump())
 	})
 
+	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ExcerptIndex int `json:"excerpt_index"`
+			FirstLine    int `json:"first_line"`
+			LastLine     int `json:"last_line"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad anchor request", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		anchor, err := d.session.Anchor(review.AnchorTarget{
+			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine,
+		})
+		d.mu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, anchor.Render())
+	})
+
 	mux.HandleFunc("GET /view", func(w http.ResponseWriter, _ *http.Request) {
 		d.mu.Lock()
 		view := toViewWire(d.session.View())

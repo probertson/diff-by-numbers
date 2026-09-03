@@ -72,9 +72,22 @@ type model struct {
 	view     *daemon.ViewWire
 	lostErr  error
 	viewport viewport.Model
+	cursor   stepCursor
+	status   string
 	width    int
 	height   int
 	ready    bool
+}
+
+func (m *model) inStep() bool {
+	return m.view != nil && m.view.Posted && m.view.Position > 0 && m.view.Step != nil
+}
+
+// syncCursor rebuilds the selection cursor when the Step in view changes.
+func (m *model) syncCursor() {
+	if m.inStep() {
+		m.cursor = newStepCursor(m.view.Step)
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -83,6 +96,26 @@ func (m model) Init() tea.Cmd {
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+func (m *model) copyAnchor() tea.Cmd {
+	excerpt, first, last, ok := m.cursor.selection()
+	if !ok {
+		m.status = "selection spans two Excerpts — narrow it to one"
+		return nil
+	}
+	text, ok := m.client.composeAnchor(excerpt, first, last)
+	if !ok {
+		m.status = "could not compose the Anchor"
+		return nil
+	}
+	if copyToClipboard(text) {
+		m.status = fmt.Sprintf("copied Anchor for lines %d-%d — paste it into your agent chat", first, last)
+	} else {
+		m.status = "no clipboard tool found; the Anchor could not be copied"
+	}
+	m.cursor.sel = -1
+	return nil
 }
 
 func (m model) refresh() tea.Cmd {
@@ -99,6 +132,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		headerHeight, footerHeight := 2, 2
 		m.viewport = viewport.New(msg.Width, max(1, msg.Height-headerHeight-footerHeight))
 		m.ready = true
+		m.syncCursor()
 		m.viewport.SetContent(m.content())
 		return m, nil
 
@@ -116,36 +150,66 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lostErr = nil
 			m.view = msg.view
 		}
+		if positionChanged {
+			m.syncCursor()
+			m.viewport.GotoTop()
+		}
 		if m.ready {
-			if msg.view != nil && (m.view == nil || positionChanged) {
-				m.viewport.GotoTop()
-			}
 			m.viewport.SetContent(m.content())
 		}
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "enter", " ", "n", "right", "l":
+		case "enter", " ", "n":
+			m.status = ""
 			m.client.intent("/advance")
 			return m, m.refresh()
-		case "p", "left", "h":
+		case "p":
+			m.status = ""
 			m.client.intent("/back")
 			return m, m.refresh()
 		case "g":
-			m.client.intent("/goto/0") // g for the Brief (top)
+			m.status = ""
+			m.client.intent("/goto/0")
 			return m, m.refresh()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			m.client.intent("/goto/" + msg.String())
+			m.status = ""
+			m.client.intent("/goto/" + key)
 			return m, m.refresh()
+		}
+
+		if m.inStep() {
+			switch key {
+			case "up", "k":
+				m.cursor.move(-1)
+				return m, nil
+			case "down", "j":
+				m.cursor.move(1)
+				return m, nil
+			case "v":
+				m.cursor.toggleSelect()
+				return m, nil
+			case "esc":
+				m.cursor.sel = -1
+				return m, nil
+			case "y":
+				return m, m.copyAnchor()
+			}
+			return m, nil
 		}
 	}
 
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
+	// Only the Brief scrolls through the viewport; a Step is cursor-driven.
+	if m.view == nil || m.view.Position == 0 {
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
 
 var (
@@ -156,6 +220,7 @@ var (
 	dimSt    = lipgloss.NewStyle().Foreground(subtle)
 	warnSt   = lipgloss.NewStyle().Bold(true).Foreground(warn)
 	labelSt  = lipgloss.NewStyle().Bold(true)
+	accentSt = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	gutterSt = lipgloss.NewStyle().Foreground(subtle)
 	addSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#207520", Dark: "#87d787"})
 	delSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a01010", Dark: "#ff8787"})
@@ -167,7 +232,25 @@ func (m model) View() string {
 	}
 	header := m.header()
 	footer := dimSt.Render(m.footer())
-	return header + "\n\n" + m.viewport.View() + "\n" + footer
+	if m.status != "" {
+		footer = accentSt.Render(m.status) + "\n" + footer
+	}
+
+	var body string
+	if m.inStep() {
+		body = renderStep(m.view.Step, m.cursor, m.bodyHeight())
+	} else {
+		body = m.viewport.View()
+	}
+	return header + "\n\n" + body + "\n" + footer
+}
+
+func (m model) bodyHeight() int {
+	h := m.height - 5
+	if h < 4 {
+		return 4
+	}
+	return h
 }
 
 func (m model) header() string {
@@ -194,10 +277,8 @@ func (m model) footer() string {
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
 		return "enter begin  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
-	case m.view.Position < m.view.StepCount:
-		return "enter next  ·  p back  ·  g Brief  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
 	default:
-		return "last Step  ·  p back  ·  g Brief  ·  1-9 jump  ·  ↑/↓ scroll  ·  q quit"
+		return "↑/↓ move  ·  v select  ·  y copy Anchor  ·  enter next  ·  p back  ·  g Brief  ·  q quit"
 	}
 }
 

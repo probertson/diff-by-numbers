@@ -32,6 +32,8 @@ const (
 	RejectedOversizedStep RejectionReason = "oversized_step"
 	// RejectedNoSuchStep means a navigation names a position that does not exist.
 	RejectedNoSuchStep RejectionReason = "no_such_step"
+	// RejectedBadSelection means an Anchor selection is malformed or out of range.
+	RejectedBadSelection RejectionReason = "bad_selection"
 )
 
 // Rejection is a refusal that names its cause.
