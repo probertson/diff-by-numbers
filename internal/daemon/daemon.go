@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/probertson/diff-by-numbers/internal/git"
 	"github.com/probertson/diff-by-numbers/internal/review"
 	"github.com/probertson/diff-by-numbers/internal/workingtree"
 )
@@ -26,7 +27,7 @@ type Daemon struct {
 }
 
 func New() *Daemon {
-	return &Daemon{session: review.NewSession(workingtree.NewResolver())}
+	return &Daemon{session: review.NewSession(workingtree.NewResolver(), git.NewDeriver())}
 }
 
 // Serve listens on the loopback interface only. A review surface has no reason

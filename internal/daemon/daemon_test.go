@@ -6,12 +6,42 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
+
+// featureRepo makes a temp repo on main, branches, and adds one line to FILE-src/fetch.ts
+// at line 4242's stand-in — small and real, so derivation has something to find.
+func featureRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	path := filepath.Join(root, "FILE-src/fetch.ts")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(path, []byte("a\nb\nc\n"), 0o644)
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "initial")
+	git("checkout", "-q", "-b", "feature")
+	os.WriteFile(path, []byte("a\nb\nc\nADDED\n"), 0o644) // adds new-side line 4
+	return root
+}
 
 // The wire types are deliberately separate from the domain types, which means a
 // hand-written mapping between them. This test exists for the one failure that
@@ -21,6 +51,7 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 
+	root := featureRepo(t)
 	posted := map[string]any{
 		"brief": map[string]any{
 			"ask":      "ASK-tenant-scoping",
@@ -31,7 +62,7 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 			},
 		},
 		"repositories": []any{
-			map[string]any{"root": "/ROOT-argus-portal", "range": "RANGE-merge-base"},
+			map[string]any{"root": root, "range": "main"},
 		},
 		"steps": []any{
 			map[string]any{
@@ -40,11 +71,11 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 				"oversize_justification": "JUSTIFICATION-the-state-machine-only-makes-sense-whole",
 				"excerpts": []any{
 					map[string]any{
-						"repository": "/ROOT-argus-portal",
+						"repository": root,
 						"file":       "FILE-src/fetch.ts",
-						"side":       "old",
-						"first_line": 4242,
-						"last_line":  4343,
+						"side":       "new",
+						"first_line": 1,
+						"last_line":  4,
 					},
 				},
 			},
@@ -59,15 +90,14 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 		"APPROACH-thread-the-id-through",
 		"stated",
 		"CITATION-session-51e67df2",
-		"/ROOT-argus-portal",
-		"RANGE-merge-base",
+		root,
+		"main",
 		"NAME-add-the-retrier",
 		"EXPLANATION-wraps-the-transport",
 		"JUSTIFICATION-the-state-machine-only-makes-sense-whole",
 		"FILE-src/fetch.ts",
-		"old",
-		"4242",
-		"4343",
+		"new",
+		"FILE-src/fetch.ts",
 	} {
 		if !strings.Contains(dump, want) {
 			t.Errorf("%q did not survive the round trip\n--- dump ---\n%s", want, dump)

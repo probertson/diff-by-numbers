@@ -20,6 +20,16 @@ const (
 	// RejectedMalformedStep means a Step is missing something required, or an
 	// Excerpt range is not self-consistent.
 	RejectedMalformedStep RejectionReason = "malformed_step"
+	// RejectedDerivationFailed means the Changed Lines could not be derived from
+	// git — usually a range that does not resolve.
+	RejectedDerivationFailed RejectionReason = "derivation_failed"
+	// RejectedUnresolvableExcerpt means an Excerpt names a range the working
+	// tree cannot satisfy.
+	RejectedUnresolvableExcerpt RejectionReason = "unresolvable_excerpt"
+	// RejectedUncoveredChanges means the plan leaves Changed Lines unshown.
+	RejectedUncoveredChanges RejectionReason = "uncovered_changes"
+	// RejectedOversizedStep means a Step exceeds the budget without justifying it.
+	RejectedOversizedStep RejectionReason = "oversized_step"
 )
 
 // Rejection is a refusal that names its cause.

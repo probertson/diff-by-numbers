@@ -19,8 +19,15 @@ func (stubResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
 	return lines, nil
 }
 
+// emptyDeriver derives no Changed Lines, so a Walkthrough's Excerpts are all
+// reference lines: coverage and the budget are trivially satisfied. Tests that
+// care about derivation supply their own deriver.
+type emptyDeriver struct{}
+
+func (emptyDeriver) Derive(review.Repository) ([]review.ChangedLine, error) { return nil, nil }
+
 func newSession() *review.Session {
-	return review.NewSession(stubResolver{})
+	return review.NewSession(stubResolver{}, emptyDeriver{})
 }
 
 func TestTheViewBeforeAnyPostSaysNothingIsPosted(t *testing.T) {
@@ -120,8 +127,13 @@ func TestAdvancingWithNothingPostedIsRejected(t *testing.T) {
 }
 
 func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
-	session := review.NewSession(failingResolver{})
-	mustPost(t, session, validWalkthrough())
+	// Post validates only new-side resolution, so an old-side Excerpt reaches
+	// the render, where a resolver failure must surface as a problem rather than
+	// as fabricated code. (This is also the shape staleness detection will take.)
+	session := review.NewSession(failingResolver{}, emptyDeriver{})
+	walkthrough := validWalkthrough()
+	walkthrough.Steps[0].Excerpts[0].Side = review.OldSide
+	mustPost(t, session, walkthrough)
 
 	if err := session.Advance(); err != nil {
 		t.Fatal(err)

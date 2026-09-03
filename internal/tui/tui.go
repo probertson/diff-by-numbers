@@ -159,10 +159,15 @@ func (m model) header() string {
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
 	case m.view.Position == 0:
-		return headerSt.Render("dbn — Brief") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead")
+		return headerSt.Render("dbn — Brief") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
-		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount))
+		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) + dimSt.Render(m.coverageSuffix())
 	}
+}
+
+func (m model) coverageSuffix() string {
+	c := m.view.Coverage
+	return fmt.Sprintf("  ·  %d/%d changed lines seen", c.Seen, c.Total)
 }
 
 func (m model) footer() string {
@@ -201,6 +206,12 @@ func (m model) brief() string {
 	} else {
 		b.WriteString(warnSt.Render("inferred") + " — reverse-engineered from the changes; trust the narrative accordingly\n\n")
 	}
+
+	b.WriteString(labelSt.Render("Under review") + "\n")
+	for _, repository := range m.view.Repositories {
+		b.WriteString(fmt.Sprintf("  %s  (%s)\n", repository.Root, repository.Range))
+	}
+	b.WriteString("\n")
 
 	b.WriteString(labelSt.Render("Steps") + "\n")
 	for i, name := range m.view.StepNames {

@@ -22,17 +22,20 @@ type ChangeRequest struct {
 // Walkthroughs are deliberately out of scope until the multiplexed inbox exists.
 type Session struct {
 	walkthrough *Walkthrough
+	ledger      ledger
 	resolver    Resolver
+	deriver     Deriver
 	// position is where the Reviewer is: 0 for the Brief, 1..len(Steps) for a
 	// Step. It lives here rather than in any UI so that a reattaching surface
 	// finds the review where it was left.
 	position int
 }
 
-// NewSession returns a Session with no Walkthrough posted. The resolver is what
-// turns Excerpts into lines when a view is drawn; the core itself reads nothing.
-func NewSession(resolver Resolver) *Session {
-	return &Session{resolver: resolver}
+// NewSession returns a Session with no Walkthrough posted. The resolver turns
+// Excerpts into lines when a view is drawn; the deriver reports what git says
+// actually changed. The core itself neither reads files nor runs git.
+func NewSession(resolver Resolver, deriver Deriver) *Session {
+	return &Session{resolver: resolver, deriver: deriver}
 }
 
 // Post submits a Walkthrough for review.
@@ -44,8 +47,47 @@ func (s *Session) Post(w Walkthrough) error {
 	if rejection := validate(w); rejection != nil {
 		return rejection
 	}
+
+	// Derive what git says changed, then hold the plan to it. Order matters:
+	// structural faults are named before coverage, so an agent fixes the obvious
+	// thing first.
+	ledger, err := buildLedger(w.ChangeSet, s.deriver)
+	if err != nil {
+		return reject(RejectedDerivationFailed,
+			"could not derive the changes under review: %v", err)
+	}
+	if rejection := validateNewSideResolves(w.Steps, s.resolver); rejection != nil {
+		return rejection
+	}
+	if rejection := ledger.validateBudget(w.Steps); rejection != nil {
+		return rejection
+	}
+	if rejection := ledger.validateCoverage(w.Steps); rejection != nil {
+		return rejection
+	}
+
 	s.walkthrough = &w
+	s.ledger = ledger
 	s.position = 0
+	return nil
+}
+
+// validateNewSideResolves rejects a new-side Excerpt whose range the working
+// tree cannot satisfy. Old-side Excerpts are not checked here: reading the old
+// side needs the derived revision and is deferred, so an old-side range that
+// cannot be shown yet is a display limitation, not a malformed plan.
+func validateNewSideResolves(steps []Step, resolver Resolver) *Rejection {
+	for i, step := range steps {
+		for j, excerpt := range step.Excerpts {
+			if excerpt.Side != NewSide {
+				continue
+			}
+			if _, err := resolver.Resolve(excerpt); err != nil {
+				return reject(RejectedUnresolvableExcerpt,
+					"Excerpt %d of Step %d does not resolve: %v", j+1, i+1, err)
+			}
+		}
+	}
 	return nil
 }
 

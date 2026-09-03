@@ -36,13 +36,25 @@ type BriefWire struct {
 	ProvenanceCitation string `json:"provenance_citation,omitempty"`
 }
 
+type RepositoryWire struct {
+	Root  string `json:"root"`
+	Range string `json:"range"`
+}
+
+type CoverageWire struct {
+	Seen  int `json:"seen"`
+	Total int `json:"total"`
+}
+
 type ViewWire struct {
-	Posted    bool      `json:"posted"`
-	Brief     BriefWire `json:"brief"`
-	StepNames []string  `json:"step_names"`
-	StepCount int       `json:"step_count"`
-	Position  int       `json:"position"`
-	Step      *StepWire `json:"step,omitempty"`
+	Posted       bool             `json:"posted"`
+	Brief        BriefWire        `json:"brief"`
+	StepNames    []string         `json:"step_names"`
+	StepCount    int              `json:"step_count"`
+	Position     int              `json:"position"`
+	Step         *StepWire        `json:"step,omitempty"`
+	Coverage     CoverageWire     `json:"coverage"`
+	Repositories []RepositoryWire `json:"repositories"`
 }
 
 func toViewWire(v review.ViewModel) ViewWire {
@@ -57,6 +69,10 @@ func toViewWire(v review.ViewModel) ViewWire {
 		StepNames: v.StepNames,
 		StepCount: v.StepCount,
 		Position:  v.Position,
+		Coverage:  CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
+	}
+	for _, repository := range v.Repositories {
+		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})
 	}
 	if v.Step != nil {
 		step := StepWire{

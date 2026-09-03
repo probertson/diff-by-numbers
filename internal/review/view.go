@@ -32,15 +32,26 @@ type StepView struct {
 	Excerpts              []ExcerptView
 }
 
+// Coverage is the live progress the Reviewer sees: how many Changed Lines the
+// Steps up to their current position have shown, out of the total git derived.
+// Because a plan cannot be posted unless it covers everything, Total is always
+// reachable — Seen climbs to it as the Reviewer walks.
+type Coverage struct {
+	Seen  int
+	Total int
+}
+
 // ViewModel is everything needed to draw the current screen. Position 0 is the
 // Brief; positions 1..StepCount are Steps.
 type ViewModel struct {
-	Posted    bool
-	Brief     Brief
-	StepNames []string
-	StepCount int
-	Position  int
-	Step      *StepView
+	Posted       bool
+	Brief        Brief
+	StepNames    []string
+	StepCount    int
+	Position     int
+	Step         *StepView
+	Coverage     Coverage
+	Repositories []Repository
 }
 
 // View reports what should be on screen right now.
@@ -56,11 +67,16 @@ func (s *Session) View() ViewModel {
 	}
 
 	view := ViewModel{
-		Posted:    true,
-		Brief:     w.Brief,
-		StepNames: names,
-		StepCount: len(w.Steps),
-		Position:  s.position,
+		Posted:       true,
+		Brief:        w.Brief,
+		StepNames:    names,
+		StepCount:    len(w.Steps),
+		Position:     s.position,
+		Repositories: w.ChangeSet.Repositories,
+		Coverage: Coverage{
+			Seen:  s.ledger.seenBy(w.Steps, s.position),
+			Total: s.ledger.total(),
+		},
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)
