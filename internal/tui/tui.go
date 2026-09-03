@@ -62,6 +62,10 @@ func (c client) intent(path string) {
 	response.Body.Close()
 }
 
+func (c client) reopen() {
+	c.intent("/reopen")
+}
+
 type refreshMsg struct {
 	view *daemon.ViewWire
 	err  error
@@ -211,6 +215,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncCursor()
 			m.viewport.GotoTop()
 		}
+		if m.view != nil && m.view.Finished && m.mode == modeReview {
+			m.mode = modeDone
+		}
 		if m.ready {
 			m.viewport.SetContent(m.content())
 		}
@@ -225,8 +232,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeList:
 			return m.updateList(key)
 		case modeDone:
-			if key == "q" || key == "ctrl+c" {
+			switch key {
+			case "q", "ctrl+c":
 				return m, tea.Quit
+			case "r":
+				m.client.reopen()
+				m.mode = modeReview
+				m.status = "review reopened — add or change anything, then f to finish again"
+				return m, m.refresh()
 			}
 			return m, nil
 		}
@@ -250,6 +263,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "→ Step " + key
 			m.client.intent("/goto/" + key)
 			return m, m.refresh()
+		case "r":
+			if m.view != nil && m.view.Finished {
+				m.client.reopen()
+				m.status = "review reopened — add or change anything, then f to finish again"
+				return m, m.refresh()
+			}
 		case "l", "L":
 			m.mode = modeList
 			m.crCursor = 0
@@ -279,6 +298,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				return m, m.copyAnchor()
 			case "e":
+				if m.view.Finished {
+					m.status = "review is finished — press r to reopen before editing"
+					return m, nil
+				}
 				if cr, ok := m.commentAtCursor(); ok {
 					m.editingID = cr.ID
 					m.pendingCode = cr.Anchor
@@ -290,6 +313,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "no comment on this line to edit"
 				return m, nil
 			case "c":
+				if m.view.Finished {
+					m.status = "review is finished — press r to reopen before commenting"
+					return m, nil
+				}
 				excerpt, first, last, ok := m.cursor.selection()
 				if !ok {
 					m.status = "selection spans two Excerpts — narrow it to one"
@@ -428,7 +455,7 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "esc back")
 	case modeDone:
 		body = m.doneView()
-		persistent = "q quit"
+		persistent = keybar("r reopen", "q quit")
 	default:
 		if m.inStep() {
 			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
@@ -536,6 +563,7 @@ func (m model) doneView() string {
 		b.WriteString(fmt.Sprintf("%d Steps seen, %d flagged, %d Change Request(s) raised.\n\n",
 			seen, flagged, len(m.view.ChangeRequests)))
 		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
+		b.WriteString(dimSt.Render("Or press r to reopen and keep editing.") + "\n")
 	}
 	return b.String()
 }

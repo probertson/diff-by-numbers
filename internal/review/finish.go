@@ -53,3 +53,13 @@ func (s *Session) Finish() error {
 	s.finished = true
 	return nil
 }
+
+// Reopen undoes a Finish so the Reviewer can add or change more before handing
+// off. Finishing is a soft signal in the MVP, not a one-way door.
+func (s *Session) Reopen() error {
+	if s.walkthrough == nil {
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to reopen")
+	}
+	s.finished = false
+	return nil
+}

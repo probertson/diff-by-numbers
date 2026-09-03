@@ -121,6 +121,7 @@ func (d *Daemon) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /finish", d.navHandler(func() error { return d.session.Finish() }))
+	mux.HandleFunc("POST /reopen", d.navHandler(func() error { return d.session.Reopen() }))
 
 	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

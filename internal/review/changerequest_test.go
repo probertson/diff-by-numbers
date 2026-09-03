@@ -165,3 +165,27 @@ func TestEditingAnUnknownChangeRequestIsRejected(t *testing.T) {
 
 	assertRejected(t, err, review.RejectedNoSuchChangeRequest)
 }
+
+func TestAFinishedWalkthroughCanBeReopenedToAddMore(t *testing.T) {
+	session := newSession()
+	mustPost(t, session, validWalkthrough())
+	mustAdvance(t, session)
+	if err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Adding is refused while finished.
+	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 20, LastLine: 20}, "late"); err == nil {
+		t.Fatal("expected adding to be refused while finished")
+	}
+
+	if err := session.Reopen(); err != nil {
+		t.Fatalf("expected to reopen, got %v", err)
+	}
+	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 20, LastLine: 20}, "late"); err != nil {
+		t.Fatalf("expected to add after reopening, got %v", err)
+	}
+	if session.View().Finished {
+		t.Error("expected the view to report not finished after reopen")
+	}
+}
