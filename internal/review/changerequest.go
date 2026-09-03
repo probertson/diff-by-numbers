@@ -55,3 +55,15 @@ func (s *Session) changeRequestsForStep(step int) int {
 	}
 	return count
 }
+
+// EditChangeRequest replaces the note of an existing Change Request, so the
+// Reviewer can refine a comment without withdrawing and re-anchoring it.
+func (s *Session) EditChangeRequest(id int, note string) error {
+	for i := range s.changeRequests {
+		if s.changeRequests[i].ID == id {
+			s.changeRequests[i].Note = note
+			return nil
+		}
+	}
+	return reject(RejectedNoSuchChangeRequest, "there is no Change Request %d", id)
+}

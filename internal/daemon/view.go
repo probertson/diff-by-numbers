@@ -73,6 +73,7 @@ type ChangeRequestWire struct {
 	FirstLine int    `json:"first_line"`
 	LastLine  int    `json:"last_line"`
 	Location  string `json:"location"`
+	Anchor    string `json:"anchor"`
 	Note      string `json:"note"`
 }
 
@@ -100,6 +101,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			ID: cr.ID, Step: cr.Step,
 			File: cr.Anchor.File, FirstLine: cr.Anchor.FirstLine, LastLine: cr.Anchor.LastLine,
 			Location: fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
+			Anchor:   cr.Anchor.Render(),
 			Note:     cr.Note,
 		})
 	}

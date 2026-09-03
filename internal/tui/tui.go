@@ -81,6 +81,7 @@ type model struct {
 	crCursor    int    // selected row in the change-request list
 	pendingSel  [3]int // excerpt, first, last awaiting a note
 	pendingCode string // the code being commented on, shown above the note input
+	editingID   int    // >0 when editing an existing Change Request rather than adding
 	width       int
 	height      int
 	ready       bool
@@ -124,6 +125,18 @@ func (c client) raiseChangeRequest(excerpt, first, last int, note string) bool {
 	}
 	response.Body.Close()
 	return response.StatusCode == http.StatusOK
+}
+
+func (c client) editChangeRequest(id int, note string) bool {
+	body, _ := json.Marshal(map[string]any{"note": note})
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/changerequest/%d", c.base, id), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (c client) withdraw(id int) {
@@ -258,13 +271,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "v", " ":
 				m.cursor.toggleSelect()
 				if m.cursor.sel >= 0 {
-					m.status = "selecting — ↑/↓ to extend, y copy, c comment"
+					m.status = "selecting — ↑/↓ extend · y copy · c comment · esc stop"
 				} else {
 					m.status = ""
 				}
 				return m, nil
 			case "esc":
 				m.cursor.sel = -1
+				m.status = ""
 				return m, nil
 			case "y":
 				return m, m.copyAnchor()
@@ -307,19 +321,29 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeReview
 			m.note.Blur()
 			return m, nil
-		case "ctrl+d", "ctrl+s":
+		case "enter":
 			note := m.note.Value()
 			if note != "" {
-				if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
-					m.status = "Change Request raised"
+				if m.editingID > 0 {
+					if m.client.editChangeRequest(m.editingID, note) {
+						m.status = "Change Request updated"
+					} else {
+						m.status = "could not update the Change Request"
+					}
+				} else if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
+					m.status = "comment added"
 					m.cursor.sel = -1
 				} else {
-					m.status = "could not raise the Change Request"
+					m.status = "could not add the comment"
 				}
 			}
+			m.editingID = 0
 			m.mode = modeReview
 			m.note.Blur()
 			return m, m.refresh()
+		case "ctrl+j", "alt+enter", "shift+enter":
+			m.note.InsertString("\n")
+			return m, nil
 		}
 	}
 	var cmd tea.Cmd
@@ -351,6 +375,17 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, m.refresh()
+	case "e", "enter":
+		if m.crCursor < len(list) {
+			cr := list[m.crCursor]
+			m.editingID = cr.ID
+			m.pendingCode = cr.Anchor
+			m.note.SetValue(cr.Note)
+			m.note.Focus()
+			m.mode = modeNote
+			return m, textarea.Blink
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -385,9 +420,10 @@ func (m model) View() string {
 
 	switch m.mode {
 	case modeNote:
-		return header + "\n\n" + m.noteView() + "\n" + footer
+		hint := dimSt.Render(keybar("enter to add", "⌥⏎/ctrl+j newline", "esc cancel"))
+		return header + "\n\n" + m.noteView() + "\n" + hint
 	case modeList:
-		return header + "\n\n" + m.listView() + "\n" + dimSt.Render("↑/↓ move  ·  d withdraw  ·  esc back")
+		return header + "\n\n" + m.listView() + "\n" + dimSt.Render(keybar("↑/↓ move", "e edit", "d withdraw", "esc back"))
 	case modeDone:
 		return header + "\n\n" + m.doneView() + "\n" + dimSt.Render("q quit")
 	}
@@ -406,9 +442,11 @@ func (m model) noteView() string {
 	if code == "" {
 		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel[1], m.pendingSel[2]))
 	}
-	return labelSt.Render("New Change Request") + "\n\n" +
-		code + "\n" +
-		m.note.View() + "\n\n" + dimSt.Render("ctrl+d to raise  ·  esc to cancel")
+	title := "New Change Request"
+	if m.editingID > 0 {
+		title = "Edit Change Request"
+	}
+	return labelSt.Render(title) + "\n\n" + code + "\n" + m.note.View()
 }
 
 func (m model) listView() string {
@@ -423,7 +461,11 @@ func (m model) listView() string {
 		if i == m.crCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		b.WriteString(fmt.Sprintf("%sStep %d  %s\n     %s\n", cursor, cr.Step, dimSt.Render(cr.Location), cr.Note))
+		b.WriteString(fmt.Sprintf("%sStep %d  %s\n", cursor, cr.Step, dimSt.Render(cr.Location)))
+		for _, line := range strings.Split(strings.TrimRight(cr.Anchor, "\n"), "\n") {
+			b.WriteString("     " + dimSt.Render(line) + "\n")
+		}
+		b.WriteString("     " + cr.Note + "\n\n")
 	}
 	return b.String()
 }
@@ -497,10 +539,23 @@ func (m model) footer() string {
 	case m.view == nil || !m.view.Posted:
 		return "waiting for an agent to post a Walkthrough  ·  q quit"
 	case m.view.Position == 0:
-		return "enter/→ begin  ·  " + m.jumpHint() + "  ·  ↑/↓ scroll  ·  L list  ·  F finish  ·  q quit"
+		return keybar("enter/→ begin", m.jumpHint(), "↑/↓ scroll", "L list", "F finish", "q quit")
 	default:
-		return "↑/↓ move  ·  space/v select  ·  y copy  ·  c comment  ·  →/enter next  ·  ←/p back  ·  " + m.jumpHint() + "  ·  g Brief  ·  L list  ·  F finish  ·  q quit"
+		return keybar("↑/↓ move", "space/v select", "y copy", "c comment", "→/enter next",
+			"←/p back", m.jumpHint(), "g Brief", "L list", "F finish", "q quit")
 	}
+}
+
+const nbsp = "\u00a0"
+
+// keybar joins shortcut labels with a breakable separator, while the spaces
+// inside each label are made non-breaking so a label like "g Brief" never
+// splits across a wrap.
+func keybar(tokens ...string) string {
+	for i, t := range tokens {
+		tokens[i] = strings.ReplaceAll(t, " ", nbsp)
+	}
+	return strings.Join(tokens, "  ·  ")
 }
 
 // jumpHint labels the number-jump with the real Step count, and says how to

@@ -140,3 +140,28 @@ func TestFinishReportsEverythingTheAgentNeedsToReground(t *testing.T) {
 		t.Errorf("expected a report per Step, got %d", len(results.StepReports))
 	}
 }
+
+func TestAChangeRequestNoteCanBeEdited(t *testing.T) {
+	session := newSession()
+	mustPost(t, session, validWalkthrough())
+	mustAdvance(t, session)
+	cr := raise(t, session, 20, 22, "original")
+
+	if err := session.EditChangeRequest(cr.ID, "refined"); err != nil {
+		t.Fatalf("expected to edit, got %v", err)
+	}
+
+	list := session.ChangeRequests()
+	if list[0].Note != "refined" {
+		t.Errorf("expected the note to be updated, got %q", list[0].Note)
+	}
+}
+
+func TestEditingAnUnknownChangeRequestIsRejected(t *testing.T) {
+	session := newSession()
+	mustPost(t, session, validWalkthrough())
+
+	err := session.EditChangeRequest(999, "x")
+
+	assertRejected(t, err, review.RejectedNoSuchChangeRequest)
+}
