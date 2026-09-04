@@ -449,10 +449,10 @@ func (m model) View() string {
 	switch m.mode {
 	case modeNote:
 		body = m.noteView()
-		persistent = keybar("enter add", "shift+enter newline", "esc cancel")
+		persistent = keybar("enter add", "shift+enter newline", "<esc> cancel")
 	case modeList:
 		body = m.listView()
-		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "esc back")
+		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "<esc> back")
 	case modeDone:
 		body = m.doneView()
 		persistent = keybar("r reopen", "q quit")
@@ -506,7 +506,7 @@ func (m model) contextualHint() string {
 		return ""
 	}
 	if m.cursor.sel >= 0 {
-		return "selecting — ↑/↓ extend · y copy · c comment · esc stop"
+		return "selecting — ↑/↓ extend · y copy · c comment · <esc> stop"
 	}
 	if _, ok := m.commentAtCursor(); ok {
 		return "e edit this comment"
