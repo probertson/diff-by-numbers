@@ -82,13 +82,20 @@ type model struct {
 	status      string
 	mode        mode
 	note        textarea.Model
-	crCursor    int    // selected row in the change-request list
-	pendingSel  [3]int // excerpt, first, last awaiting a note
-	pendingCode string // the code being commented on, shown above the note input
-	editingID   int    // >0 when editing an existing Change Request rather than adding
+	crCursor    int      // selected row in the change-request list
+	pendingSel  [3]int   // excerpt, first, last awaiting a note
+	pendingCode string   // the code being commented on, shown above the note input
+	editingID   int      // >0 when editing an existing Change Request rather than adding
+	crFilter    crFilter // when active, the List shows only comments on one line
 	width       int
 	height      int
 	ready       bool
+}
+
+type crFilter struct {
+	active bool
+	file   string
+	line   int
 }
 
 type mode int
@@ -270,6 +277,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.refresh()
 			}
 		case "l", "L":
+			m.crFilter = crFilter{}
 			m.mode = modeList
 			m.crCursor = 0
 			return m, nil
@@ -302,15 +310,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "review is finished — press r to reopen before editing"
 					return m, nil
 				}
-				if cr, ok := m.commentAtCursor(); ok {
-					m.editingID = cr.ID
-					m.pendingCode = cr.Anchor
-					m.note.SetValue(cr.Note)
+				here := m.commentsAtCursor()
+				switch len(here) {
+				case 0:
+					m.status = "no comment on this line to edit"
+				case 1:
+					m.editingID = here[0].ID
+					m.pendingCode = here[0].Anchor
+					m.note.SetValue(here[0].Note)
 					m.note.Focus()
 					m.mode = modeNote
 					return m, textarea.Blink
+				default:
+					line := m.cursor.lines[m.cursor.cursor]
+					m.crFilter = crFilter{active: true, file: m.view.Step.Excerpts[line.excerpt].File, line: line.number}
+					m.crCursor = 0
+					m.mode = modeList
 				}
-				m.status = "no comment on this line to edit"
 				return m, nil
 			case "c":
 				if m.view.Finished {
@@ -388,9 +404,10 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateList(key string) (tea.Model, tea.Cmd) {
-	list := m.view.ChangeRequests
+	list := m.filteredCRs()
 	switch key {
 	case "esc", "L", "q":
+		m.crFilter = crFilter{}
 		m.mode = modeReview
 		return m, nil
 	case "up", "k":
@@ -527,12 +544,16 @@ func (m model) noteView() string {
 }
 
 func (m model) listView() string {
-	list := m.view.ChangeRequests
+	list := m.filteredCRs()
 	if len(list) == 0 {
-		return dimSt.Render("No Change Requests raised yet.")
+		return dimSt.Render("No comments to show.")
 	}
 	var b strings.Builder
-	b.WriteString(labelSt.Render(fmt.Sprintf("%d Change Request(s)", len(list))) + "\n\n")
+	title := fmt.Sprintf("%d Change Request(s)", len(list))
+	if m.crFilter.active {
+		title = fmt.Sprintf("%d comment(s) on %s:%d", len(list), m.crFilter.file, m.crFilter.line)
+	}
+	b.WriteString(labelSt.Render(title) + "\n\n")
 	for i, cr := range list {
 		cursor := "  "
 		if i == m.crCursor {
@@ -584,6 +605,39 @@ func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
 	return daemon.ChangeRequestWire{}, false
 }
 
+// filteredCRs is the List's current contents: every Change Request, or just
+// those on one line when the List was opened by pressing e on a line that has
+// more than one.
+func (m model) filteredCRs() []daemon.ChangeRequestWire {
+	all := m.view.ChangeRequests
+	if !m.crFilter.active {
+		return all
+	}
+	var out []daemon.ChangeRequestWire
+	for _, cr := range all {
+		if cr.File == m.crFilter.file && m.crFilter.line >= cr.FirstLine && m.crFilter.line <= cr.LastLine {
+			out = append(out, cr)
+		}
+	}
+	return out
+}
+
+// commentsAtCursor returns every Change Request anchored over the cursor's line.
+func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
+		return nil
+	}
+	line := m.cursor.lines[m.cursor.cursor]
+	file := m.view.Step.Excerpts[line.excerpt].File
+	var out []daemon.ChangeRequestWire
+	for _, cr := range m.view.ChangeRequests {
+		if cr.Step == m.view.Position && cr.File == file && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+			out = append(out, cr)
+		}
+	}
+	return out
+}
+
 // commentedLines is the set of "file:line" in the current Step that carry a
 // Change Request, so the diff can mark them.
 func (m model) commentedLines() map[string]bool {
@@ -617,7 +671,7 @@ func (m model) header() string {
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
 	case m.view.Position == 0:
-		return headerSt.Render("dbn — Brief") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
+		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
 		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) + dimSt.Render(m.coverageSuffix())
 	}
@@ -636,7 +690,7 @@ func (m model) footer() string {
 		return keybar("enter begin", m.navHint(), "↑/↓ scroll", "l list", "f finish", "q quit")
 	default:
 		return keybar("↑/↓ move", "<space>/v select", "y copy", "c comment",
-			m.navHint(), "g Brief", "l list", "f finish", "q quit")
+			m.navHint(), "g Overview", "l list", "f finish", "q quit")
 	}
 }
 
@@ -690,7 +744,7 @@ func (m model) brief() string {
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Ask) + "\n\n")
 	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
 
-	b.WriteString(labelSt.Render("Provenance") + "\n")
+	b.WriteString(labelSt.Render("Source") + "\n")
 	if brief.ProvenanceKind == "stated" {
 		b.WriteString("stated — " + brief.ProvenanceCitation + "\n\n")
 	} else {
