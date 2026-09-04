@@ -121,10 +121,16 @@ func truncateTo(s string, w int) string {
 // rows so a long Step stays navigable, and every row clipped to width so nothing
 // overflows the terminal.
 func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, width, height int) string {
+	wrap := func(text string) string {
+		if width > 1 {
+			return lipgloss.NewStyle().Width(width).Render(text)
+		}
+		return text
+	}
 	var b bytes.Buffer
-	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+step.Explanation+"\n")
+	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrap(step.Explanation)+"\n")
 	if step.OversizeJustification != "" {
-		fmt.Fprint(&b, "\n"+warnSt.Render("oversized: ")+step.OversizeJustification+"\n")
+		fmt.Fprint(&b, "\n"+warnSt.Render("oversized: ")+wrap(step.OversizeJustification)+"\n")
 	}
 
 	if len(cur.lines) == 0 {
