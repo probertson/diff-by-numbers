@@ -39,6 +39,10 @@ func (s *Session) Dump() string {
 			fmt.Fprintf(&out, "    %s %s:%d-%d (%s side)\n",
 				excerpt.Repository, excerpt.File, excerpt.FirstLine, excerpt.LastLine, excerpt.Side)
 		}
+		for _, ack := range step.Acknowledgements {
+			fmt.Fprintf(&out, "    acknowledged in %s: %s (%s)\n",
+				ack.Repository, strings.Join(ack.Files, ", "), ack.Reason)
+		}
 	}
 	return out.String()
 }

@@ -156,6 +156,30 @@ func (d *Daemon) Handler() http.Handler {
 		}
 	})
 
+	mux.HandleFunc("GET /expand/{step}/{ack}", func(w http.ResponseWriter, r *http.Request) {
+		step, err := strconv.Atoi(r.PathValue("step"))
+		if err != nil {
+			http.Error(w, "step must be a number", http.StatusBadRequest)
+			return
+		}
+		ack, err := strconv.Atoi(r.PathValue("ack"))
+		if err != nil {
+			http.Error(w, "ack must be a number", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		views, err := d.session.ExpandAcknowledgement(step, ack)
+		d.mu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(toExcerptWires(views)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
 	mux.HandleFunc("POST /advance", d.navHandler(func() error { return d.session.Advance() }))
 	mux.HandleFunc("POST /back", d.navHandler(func() error { return d.session.Back() }))
 	mux.HandleFunc("POST /goto/{n}", func(w http.ResponseWriter, r *http.Request) {

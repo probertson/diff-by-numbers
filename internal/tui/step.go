@@ -133,13 +133,19 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		fmt.Fprint(&b, "\n"+warnSt.Render("oversized: ")+wrap(step.OversizeJustification)+"\n")
 	}
 
-	if len(cur.lines) == 0 {
+	if len(cur.lines) == 0 && len(step.Acknowledgements) == 0 {
 		fmt.Fprint(&b, "\n"+dimSt.Render("no readable code in this Step")+"\n")
 		for _, e := range step.Excerpts {
 			if e.Problem != "" {
 				fmt.Fprint(&b, warnSt.Render("  "+e.File+": ")+e.Problem+"\n")
 			}
 		}
+		return b.String()
+	}
+
+	if len(cur.lines) == 0 {
+		// An Acknowledgement-only Step: no code lines, just the manifest.
+		fmt.Fprint(&b, renderManifest(step, width))
 		return b.String()
 	}
 
@@ -197,6 +203,79 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			fmt.Fprint(&b, caret+commentSt.Render(row)+"\n")
 		default:
 			fmt.Fprint(&b, caret+row+"\n")
+		}
+	}
+	if len(step.Acknowledgements) > 0 {
+		fmt.Fprint(&b, renderManifest(step, width))
+	}
+	return b.String()
+}
+
+// renderManifest draws a Step's Acknowledgements as what they are: a claim the
+// Reviewer can weigh and call. Each names its reason and the files it stands in
+// for, with the size of what it skips — so a bulk claim is never invisible.
+func renderManifest(step *daemon.StepWire, width int) string {
+	wrap := func(text string) string {
+		if width > 1 {
+			return lipgloss.NewStyle().Width(width).Render(text)
+		}
+		return text
+	}
+	var b bytes.Buffer
+	for _, ack := range step.Acknowledgements {
+		fmt.Fprint(&b, "\n"+labelSt.Render("Acknowledged")+dimSt.Render(" — mechanical, not read line by line")+"\n")
+		fmt.Fprint(&b, wrap(ack.Reason)+"\n")
+		for _, entry := range ack.Entries {
+			size := fmt.Sprintf("%d changed line(s)", entry.ChangedLines)
+			if entry.Opaque != "" {
+				size = entry.Opaque
+				if entry.OpaqueDetail != "" {
+					size = entry.OpaqueDetail
+				}
+			}
+			fmt.Fprint(&b, dimSt.Render(fmt.Sprintf("  • %s  (%s)", entry.File, size))+"\n")
+		}
+	}
+	fmt.Fprint(&b, "\n"+dimSt.Render("press x to expand into the actual code")+"\n")
+	return b.String()
+}
+
+// renderExpanded draws the code behind an Acknowledgement once the Reviewer calls
+// it — read-only, since the expansion is a look, not part of the plan. It is
+// capped to height rows so expanding a huge lockfile does not blow the frame.
+func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
+	var b bytes.Buffer
+	fmt.Fprint(&b, labelSt.Render("Expanded")+dimSt.Render(" — the acknowledged code (x to collapse)")+"\n")
+	if len(excerpts) == 0 {
+		fmt.Fprint(&b, "\n"+dimSt.Render("nothing to show")+"\n")
+		return b.String()
+	}
+	shown, budget := 0, height
+	if budget < 4 {
+		budget = 4
+	}
+	for _, excerpt := range excerpts {
+		fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s side)", excerpt.File, excerpt.Side))+"\n")
+		if excerpt.Problem != "" {
+			fmt.Fprint(&b, warnSt.Render("  "+excerpt.File+": ")+excerpt.Problem+"\n")
+			continue
+		}
+		for _, line := range excerpt.Lines {
+			if shown >= budget {
+				fmt.Fprint(&b, dimSt.Render("  … more not shown; collapse and use the Excerpts to review in full")+"\n")
+				return b.String()
+			}
+			sign := " "
+			if line.Changed {
+				sign = "+"
+				if excerpt.Side == "old" {
+					sign = "-"
+				}
+			}
+			text := strings.ReplaceAll(line.Text, "\t", "    ")
+			row := fmt.Sprintf(" %s %5d │ %s", sign, line.Number, text)
+			fmt.Fprint(&b, truncateTo(row, width)+"\n")
+			shown++
 		}
 	}
 	return b.String()

@@ -32,11 +32,18 @@ type wireExcerpt struct {
 	LastLine   int    `json:"last_line" jsonschema:"Last line of the range, inclusive"`
 }
 
+type wireAcknowledgement struct {
+	Repository string   `json:"repository" jsonschema:"Root path of the repository these files are in. Must be one named in the Change Set"`
+	Files      []string `json:"files" jsonschema:"Paths, relative to the repository root, whose entire change is mechanical. Every changed line and every binary, mode or rename change in these files is thereby accounted for"`
+	Reason     string   `json:"reason" jsonschema:"One line saying why these changes are mechanical and need not be read, e.g. 'regenerated lockfile'. The Reviewer sees this and may expand it into the real code"`
+}
+
 type wireStep struct {
-	Name                  string        `json:"name" jsonschema:"The single self-contained idea this Step contains, named so the Reviewer knows what they are about to look at"`
-	Explanation           string        `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
-	Excerpts              []wireExcerpt `json:"excerpts" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself"`
-	OversizeJustification string        `json:"oversize_justification,omitempty" jsonschema:"Why this Step exceeds the size budget, if it does. dbn never refuses a large Step, it only asks for a reason"`
+	Name                  string                `json:"name" jsonschema:"The single self-contained idea this Step contains, named so the Reviewer knows what they are about to look at"`
+	Explanation           string                `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
+	Excerpts              []wireExcerpt         `json:"excerpts,omitempty" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself. A Step needs at least one Excerpt or one Acknowledgement"`
+	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes are mechanical and covered without reading, in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
+	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"Why this Step exceeds the size budget, if it does. dbn never refuses a large Step, it only asks for a reason"`
 }
 
 type wireRepository struct {
@@ -98,10 +105,19 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 				LastLine:   e.LastLine,
 			})
 		}
+		acknowledgements := make([]review.Acknowledgement, 0, len(s.Acknowledgements))
+		for _, a := range s.Acknowledgements {
+			acknowledgements = append(acknowledgements, review.Acknowledgement{
+				Repository: a.Repository,
+				Files:      a.Files,
+				Reason:     a.Reason,
+			})
+		}
 		steps = append(steps, review.Step{
 			Name:                  s.Name,
 			Explanation:           s.Explanation,
 			Excerpts:              excerpts,
+			Acknowledgements:      acknowledgements,
 			OversizeJustification: s.OversizeJustification,
 		})
 	}

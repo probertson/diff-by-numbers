@@ -1,5 +1,7 @@
 package review
 
+import "fmt"
+
 // Line is one row of resolved file content, tagged with whether git considers it
 // a Changed Line (versus reference context the Excerpt included for readability).
 type Line struct {
@@ -25,6 +27,26 @@ type ExcerptView struct {
 	Problem string
 }
 
+// AcknowledgedFile is one line of an Acknowledgement's manifest: a file the
+// Acknowledgement claims, and the size of what it stands in for. A file is
+// either line-represented (ChangedLines > 0) or an Opaque Change (Opaque set),
+// never both.
+type AcknowledgedFile struct {
+	Repository   string
+	File         string
+	ChangedLines int
+	Opaque       OpaqueKind
+	OpaqueDetail string
+}
+
+// AcknowledgementView is an Acknowledgement ready to draw: its reason and the
+// manifest of what it covers. It renders as a claim the Reviewer can weigh and
+// expand, never as code hidden from them.
+type AcknowledgementView struct {
+	Reason  string
+	Entries []AcknowledgedFile
+}
+
 // StepView is one Step ready to draw.
 type StepView struct {
 	Number                int
@@ -32,6 +54,7 @@ type StepView struct {
 	Explanation           string
 	OversizeJustification string
 	Excerpts              []ExcerptView
+	Acknowledgements      []AcknowledgementView
 }
 
 // Coverage is the live progress the Reviewer sees: how many Changed Lines the
@@ -100,15 +123,11 @@ func (s *Session) stepView(position int) *StepView {
 	step := s.walkthrough.Steps[position-1]
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
 	for _, excerpt := range step.Excerpts {
-		lines, err := s.resolver.Resolve(excerpt)
-		if err != nil {
-			excerpts = append(excerpts, ExcerptView{Excerpt: excerpt, Problem: err.Error()})
-			continue
-		}
-		for i := range lines {
-			lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, lines[i].Number)
-		}
-		excerpts = append(excerpts, ExcerptView{Excerpt: excerpt, Lines: lines})
+		excerpts = append(excerpts, s.resolveExcerpt(excerpt))
+	}
+	acknowledgements := make([]AcknowledgementView, 0, len(step.Acknowledgements))
+	for _, ack := range step.Acknowledgements {
+		acknowledgements = append(acknowledgements, s.acknowledgementView(ack))
 	}
 	return &StepView{
 		Number:                position,
@@ -116,7 +135,73 @@ func (s *Session) stepView(position int) *StepView {
 		Explanation:           step.Explanation,
 		OversizeJustification: step.OversizeJustification,
 		Excerpts:              excerpts,
+		Acknowledgements:      acknowledgements,
 	}
+}
+
+// resolveExcerpt reads an Excerpt's lines and marks the Changed ones, or records
+// why it could not be read. dbn never renders code it could not actually read.
+func (s *Session) resolveExcerpt(excerpt Excerpt) ExcerptView {
+	lines, err := s.resolver.Resolve(excerpt)
+	if err != nil {
+		return ExcerptView{Excerpt: excerpt, Problem: err.Error()}
+	}
+	for i := range lines {
+		lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, lines[i].Number)
+	}
+	return ExcerptView{Excerpt: excerpt, Lines: lines}
+}
+
+// acknowledgementView builds the manifest for one Acknowledgement from the
+// ledger: how many lines it stands in for, or which Opaque Change it accounts for.
+func (s *Session) acknowledgementView(ack Acknowledgement) AcknowledgementView {
+	view := AcknowledgementView{Reason: ack.Reason}
+	for _, file := range ack.Files {
+		entry := AcknowledgedFile{Repository: ack.Repository, File: file}
+		if opaque, ok := s.ledger.opaqueFor(ack.Repository, file); ok {
+			entry.Opaque = opaque.Kind
+			entry.OpaqueDetail = opaque.Detail
+		} else {
+			entry.ChangedLines = len(s.ledger.changedLinesFor(ack.Repository, file))
+		}
+		view.Entries = append(view.Entries, entry)
+	}
+	return view
+}
+
+// ExpandAcknowledgement resolves an Acknowledgement into the Excerpts it stands
+// in for — the actual Changed Lines of each file it claims. It is the Reviewer
+// calling a bulk claim: it shows the code the Acknowledgement asked to skip
+// without altering the plan. An Opaque Change has no lines and says so.
+func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptView, error) {
+	if s.walkthrough == nil {
+		return nil, reject(RejectedNoWalkthrough, "there is no Walkthrough to expand")
+	}
+	if stepPosition < 1 || stepPosition > len(s.walkthrough.Steps) {
+		return nil, reject(RejectedNoSuchStep,
+			"there is no Step %d; this Walkthrough has %d", stepPosition, len(s.walkthrough.Steps))
+	}
+	step := s.walkthrough.Steps[stepPosition-1]
+	if ackIndex < 0 || ackIndex >= len(step.Acknowledgements) {
+		return nil, reject(RejectedNoSuchAcknowledgement,
+			"Step %d has no Acknowledgement %d", stepPosition, ackIndex+1)
+	}
+	ack := step.Acknowledgements[ackIndex]
+
+	var views []ExcerptView
+	for _, file := range ack.Files {
+		if opaque, ok := s.ledger.opaqueFor(ack.Repository, file); ok {
+			views = append(views, ExcerptView{
+				Excerpt: Excerpt{Repository: ack.Repository, File: file},
+				Problem: fmt.Sprintf("%s is an Opaque Change (%s) with no lines to show", file, opaque.Detail),
+			})
+			continue
+		}
+		for _, excerpt := range excerptsForChangedLines(ack.Repository, file, s.ledger.changedLinesFor(ack.Repository, file)) {
+			views = append(views, s.resolveExcerpt(excerpt))
+		}
+	}
+	return views, nil
 }
 
 func (s *Session) seenFlags() []bool {

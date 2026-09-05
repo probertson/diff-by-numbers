@@ -24,7 +24,9 @@ func (stubResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
 // care about derivation supply their own deriver.
 type emptyDeriver struct{}
 
-func (emptyDeriver) Derive(review.Repository) ([]review.ChangedLine, error) { return nil, nil }
+func (emptyDeriver) Derive(review.Repository) (review.Derivation, error) {
+	return review.Derivation{}, nil
+}
 
 func newSession() *review.Session {
 	return review.NewSession(stubResolver{}, emptyDeriver{})

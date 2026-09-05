@@ -6,17 +6,25 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// fixedDeriver returns the same Changed Lines for any repository, so a test can
-// state exactly what git "found" without a filesystem.
-type fixedDeriver struct{ lines []review.ChangedLine }
+// fixedDeriver returns the same Changed Lines and Opaque Changes for any
+// repository, so a test can state exactly what git "found" without a filesystem.
+type fixedDeriver struct {
+	lines  []review.ChangedLine
+	opaque []review.OpaqueChange
+}
 
-func (d fixedDeriver) Derive(repo review.Repository) ([]review.ChangedLine, error) {
-	out := make([]review.ChangedLine, len(d.lines))
+func (d fixedDeriver) Derive(repo review.Repository) (review.Derivation, error) {
+	lines := make([]review.ChangedLine, len(d.lines))
 	for i, l := range d.lines {
 		l.Repository = repo.Root
-		out[i] = l
+		lines[i] = l
 	}
-	return out, nil
+	opaque := make([]review.OpaqueChange, len(d.opaque))
+	for i, o := range d.opaque {
+		o.Repository = repo.Root
+		opaque[i] = o
+	}
+	return review.Derivation{Lines: lines, Opaque: opaque}, nil
 }
 
 func changed(file string, first, last int) []review.ChangedLine {

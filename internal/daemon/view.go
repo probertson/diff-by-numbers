@@ -26,12 +26,26 @@ type ExcerptWire struct {
 	Lines      []LineWire `json:"lines"`
 }
 
+type AcknowledgedFileWire struct {
+	Repository   string `json:"repository"`
+	File         string `json:"file"`
+	ChangedLines int    `json:"changed_lines"`
+	Opaque       string `json:"opaque,omitempty"`
+	OpaqueDetail string `json:"opaque_detail,omitempty"`
+}
+
+type AcknowledgementWire struct {
+	Reason  string                 `json:"reason"`
+	Entries []AcknowledgedFileWire `json:"entries"`
+}
+
 type StepWire struct {
-	Number                int           `json:"number"`
-	Name                  string        `json:"name"`
-	Explanation           string        `json:"explanation"`
-	OversizeJustification string        `json:"oversize_justification,omitempty"`
-	Excerpts              []ExcerptWire `json:"excerpts"`
+	Number                int                   `json:"number"`
+	Name                  string                `json:"name"`
+	Explanation           string                `json:"explanation"`
+	OversizeJustification string                `json:"oversize_justification,omitempty"`
+	Excerpts              []ExcerptWire         `json:"excerpts"`
+	Acknowledgements      []AcknowledgementWire `json:"acknowledgements,omitempty"`
 }
 
 type BriefWire struct {
@@ -129,7 +143,41 @@ func toViewWire(v review.ViewModel) ViewWire {
 			}
 			step.Excerpts = append(step.Excerpts, excerptWire)
 		}
+		for _, ack := range v.Step.Acknowledgements {
+			ackWire := AcknowledgementWire{Reason: ack.Reason}
+			for _, entry := range ack.Entries {
+				ackWire.Entries = append(ackWire.Entries, AcknowledgedFileWire{
+					Repository:   entry.Repository,
+					File:         entry.File,
+					ChangedLines: entry.ChangedLines,
+					Opaque:       string(entry.Opaque),
+					OpaqueDetail: entry.OpaqueDetail,
+				})
+			}
+			step.Acknowledgements = append(step.Acknowledgements, ackWire)
+		}
 		wire.Step = &step
 	}
 	return wire
+}
+
+// toExcerptWires renders resolved Excerpts (as from an Acknowledgement expansion)
+// for the TUI, reusing the same shape a Step's Excerpts take.
+func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
+	wires := make([]ExcerptWire, 0, len(views))
+	for _, view := range views {
+		wire := ExcerptWire{
+			Repository: view.Excerpt.Repository,
+			File:       view.Excerpt.File,
+			Side:       string(view.Excerpt.Side),
+			FirstLine:  view.Excerpt.FirstLine,
+			LastLine:   view.Excerpt.LastLine,
+			Problem:    view.Problem,
+		}
+		for _, line := range view.Lines {
+			wire.Lines = append(wire.Lines, LineWire{Number: line.Number, Text: line.Text, Changed: line.Changed})
+		}
+		wires = append(wires, wire)
+	}
+	return wires
 }

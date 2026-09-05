@@ -87,6 +87,8 @@ type model struct {
 	pendingCode string   // the code being commented on, shown above the note input
 	editingID   int      // >0 when editing an existing Change Request rather than adding
 	crFilter    crFilter // when active, the List shows only comments on one line
+	expandedAck bool     // showing the code behind this Step's Acknowledgements
+	expanded    []daemon.ExcerptWire
 	width       int
 	height      int
 	ready       bool
@@ -177,6 +179,23 @@ func (m *model) copyAnchor() tea.Cmd {
 	return nil
 }
 
+// expand asks the daemon for the code an Acknowledgement stands in for.
+func (c client) expand(step, ack int) ([]daemon.ExcerptWire, bool) {
+	response, err := http.Get(fmt.Sprintf("%s/expand/%d/%d", c.base, step, ack))
+	if err != nil {
+		return nil, false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var views []daemon.ExcerptWire
+	if err := json.NewDecoder(response.Body).Decode(&views); err != nil {
+		return nil, false
+	}
+	return views, true
+}
+
 func (m model) refresh() tea.Cmd {
 	return func() tea.Msg {
 		view, err := m.client.view()
@@ -221,6 +240,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if positionChanged {
 			m.syncCursor()
 			m.viewport.GotoTop()
+			m.expandedAck = false // the expansion belonged to the Step we just left
+			m.expanded = nil
 		}
 		if m.view != nil && m.view.Finished && m.mode == modeReview {
 			m.mode = modeDone
@@ -300,8 +321,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 				return m, nil
 			case "esc":
+				if m.expandedAck {
+					m.expandedAck = false
+					m.expanded = nil
+					m.cursor.sel = -1
+					m.status = ""
+					return m, nil
+				}
 				m.cursor.sel = -1
 				m.status = ""
+				return m, nil
+			case "x":
+				if len(m.view.Step.Acknowledgements) == 0 {
+					m.status = "nothing to expand on this Step"
+					return m, nil
+				}
+				if m.expandedAck {
+					m.expandedAck = false
+					m.expanded = nil
+					m.cursor.sel = -1
+					m.status = ""
+					return m, nil
+				}
+				var all []daemon.ExcerptWire
+				failed := 0
+				for i := range m.view.Step.Acknowledgements {
+					if views, ok := m.client.expand(m.view.Position, i); ok {
+						all = append(all, views...)
+					} else {
+						failed++
+					}
+				}
+				m.expanded = all
+				m.expandedAck = true
+				m.cursor.sel = -1
+				if failed > 0 {
+					m.status = fmt.Sprintf("expanded — but %d acknowledgement(s) could not be fetched (x or <esc> to collapse)", failed)
+				} else {
+					m.status = "expanded — showing the acknowledged code (x or <esc> to collapse)"
+				}
 				return m, nil
 			case "y":
 				return m, m.copyAnchor()
@@ -474,7 +532,9 @@ func (m model) View() string {
 		body = m.doneView()
 		persistent = keybar("r reopen", "q quit")
 	default:
-		if m.inStep() {
+		if m.inStep() && m.expandedAck {
+			body = renderExpanded(m.expanded, m.width, m.bodyHeight())
+		} else if m.inStep() {
 			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
 		} else {
 			body = m.viewport.View()
@@ -522,11 +582,17 @@ func (m model) contextualHint() string {
 	if !m.inStep() {
 		return ""
 	}
+	if m.expandedAck {
+		return "x/<esc> collapse the acknowledged code"
+	}
 	if m.cursor.sel >= 0 {
 		return "selecting — ↑/↓ extend · y copy · c comment · <esc> stop"
 	}
 	if _, ok := m.commentAtCursor(); ok {
 		return "e edit this comment"
+	}
+	if len(m.view.Step.Acknowledgements) > 0 {
+		return "x expand the acknowledged files"
 	}
 	return ""
 }

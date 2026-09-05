@@ -67,6 +67,9 @@ func (s *Session) Post(w Walkthrough) error {
 	if rejection := ledger.validateBudget(w.Steps); rejection != nil {
 		return rejection
 	}
+	if rejection := ledger.validateAcknowledgements(w.Steps); rejection != nil {
+		return rejection
+	}
 	if rejection := ledger.validateCoverage(w.Steps); rejection != nil {
 		return rejection
 	}

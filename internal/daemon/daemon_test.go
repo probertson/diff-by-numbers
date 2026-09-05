@@ -40,6 +40,10 @@ func featureRepo(t *testing.T) string {
 	git("commit", "-qm", "initial")
 	git("checkout", "-q", "-b", "feature")
 	os.WriteFile(path, []byte("a\nb\nc\nADDED\n"), 0o644) // adds new-side line 4
+	// A mechanical file the Walkthrough will acknowledge rather than excerpt.
+	// Staged so it appears in the diff against the base, like any tracked change.
+	os.WriteFile(filepath.Join(root, "LOCKFILE"), []byte("dep-1\ndep-2\ndep-3\n"), 0o644)
+	git("add", "LOCKFILE")
 	return root
 }
 
@@ -79,6 +83,17 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 					},
 				},
 			},
+			map[string]any{
+				"name":        "NAME-regenerate-the-lockfile",
+				"explanation": "EXPLANATION-mechanical-dependency-bump",
+				"acknowledgements": []any{
+					map[string]any{
+						"repository": root,
+						"files":      []any{"LOCKFILE"},
+						"reason":     "REASON-regenerated-by-the-package-manager",
+					},
+				},
+			},
 		},
 	}
 
@@ -98,6 +113,10 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 		"FILE-src/fetch.ts",
 		"new",
 		"FILE-src/fetch.ts",
+		"NAME-regenerate-the-lockfile",
+		"EXPLANATION-mechanical-dependency-bump",
+		"LOCKFILE",
+		"REASON-regenerated-by-the-package-manager",
 	} {
 		if !strings.Contains(dump, want) {
 			t.Errorf("%q did not survive the round trip\n--- dump ---\n%s", want, dump)

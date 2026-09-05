@@ -38,6 +38,12 @@ const (
 	RejectedNoSuchChangeRequest RejectionReason = "no_such_change_request"
 	// RejectedWalkthroughFinished means an edit was attempted after finishing.
 	RejectedWalkthroughFinished RejectionReason = "walkthrough_finished"
+	// RejectedEmptyAcknowledgement means an Acknowledgement claims a file that has
+	// no changes, so it accounts for nothing.
+	RejectedEmptyAcknowledgement RejectionReason = "empty_acknowledgement"
+	// RejectedNoSuchAcknowledgement means an expansion names an Acknowledgement
+	// that does not exist on that Step.
+	RejectedNoSuchAcknowledgement RejectionReason = "no_such_acknowledgement"
 )
 
 // Rejection is a refusal that names its cause.
