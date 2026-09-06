@@ -309,14 +309,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.inStep() {
+			// A Step with no code lines (Acknowledgement-only, or one whose Excerpts
+			// all failed to resolve) has nothing to select, comment on or anchor —
+			// and neither does an expanded view, which is read-only. Only x/esc and
+			// navigation apply there.
+			interactive := len(m.cursor.lines) > 0 && !m.expandedAck
 			switch key {
 			case "up", "k":
-				m.cursor.move(-1)
+				if interactive {
+					m.cursor.move(-1)
+				}
 				return m, nil
 			case "down", "j":
-				m.cursor.move(1)
+				if interactive {
+					m.cursor.move(1)
+				}
 				return m, nil
 			case "v", " ":
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
+				}
 				m.cursor.toggleSelect()
 				m.status = ""
 				return m, nil
@@ -362,8 +375,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "y":
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
+				}
 				return m, m.copyAnchor()
 			case "e":
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
+				}
 				if m.view.Finished {
 					m.status = "review is finished — press r to reopen before editing"
 					return m, nil
@@ -387,6 +408,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "c":
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
+				}
 				if m.view.Finished {
 					m.status = "review is finished — press r to reopen before commenting"
 					return m, nil
@@ -539,12 +564,13 @@ func (m model) View() string {
 		} else {
 			body = m.viewport.View()
 		}
-		persistent = m.footer()
-		// The stateful line: a transient message if there is one, otherwise the
-		// hint for whatever the cursor is currently on.
+		// Two rows: the global actions always in the gray row below, and the
+		// current page's own actions in the blue row above — replaced by a
+		// transient status message while there is one to show.
+		persistent = m.globalKeys()
 		stateful = m.status
 		if stateful == "" {
-			stateful = m.contextualHint()
+			stateful = m.modeKeys()
 		}
 	}
 
@@ -576,25 +602,57 @@ func (m model) frame(header, body, stateful, persistent string) string {
 	return top + strings.Repeat("\n", gap) + bottom
 }
 
-// contextualHint describes what the key with a state-dependent meaning does right
-// now: extending a selection, or editing the comment under the cursor.
-func (m model) contextualHint() string {
+// globalKeys is the gray row: the actions available on every page, so their
+// position never changes as the Reviewer moves.
+func (m model) globalKeys() string {
+	if m.view == nil || !m.view.Posted {
+		return keybar("q quit")
+	}
+	return keybar(m.navHint(), "g Overview", "l list", "f finish", "q quit")
+}
+
+// modeKeys is the blue row: the actions available on the current page only. It
+// changes with the page — code selection on a Step, expansion on an
+// Acknowledgement — while the global row underneath stays put.
+func (m model) modeKeys() string {
+	if m.view == nil || !m.view.Posted {
+		return ""
+	}
+	if m.view.Position == 0 {
+		return keybar("enter begin", "↑/↓ scroll")
+	}
+	if m.expandedAck {
+		return keybar("x/<esc> collapse")
+	}
 	if !m.inStep() {
 		return ""
 	}
-	if m.expandedAck {
-		return "x/<esc> collapse the acknowledged code"
-	}
 	if m.cursor.sel >= 0 {
-		return "selecting — ↑/↓ extend · y copy · c comment · <esc> stop"
+		return keybar("↑/↓ extend", "y copy", "c comment", "<esc> stop selecting")
 	}
-	if _, ok := m.commentAtCursor(); ok {
-		return "e edit this comment"
+	var tokens []string
+	if len(m.cursor.lines) > 0 {
+		tokens = append(tokens, "↑/↓ move", "<space>/v select", "y copy", "c comment")
+		if _, ok := m.commentAtCursor(); ok {
+			tokens = append(tokens, "e edit")
+		}
 	}
 	if len(m.view.Step.Acknowledgements) > 0 {
-		return "x expand the acknowledged files"
+		tokens = append(tokens, "x expand")
 	}
-	return ""
+	return keybar(tokens...)
+}
+
+// noInteractionHint explains why selecting, commenting or anchoring is
+// unavailable on the current Step — expanded, acknowledged, or code-less.
+func (m model) noInteractionHint() string {
+	if m.expandedAck {
+		return "collapse with x first to select code"
+	}
+	if m.inStep() && len(m.view.Step.Acknowledgements) > 0 {
+		return "no code to select here — press x to expand the acknowledged files"
+	}
+	return "no readable code on this Step"
 }
 
 func (m model) noteView() string {
@@ -748,18 +806,6 @@ func (m model) coverageSuffix() string {
 	return fmt.Sprintf("  ·  %d/%d changed lines seen", c.Seen, c.Total)
 }
 
-func (m model) footer() string {
-	switch {
-	case m.view == nil || !m.view.Posted:
-		return "waiting for an agent to post a Walkthrough  ·  q quit"
-	case m.view.Position == 0:
-		return keybar("enter begin", m.navHint(), "↑/↓ scroll", "l list", "f finish", "q quit")
-	default:
-		return keybar("↑/↓ move", "<space>/v select", "y copy", "c comment",
-			m.navHint(), "g Overview", "l list", "f finish", "q quit")
-	}
-}
-
 const nbsp = "\u00a0"
 
 // keybar joins shortcut labels with a breakable separator, while the spaces
@@ -845,7 +891,7 @@ func (m model) step() string {
 	}
 
 	for _, excerpt := range step.Excerpts {
-		b.WriteString("\n" + dimSt.Render(fmt.Sprintf("── %s:%d–%d (%s side)", excerpt.File, excerpt.FirstLine, excerpt.LastLine, excerpt.Side)) + "\n")
+		b.WriteString("\n" + dimSt.Render(fmt.Sprintf("── %s:%d–%d (%s)", excerpt.File, excerpt.FirstLine, excerpt.LastLine, beforeAfter(excerpt.Side))) + "\n")
 		if excerpt.Problem != "" {
 			b.WriteString(warnSt.Render("  cannot show this Excerpt: ") + excerpt.Problem + "\n")
 			continue

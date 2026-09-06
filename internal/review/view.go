@@ -37,7 +37,17 @@ type AcknowledgedFile struct {
 	ChangedLines int
 	Opaque       OpaqueKind
 	OpaqueDetail string
+	// Change classifies what happened to the file, so a manifest can group by it:
+	// "added", "removed", "modified", or an OpaqueKind ("binary", "mode", "rename").
+	Change string
 }
+
+// Change classifications for a line-represented acknowledged file.
+const (
+	ChangeAdded    = "added"
+	ChangeRemoved  = "removed"
+	ChangeModified = "modified"
+)
 
 // AcknowledgementView is an Acknowledgement ready to draw: its reason and the
 // manifest of what it covers. It renders as a claim the Reviewer can weigh and
@@ -161,12 +171,36 @@ func (s *Session) acknowledgementView(ack Acknowledgement) AcknowledgementView {
 		if opaque, ok := s.ledger.opaqueFor(ack.Repository, file); ok {
 			entry.Opaque = opaque.Kind
 			entry.OpaqueDetail = opaque.Detail
+			entry.Change = string(opaque.Kind)
 		} else {
-			entry.ChangedLines = len(s.ledger.changedLinesFor(ack.Repository, file))
+			lines := s.ledger.changedLinesFor(ack.Repository, file)
+			entry.ChangedLines = len(lines)
+			entry.Change = classifyChange(lines)
 		}
 		view.Entries = append(view.Entries, entry)
 	}
 	return view
+}
+
+// classifyChange reads a file's Changed Lines as added (new side only), removed
+// (old side only), or modified (both) — what git saw happen to it.
+func classifyChange(lines []ChangedLine) string {
+	hasOld, hasNew := false, false
+	for _, line := range lines {
+		if line.Side == OldSide {
+			hasOld = true
+		} else {
+			hasNew = true
+		}
+	}
+	switch {
+	case hasOld && !hasNew:
+		return ChangeRemoved
+	case hasNew && !hasOld:
+		return ChangeAdded
+	default:
+		return ChangeModified
+	}
 }
 
 // ExpandAcknowledgement resolves an Acknowledgement into the Excerpts it stands

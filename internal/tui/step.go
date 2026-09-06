@@ -100,6 +100,19 @@ var (
 	commentSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}) // a line carrying a Change Request
 )
 
+// beforeAfter renders a Side for the Reviewer: "old"/"new" are git's words, but
+// "before"/"after" read more plainly on screen.
+func beforeAfter(side string) string {
+	switch side {
+	case "old":
+		return "before"
+	case "new":
+		return "after"
+	default:
+		return side
+	}
+}
+
 // truncateTo clips a plain (ANSI-free) string to w cells, marking the cut with an
 // ellipsis. Code lines are truncated rather than wrapped: a wrapped code line
 // throws off the terminal's line accounting and garbles the frame.
@@ -172,7 +185,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		line := cur.lines[i]
 		if line.excerpt != lastExcerpt {
 			e := step.Excerpts[line.excerpt]
-			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s side)", e.File, e.Side))+"\n")
+			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s)", e.File, beforeAfter(e.Side)))+"\n")
 			lastExcerpt = line.excerpt
 		}
 		sign := " "
@@ -221,27 +234,56 @@ func renderManifest(step *daemon.StepWire, width int) string {
 		}
 		return text
 	}
+	// Files are grouped by what git saw happen to them, so a mixed Acknowledgement
+	// reads as "these were regenerated, that one is binary" at a glance.
+	groups := []struct{ change, label string }{
+		{"modified", "modified"},
+		{"added", "added"},
+		{"removed", "removed"},
+		{"rename", "renamed"},
+		{"mode", "mode change"},
+		{"binary", "binary"},
+	}
+
 	var b bytes.Buffer
 	for _, ack := range step.Acknowledgements {
 		fmt.Fprint(&b, "\n"+labelSt.Render("Acknowledged")+dimSt.Render(" — mechanical, not read line by line")+"\n")
 		fmt.Fprint(&b, wrap(ack.Reason)+"\n")
-		for _, entry := range ack.Entries {
-			size := fmt.Sprintf("%d changed line(s)", entry.ChangedLines)
-			if entry.Opaque != "" {
-				size = entry.Opaque
-				if entry.OpaqueDetail != "" {
-					size = entry.OpaqueDetail
+		for _, g := range groups {
+			var entries []daemon.AcknowledgedFileWire
+			for _, entry := range ack.Entries {
+				if entry.Change == g.change {
+					entries = append(entries, entry)
 				}
 			}
-			fmt.Fprint(&b, dimSt.Render(fmt.Sprintf("  • %s  (%s)", entry.File, size))+"\n")
+			if len(entries) == 0 {
+				continue
+			}
+			fmt.Fprint(&b, "  "+dimSt.Render(g.label)+"\n")
+			for _, entry := range entries {
+				fmt.Fprint(&b, "    "+dimSt.Render("• "+entry.File+manifestSuffix(entry))+"\n")
+			}
 		}
 	}
 	fmt.Fprint(&b, "\n"+dimSt.Render("press x to expand into the actual code")+"\n")
 	return b.String()
 }
 
+// manifestSuffix is the trailing detail for a manifest entry: a line count for a
+// text file, or the extra detail of an Opaque Change beyond its group label.
+func manifestSuffix(entry daemon.AcknowledgedFileWire) string {
+	if entry.Opaque != "" {
+		if entry.OpaqueDetail != "" && entry.OpaqueDetail != "binary file" {
+			return "  ·  " + entry.OpaqueDetail
+		}
+		return ""
+	}
+	return fmt.Sprintf("  ·  %d line(s)", entry.ChangedLines)
+}
+
 // renderExpanded draws the code behind an Acknowledgement once the Reviewer calls
-// it — read-only, since the expansion is a look, not part of the plan. It is
+// it — read-only, since the expansion is a look, not part of the plan. Excerpts
+// are grouped by file under an orange header, then split into before/after; it is
 // capped to height rows so expanding a huge lockfile does not blow the frame.
 func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
 	var b bytes.Buffer
@@ -250,35 +292,106 @@ func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
 		fmt.Fprint(&b, "\n"+dimSt.Render("nothing to show")+"\n")
 		return b.String()
 	}
+
+	wrap := func(indent, text string) string {
+		if width > len(indent)+1 {
+			return lipgloss.NewStyle().Width(width).Render(indent + text)
+		}
+		return indent + text
+	}
+
+	// Group by file, preserving the order files first appear.
+	var order []string
+	byFile := map[string][]daemon.ExcerptWire{}
+	for _, e := range excerpts {
+		if _, seen := byFile[e.File]; !seen {
+			order = append(order, e.File)
+		}
+		byFile[e.File] = append(byFile[e.File], e)
+	}
+
 	shown, budget := 0, height
 	if budget < 4 {
 		budget = 4
 	}
-	for _, excerpt := range excerpts {
-		fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s side)", excerpt.File, excerpt.Side))+"\n")
-		if excerpt.Problem != "" {
-			fmt.Fprint(&b, warnSt.Render("  "+excerpt.File+": ")+excerpt.Problem+"\n")
+
+	for _, file := range order {
+		group := byFile[file]
+		fmt.Fprint(&b, "\n"+warnSt.Render("── "+file)+"\n")
+
+		hasBefore, hasAfter, opaque, opaqueNote := false, false, false, "opaque change"
+		for _, e := range group {
+			switch e.Side {
+			case "old":
+				hasBefore = true
+			case "new":
+				hasAfter = true
+			default: // an Opaque Change carries no side
+				opaque = true
+				opaqueNote = parenthetical(e.Problem, opaqueNote)
+			}
+		}
+
+		if opaque {
+			fmt.Fprint(&b, wrap("  ", dimSt.Render(opaqueNote))+"\n")
 			continue
 		}
-		for _, line := range excerpt.Lines {
-			if shown >= budget {
-				fmt.Fprint(&b, dimSt.Render("  … more not shown; collapse and use the Excerpts to review in full")+"\n")
-				return b.String()
-			}
-			sign := " "
-			if line.Changed {
-				sign = "+"
-				if excerpt.Side == "old" {
-					sign = "-"
+		if hasBefore && !hasAfter {
+			removed := 0
+			for _, e := range group {
+				if e.Side == "old" {
+					removed += e.LastLine - e.FirstLine + 1
 				}
 			}
-			text := strings.ReplaceAll(line.Text, "\t", "    ")
-			row := fmt.Sprintf(" %s %5d │ %s", sign, line.Number, text)
-			fmt.Fprint(&b, truncateTo(row, width)+"\n")
-			shown++
+			fmt.Fprint(&b, wrap("  ", dimSt.Render(fmt.Sprintf("file removed · %d line(s); the before-side lives in git history, not shown", removed)))+"\n")
+			continue
+		}
+
+		// before
+		fmt.Fprint(&b, "  "+dimSt.Render("before")+"\n")
+		if hasBefore {
+			fmt.Fprint(&b, wrap("    ", dimSt.Render("not shown — dbn reads only the working tree; the before-side lives in git history"))+"\n")
+		} else {
+			fmt.Fprint(&b, "    "+dimSt.Render("file added")+"\n")
+		}
+
+		// after
+		fmt.Fprint(&b, "  "+dimSt.Render("after")+"\n")
+		for _, e := range group {
+			if e.Side != "new" {
+				continue
+			}
+			for _, line := range e.Lines {
+				if shown >= budget {
+					fmt.Fprint(&b, "  "+dimSt.Render("… more not shown; collapse and read it as an Excerpt in full")+"\n")
+					return b.String()
+				}
+				sign := " "
+				if line.Changed {
+					sign = "+"
+				}
+				text := strings.ReplaceAll(line.Text, "\t", "    ")
+				row := fmt.Sprintf("    %s %5d │ %s", sign, line.Number, text)
+				fmt.Fprint(&b, truncateTo(row, width)+"\n")
+				shown++
+			}
 		}
 	}
 	return b.String()
+}
+
+// parenthetical returns the text between the first "(" and ")" in s, or fallback
+// if there is none — used to pull "binary file" out of an Opaque Change's note.
+func parenthetical(s, fallback string) string {
+	open := strings.IndexByte(s, '(')
+	if open < 0 {
+		return fallback
+	}
+	close := strings.IndexByte(s[open:], ')')
+	if close < 0 {
+		return fallback
+	}
+	return s[open+1 : open+close]
 }
 
 // composeAnchor asks the daemon for the paste-ready Anchor text of a selection.

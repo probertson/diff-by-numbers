@@ -32,6 +32,7 @@ type AcknowledgedFileWire struct {
 	ChangedLines int    `json:"changed_lines"`
 	Opaque       string `json:"opaque,omitempty"`
 	OpaqueDetail string `json:"opaque_detail,omitempty"`
+	Change       string `json:"change"`
 }
 
 type AcknowledgementWire struct {
@@ -152,6 +153,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 					ChangedLines: entry.ChangedLines,
 					Opaque:       string(entry.Opaque),
 					OpaqueDetail: entry.OpaqueDetail,
+					Change:       entry.Change,
 				})
 			}
 			step.Acknowledgements = append(step.Acknowledgements, ackWire)

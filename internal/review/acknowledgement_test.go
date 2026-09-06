@@ -182,6 +182,37 @@ func TestAnAcknowledgementRendersAsAManifestOfFilesAndCounts(t *testing.T) {
 	}
 }
 
+func TestManifestClassifiesWhatChangedPerFile(t *testing.T) {
+	walkthrough := validWalkthrough()
+	walkthrough.Steps = []review.Step{acknowledgingStep("mod.ts", "new.ts", "gone.ts", "logo.png")}
+	lines := []review.ChangedLine{
+		{File: "mod.ts", Side: review.OldSide, Line: 1},
+		{File: "mod.ts", Side: review.NewSide, Line: 1},
+		{File: "new.ts", Side: review.NewSide, Line: 1},
+		{File: "new.ts", Side: review.NewSide, Line: 2},
+		{File: "gone.ts", Side: review.OldSide, Line: 1},
+		{File: "gone.ts", Side: review.OldSide, Line: 2},
+	}
+	opaque := []review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary}}
+	session := sessionDerivingBoth(lines, opaque)
+	mustPost(t, session, walkthrough)
+	mustAdvance(t, session)
+
+	ack := session.View().Step.Acknowledgements[0]
+	want := map[string]string{
+		"mod.ts":   review.ChangeModified,
+		"new.ts":   review.ChangeAdded,
+		"gone.ts":  review.ChangeRemoved,
+		"logo.png": string(review.OpaqueBinary),
+	}
+	for file, expected := range want {
+		entry, ok := ackEntry(ack, file)
+		if !ok || entry.Change != expected {
+			t.Errorf("expected %s classified as %q, got %q (found=%v)", file, expected, entry.Change, ok)
+		}
+	}
+}
+
 func TestAnAcknowledgementExpandsIntoRealExcerpts(t *testing.T) {
 	walkthrough := validWalkthrough()
 	walkthrough.Steps = []review.Step{acknowledgingStep("package-lock.json")}
