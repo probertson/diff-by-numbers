@@ -7,9 +7,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
+	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/git"
 	"github.com/probertson/diff-by-numbers/internal/review"
@@ -32,14 +37,88 @@ func New() *Daemon {
 }
 
 // Serve listens on the loopback interface only. A review surface has no reason
-// to be reachable from the network.
+// to be reachable from the network. It runs until q is pressed (when a terminal
+// is attached) or an interrupt/terminate signal arrives, then shuts down cleanly.
 func (d *Daemon) Serve(port int) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return fmt.Errorf("dbn could not listen on port %d: %w", port, err)
 	}
+
+	server := &http.Server{Handler: d.Handler()}
+
+	quit := make(chan struct{})
+	var once sync.Once
+	signalQuit := func() { once.Do(func() { close(quit) }) }
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		signalQuit()
+	}()
+
+	// With a terminal attached, offer a single-key q. Raw mode disables the
+	// kernel's Ctrl-C, so watch for it explicitly. Headless (launchd, a pipe),
+	// there is no keyboard and the signal handler is the only way out.
 	fmt.Printf("dbn listening on http://127.0.0.1:%d (MCP at /mcp)\n", port)
-	return http.Serve(listener, d.Handler())
+	if term.IsTerminal(os.Stdin.Fd()) {
+		// Bold the key so the quit hint stands out on its own line. Safe here:
+		// this branch only runs with a terminal attached.
+		const bold, reset = "\033[1m", "\033[0m"
+		fmt.Printf("press %sq%s to quit\n", bold, reset)
+		if restore, err := watchForQuitKey(signalQuit); err == nil {
+			defer restore()
+		}
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
+	}()
+
+	select {
+	case err := <-serveErr:
+		return err
+	case <-quit:
+	}
+
+	fmt.Print("\rdbn shutting down\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return server.Shutdown(ctx)
+}
+
+// watchForQuitKey puts the terminal in raw mode and quits when q (or Ctrl-C,
+// which raw mode would otherwise swallow) is pressed. It returns a function that
+// restores the terminal, to be deferred by the caller.
+func watchForQuitKey(onQuit func()) (func(), error) {
+	fd := os.Stdin.Fd()
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return func() {}, err
+	}
+	restore := func() { _ = term.Restore(fd, state) }
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil {
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			switch buf[0] {
+			case 'q', 'Q', 0x03: // q or Ctrl-C
+				onQuit()
+				return
+			}
+		}
+	}()
+	return restore, nil
 }
 
 // Handler is the daemon's HTTP surface: MCP at /mcp, plus the Reviewer's own
