@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A macOS LaunchAgent that keeps `dbn serve` running for your login session, so
+  the dbn MCP server is always there and no agent session reports a failed MCP
+  server. See the README (Always-on daemon) for install steps.
+
+  Replace /usr/local/bin/dbn with the path to your dbn binary (`which dbn`).
+  Launched this way there is no terminal attached, so the daemon exits on a
+  signal rather than a keypress, and launchd restarts it (KeepAlive).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.probertson.dbn</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/dbn</string>
+    <string>serve</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/dbn.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/dbn.err.log</string>
+</dict>
+</plist>
