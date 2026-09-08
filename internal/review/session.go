@@ -38,9 +38,10 @@ type Session struct {
 	// Walkthrough was accepted, so a Step whose file later changes can refuse to
 	// show code beneath an explanation that has stopped describing it.
 	hashes map[fileRef]string
-	// priorContent holds the content of the previous round's Changed Lines, so a
-	// Revision Round can tell what has since moved (ADR-0007).
-	priorContent map[contentKey]bool
+	// priorContent counts the previous round's Changed Lines by content, so a
+	// Revision Round can tell what has since moved — and pre-mark only content
+	// unique enough to match to a line (ADR-0007).
+	priorContent map[contentKey]int
 	// preShown marks the current round's Changed Lines that were unchanged since
 	// the previous round: already reviewed, and counted as seen from the start.
 	preShown map[ChangedLine]bool

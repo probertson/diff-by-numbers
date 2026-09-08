@@ -764,7 +764,11 @@ func (m model) listView() string {
 		if i == m.crCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		b.WriteString(fmt.Sprintf("%sStep %d  %s\n", cursor, cr.Step, dimSt.Render(cr.Location)))
+		where := fmt.Sprintf("Step %d", cr.Step)
+		if cr.Step == 0 {
+			where = "re-raised" // carried over from a previous round, not tied to a current Step
+		}
+		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(cr.Location)))
 		for _, line := range strings.Split(strings.TrimRight(cr.Anchor, "\n"), "\n") {
 			b.WriteString("     " + dimSt.Render(line) + "\n")
 		}

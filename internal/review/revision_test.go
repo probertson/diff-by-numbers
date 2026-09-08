@@ -219,9 +219,35 @@ func TestADeclinedChangeRequestCanBeReRaised(t *testing.T) {
 	if cr.Note != "please fix line 2" {
 		t.Errorf("expected the re-raised note carried over, got %q", cr.Note)
 	}
+	// The previous round's Step number means nothing in this round; the re-raised
+	// request is not tied to a current Step, so it cannot flag the wrong one.
+	if cr.Step != 0 {
+		t.Errorf("expected a re-raised Change Request not to claim a current Step, got Step %d", cr.Step)
+	}
 	if len(session.ChangeRequests()) != 1 {
 		t.Errorf("expected the re-raised Change Request to stand in the new round, got %d", len(session.ChangeRequests()))
 	}
+}
+
+func TestDuplicateContentIsNotPreMarkedSoNewLinesCannotEscape(t *testing.T) {
+	deriver := &roundDeriver{lines: changedApp(1, 2)}
+	resolver := &textResolver{text: map[string]string{"app.ts:1": "}", "app.ts:2": "keep"}}
+	session := review.NewSession(resolver, deriver)
+	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
+	if err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The fix adds a brand-new line 3 whose text collides with line 1's "}".
+	deriver.lines = changedApp(1, 3)
+	resolver.text["app.ts:3"] = "}"
+
+	// The new line 3 must not be pre-marked off the back of the old "}": a plan
+	// that omits it is rejected. (Under content-only matching it would escape.)
+	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
+
+	assertRejected(t, err, review.RejectedUncoveredChanges)
+	assertDetailContains(t, err, "3")
 }
 
 func TestOnlyADeclinedChangeRequestCanBeReRaised(t *testing.T) {

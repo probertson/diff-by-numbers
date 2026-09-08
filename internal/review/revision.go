@@ -85,26 +85,37 @@ func (s *Session) resolveChangedTexts(l ledger) map[ChangedLine]string {
 	return out
 }
 
-// captureContent records the content of the round's Changed Lines, so the next
-// Revision Round can tell what has since moved.
-func (s *Session) captureContent(l ledger) map[contentKey]bool {
-	out := map[contentKey]bool{}
+// captureContent counts how many of the round's Changed Lines carry each content,
+// so the next Revision Round can tell what has since moved. It is a count, not a
+// set, because pre-marking is only safe for content that is unique.
+func (s *Session) captureContent(l ledger) map[contentKey]int {
+	out := map[contentKey]int{}
 	for line, text := range s.resolveChangedTexts(l) {
-		out[contentKey{line.Repository, line.File, line.Side, text}] = true
+		out[contentKey{line.Repository, line.File, line.Side, text}]++
 	}
 	return out
 }
 
-// preMarkUnchanged returns the Changed Lines of a Revision Round whose content
-// matches a Changed Line of the previous round: already reviewed, so pre-marked
-// as shown. The Coverage Ledger is then left pointing at exactly what moved.
+// preMarkUnchanged returns the Changed Lines of a Revision Round already reviewed
+// in the previous round, so the Coverage Ledger is left pointing at what moved. A
+// line is pre-marked only when its content is unique in both rounds: content that
+// appears more than once cannot be matched to a specific line, so a genuinely new
+// line whose text collides with an old one must not be allowed to escape coverage.
 func (s *Session) preMarkUnchanged(l ledger) map[ChangedLine]bool {
 	if len(s.priorContent) == 0 {
 		return nil
 	}
+	texts := s.resolveChangedTexts(l)
+
+	currentCount := map[contentKey]int{}
+	for line, text := range texts {
+		currentCount[contentKey{line.Repository, line.File, line.Side, text}]++
+	}
+
 	preShown := map[ChangedLine]bool{}
-	for line, text := range s.resolveChangedTexts(l) {
-		if s.priorContent[contentKey{line.Repository, line.File, line.Side, text}] {
+	for line, text := range texts {
+		key := contentKey{line.Repository, line.File, line.Side, text}
+		if s.priorContent[key] == 1 && currentCount[key] == 1 {
 			preShown[line] = true
 		}
 	}
@@ -183,9 +194,12 @@ func (s *Session) ReRaise(changeRequestID int) (ChangeRequest, error) {
 				"Change Request %d was addressed, not declined; only a declined one can be re-raised", changeRequestID)
 		}
 		s.nextCRID++
+		// Step is left 0: the previous round's Step number means nothing in this
+		// round, whose Steps are authored afresh. The Anchor carries the location,
+		// and it is self-contained. Step 0 keeps it from flagging the wrong Step.
 		cr := ChangeRequest{
 			ID:     s.nextCRID,
-			Step:   disposition.ChangeRequest.Step,
+			Step:   0,
 			Anchor: disposition.ChangeRequest.Anchor,
 			Note:   disposition.ChangeRequest.Note,
 		}
