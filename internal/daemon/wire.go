@@ -51,10 +51,17 @@ type wireRepository struct {
 	Range string `json:"range" jsonschema:"The range under review in this repository"`
 }
 
+type wireDisposition struct {
+	ChangeRequestID int    `json:"change_request_id" jsonschema:"The id of a Change Request from the previous round this accounts for"`
+	Status          string `json:"status" jsonschema:"'addressed' if you made the change, 'declined' if you did not"`
+	Reasoning       string `json:"reasoning,omitempty" jsonschema:"Why you declined, in one line. Required when status is 'declined': the Reviewer sees it before any code and may re-raise the request"`
+}
+
 type wireWalkthrough struct {
-	Brief        wireBrief        `json:"brief"`
-	Repositories []wireRepository `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
-	Steps        []wireStep       `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
+	Brief        wireBrief         `json:"brief"`
+	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
+	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
+	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a finish, one entry per Change Request the previous round raised, saying whether you addressed or declined it. Omit for a first Walkthrough"`
 }
 
 type postResult struct {
@@ -122,6 +129,15 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 		})
 	}
 
+	dispositions := make([]review.Disposition, 0, len(w.Dispositions))
+	for _, d := range w.Dispositions {
+		dispositions = append(dispositions, review.Disposition{
+			ChangeRequestID: d.ChangeRequestID,
+			Status:          review.DispositionStatus(d.Status),
+			Reasoning:       d.Reasoning,
+		})
+	}
+
 	return review.Walkthrough{
 		Brief: review.Brief{
 			Ask:      w.Brief.Ask,
@@ -131,8 +147,9 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 				Citation: w.Brief.Provenance.Citation,
 			},
 		},
-		ChangeSet: review.ChangeSet{Repositories: repositories},
-		Steps:     steps,
+		ChangeSet:    review.ChangeSet{Repositories: repositories},
+		Steps:        steps,
+		Dispositions: dispositions,
 	}
 }
 

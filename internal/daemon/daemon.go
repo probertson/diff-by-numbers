@@ -202,6 +202,22 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /finish", d.navHandler(func() error { return d.session.Finish() }))
 	mux.HandleFunc("POST /reopen", d.navHandler(func() error { return d.session.Reopen() }))
 
+	mux.HandleFunc("POST /reraise/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "id must be a number", http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		_, err = d.session.ReRaise(id)
+		d.mu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+
 	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ExcerptIndex int `json:"excerpt_index"`
@@ -356,6 +372,8 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 
 	message := "no Walkthrough is posted; post one before asking how the review went"
 	switch {
+	case results.Posted && results.Finished && len(results.ChangeRequests) == 0:
+		message = "the Reviewer finished and raised nothing — the review is complete; there is no Revision Round to post"
 	case results.Posted && results.Finished:
 		message = "the Reviewer has finished; work the Change Requests below, then post a Revision Round"
 	case results.Posted:

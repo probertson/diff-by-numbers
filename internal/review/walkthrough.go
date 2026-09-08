@@ -97,6 +97,9 @@ type Walkthrough struct {
 	Brief     Brief
 	ChangeSet ChangeSet
 	Steps     []Step
+	// Dispositions accounts for the previous round's Change Requests when this
+	// Walkthrough is a Revision Round. It is empty for a first Walkthrough.
+	Dispositions []Disposition
 }
 
 // contains reports whether the Change Set includes the given repository root.

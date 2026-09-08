@@ -68,6 +68,14 @@ type CoverageWire struct {
 	Total int `json:"total"`
 }
 
+type DispositionWire struct {
+	ChangeRequestID int    `json:"change_request_id"`
+	Status          string `json:"status"`
+	Reasoning       string `json:"reasoning,omitempty"`
+	Note            string `json:"note"`
+	Location        string `json:"location"`
+}
+
 type ViewWire struct {
 	Posted         bool                `json:"posted"`
 	Brief          BriefWire           `json:"brief"`
@@ -81,6 +89,7 @@ type ViewWire struct {
 	StepStatuses   []string            `json:"step_statuses"`
 	ChangeRequests []ChangeRequestWire `json:"change_requests"`
 	Finished       bool                `json:"finished"`
+	Dispositions   []DispositionWire   `json:"dispositions,omitempty"`
 }
 
 type ChangeRequestWire struct {
@@ -124,6 +133,16 @@ func toViewWire(v review.ViewModel) ViewWire {
 	}
 	for _, repository := range v.Repositories {
 		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})
+	}
+	for _, disposition := range v.Dispositions {
+		cr := disposition.ChangeRequest
+		wire.Dispositions = append(wire.Dispositions, DispositionWire{
+			ChangeRequestID: cr.ID,
+			Status:          string(disposition.Status),
+			Reasoning:       disposition.Reasoning,
+			Note:            cr.Note,
+			Location:        fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
+		})
 	}
 	if v.Step != nil {
 		step := StepWire{

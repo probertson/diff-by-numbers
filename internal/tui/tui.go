@@ -66,6 +66,15 @@ func (c client) reopen() {
 	c.intent("/reopen")
 }
 
+func (c client) reraise(id int) bool {
+	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "text/plain", nil)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
 type refreshMsg struct {
 	view *daemon.ViewWire
 	err  error
@@ -74,24 +83,25 @@ type refreshMsg struct {
 type tickMsg struct{}
 
 type model struct {
-	client      client
-	view        *daemon.ViewWire
-	lostErr     error
-	viewport    viewport.Model
-	cursor      stepCursor
-	status      string
-	mode        mode
-	note        textarea.Model
-	crCursor    int      // selected row in the change-request list
-	pendingSel  [3]int   // excerpt, first, last awaiting a note
-	pendingCode string   // the code being commented on, shown above the note input
-	editingID   int      // >0 when editing an existing Change Request rather than adding
-	crFilter    crFilter // when active, the List shows only comments on one line
-	expandedAck bool     // showing the code behind this Step's Acknowledgements
-	expanded    []daemon.ExcerptWire
-	width       int
-	height      int
-	ready       bool
+	client        client
+	view          *daemon.ViewWire
+	lostErr       error
+	viewport      viewport.Model
+	cursor        stepCursor
+	status        string
+	mode          mode
+	note          textarea.Model
+	crCursor      int      // selected row in the change-request list
+	pendingSel    [3]int   // excerpt, first, last awaiting a note
+	pendingCode   string   // the code being commented on, shown above the note input
+	editingID     int      // >0 when editing an existing Change Request rather than adding
+	crFilter      crFilter // when active, the List shows only comments on one line
+	reraiseCursor int      // selected row among declined dispositions
+	expandedAck   bool     // showing the code behind this Step's Acknowledgements
+	expanded      []daemon.ExcerptWire
+	width         int
+	height        int
+	ready         bool
 }
 
 type crFilter struct {
@@ -103,10 +113,11 @@ type crFilter struct {
 type mode int
 
 const (
-	modeReview mode = iota // walking Steps
-	modeNote               // typing a Change Request note
-	modeList               // the Change Request list
-	modeDone               // the finish summary
+	modeReview  mode = iota // walking Steps
+	modeNote                // typing a Change Request note
+	modeList                // the Change Request list
+	modeDone                // the finish summary
+	modeReraise             // choosing a declined request to re-raise
 )
 
 func (m *model) inStep() bool {
@@ -265,6 +276,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNote(msg)
 		case modeList:
 			return m.updateList(key)
+		case modeReraise:
+			return m.updateReraise(key)
 		case modeDone:
 			switch key {
 			case "q", "ctrl+c":
@@ -307,6 +320,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.crFilter = crFilter{}
 			m.mode = modeList
 			m.crCursor = 0
+			return m, nil
+		case "R":
+			if len(m.declinedDispositions()) == 0 {
+				m.status = "no declined requests to re-raise"
+				return m, nil
+			}
+			m.reraiseCursor = 0
+			m.mode = modeReraise
 			return m, nil
 		case "f", "F":
 			m.client.intent("/finish")
@@ -532,6 +553,53 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
+	declined := m.declinedDispositions()
+	switch key {
+	case "esc", "q", "R":
+		m.mode = modeReview
+		return m, nil
+	case "up", "k":
+		if m.reraiseCursor > 0 {
+			m.reraiseCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.reraiseCursor < len(declined)-1 {
+			m.reraiseCursor++
+		}
+		return m, nil
+	case "enter":
+		if m.reraiseCursor < len(declined) {
+			disposition := declined[m.reraiseCursor]
+			if m.client.reraise(disposition.ChangeRequestID) {
+				m.status = fmt.Sprintf("re-raised request #%d — it stands again this round", disposition.ChangeRequestID)
+			} else {
+				m.status = "could not re-raise the request"
+			}
+			m.mode = modeReview
+			return m, m.refresh()
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// declinedDispositions is the subset of the previous round's Change Requests the
+// agent declined — the ones the Reviewer may re-raise.
+func (m model) declinedDispositions() []daemon.DispositionWire {
+	if m.view == nil {
+		return nil
+	}
+	var out []daemon.DispositionWire
+	for _, disposition := range m.view.Dispositions {
+		if disposition.Status == "declined" {
+			out = append(out, disposition)
+		}
+	}
+	return out
+}
+
 var (
 	subtle   = lipgloss.AdaptiveColor{Light: "#6b6b6b", Dark: "#9a9a9a"}
 	accent   = lipgloss.AdaptiveColor{Light: "#005f87", Dark: "#5fd7ff"}
@@ -559,6 +627,9 @@ func (m model) View() string {
 	case modeList:
 		body = m.listView()
 		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "<esc> back")
+	case modeReraise:
+		body = m.reraiseView()
+		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeDone:
 		body = m.doneView()
 		persistent = keybar("r reopen", "q quit")
@@ -625,7 +696,11 @@ func (m model) modeKeys() string {
 		return ""
 	}
 	if m.view.Position == 0 {
-		return keybar("enter begin", "↑/↓ scroll")
+		tokens := []string{"enter begin", "↑/↓ scroll"}
+		if len(m.declinedDispositions()) > 0 {
+			tokens = append(tokens, "R re-raise a decline")
+		}
+		return keybar(tokens...)
 	}
 	if m.expandedAck {
 		return keybar("x/<esc> collapse")
@@ -694,6 +769,25 @@ func (m model) listView() string {
 			b.WriteString("     " + dimSt.Render(line) + "\n")
 		}
 		b.WriteString("     " + cr.Note + "\n\n")
+	}
+	return b.String()
+}
+
+func (m model) reraiseView() string {
+	declined := m.declinedDispositions()
+	if len(declined) == 0 {
+		return dimSt.Render("No declined requests to re-raise.")
+	}
+	var b strings.Builder
+	b.WriteString(labelSt.Render("Re-raise a declined request") + "\n\n")
+	for i, disposition := range declined {
+		cursor := "  "
+		if i == m.reraiseCursor {
+			cursor = accentSt.Render("▸ ")
+		}
+		b.WriteString(fmt.Sprintf("%s#%d  %s\n", cursor, disposition.ChangeRequestID, dimSt.Render(disposition.Location)))
+		b.WriteString("     " + dimSt.Render("you asked: ") + disposition.Note + "\n")
+		b.WriteString("     " + dimSt.Render("agent declined: ") + disposition.Reasoning + "\n\n")
 	}
 	return b.String()
 }
@@ -867,6 +961,24 @@ func (m model) brief() string {
 		b.WriteString("stated — " + brief.ProvenanceCitation + "\n\n")
 	} else {
 		b.WriteString(warnSt.Render("inferred") + " — reverse-engineered from the changes; trust the narrative accordingly\n\n")
+	}
+
+	if len(m.view.Dispositions) > 0 {
+		b.WriteString(labelSt.Render("Since the last round") + "\n")
+		for _, disposition := range m.view.Dispositions {
+			if disposition.Status == "declined" {
+				b.WriteString(warnSt.Render("  ✗ declined") + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.ChangeRequestID, disposition.Location)) + "\n")
+				b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
+				b.WriteString("      " + dimSt.Render("agent: ") + wrap(disposition.Reasoning) + "\n")
+			} else {
+				b.WriteString(addSt.Render("  ✓ addressed") + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.ChangeRequestID, disposition.Location)) + "\n")
+				b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
+			}
+		}
+		if len(m.declinedDispositions()) > 0 {
+			b.WriteString("\n" + dimSt.Render("  press R to re-raise a declined request") + "\n")
+		}
+		b.WriteString("\n")
 	}
 
 	b.WriteString(labelSt.Render("Under review") + "\n")

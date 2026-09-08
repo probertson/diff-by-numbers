@@ -38,6 +38,15 @@ type Session struct {
 	// Walkthrough was accepted, so a Step whose file later changes can refuse to
 	// show code beneath an explanation that has stopped describing it.
 	hashes map[fileRef]string
+	// priorContent holds the content of the previous round's Changed Lines, so a
+	// Revision Round can tell what has since moved (ADR-0007).
+	priorContent map[contentKey]bool
+	// preShown marks the current round's Changed Lines that were unchanged since
+	// the previous round: already reviewed, and counted as seen from the start.
+	preShown map[ChangedLine]bool
+	// dispositions accounts for the previous round's Change Requests in a Revision
+	// Round, for display before any code.
+	dispositions []ResolvedDisposition
 }
 
 // NewSession returns a Session with no Walkthrough posted. The resolver turns
@@ -47,14 +56,32 @@ func NewSession(resolver Resolver, deriver Deriver) *Session {
 	return &Session{resolver: resolver, deriver: deriver}
 }
 
-// Post submits a Walkthrough for review.
+// Post submits a Walkthrough for review. Posting after the previous Walkthrough
+// finished is a Revision Round: it re-derives the full Change Set, pre-marks what
+// is unchanged, and must account for the previous round's Change Requests.
 func (s *Session) Post(w Walkthrough) error {
-	if s.walkthrough != nil {
+	revision := s.walkthrough != nil && s.finished
+	if s.walkthrough != nil && !s.finished {
 		return reject(RejectedWalkthroughActive,
 			"a Walkthrough is already under review; finish or abandon it first")
 	}
 	if rejection := validate(w); rejection != nil {
 		return rejection
+	}
+
+	// Dispositions account for the previous round's Change Requests. Resolve them
+	// before any state is reset, while the previous round's Change Requests still
+	// stand.
+	var dispositions []ResolvedDisposition
+	if revision {
+		resolved, rejection := s.resolveDispositions(w.Dispositions)
+		if rejection != nil {
+			return rejection
+		}
+		dispositions = resolved
+	} else if len(w.Dispositions) > 0 {
+		return reject(RejectedMalformedDisposition,
+			"this is the first Walkthrough; there are no Change Requests to dispose of")
 	}
 
 	// Derive what git says changed, then hold the plan to it. Order matters:
@@ -68,13 +95,22 @@ func (s *Session) Post(w Walkthrough) error {
 	if rejection := validateNewSideResolves(w.Steps, s.resolver); rejection != nil {
 		return rejection
 	}
+
+	// In a Revision Round, a Changed Line whose content is unchanged since the
+	// previous round is pre-marked as shown, so coverage is enforced over what
+	// actually moved.
+	var preShown map[ChangedLine]bool
+	if revision {
+		preShown = s.preMarkUnchanged(ledger)
+	}
+
 	if rejection := ledger.validateBudget(w.Steps); rejection != nil {
 		return rejection
 	}
 	if rejection := ledger.validateAcknowledgements(w.Steps); rejection != nil {
 		return rejection
 	}
-	if rejection := ledger.validateCoverage(w.Steps); rejection != nil {
+	if rejection := ledger.validateCoverage(w.Steps, preShown); rejection != nil {
 		return rejection
 	}
 
@@ -86,6 +122,9 @@ func (s *Session) Post(w Walkthrough) error {
 	s.nextCRID = 0
 	s.finished = false
 	s.hashes = s.hashExcerptFiles(w.Steps)
+	s.preShown = preShown
+	s.dispositions = dispositions
+	s.priorContent = s.captureContent(ledger)
 	return nil
 }
 

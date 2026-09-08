@@ -47,6 +47,9 @@ const (
 	// RejectedStaleContent means a file changed since the Walkthrough was accepted,
 	// so its Excerpt can no longer be trusted to match the explanation.
 	RejectedStaleContent RejectionReason = "stale_content"
+	// RejectedMalformedDisposition means a Revision Round does not account for the
+	// previous round's Change Requests correctly.
+	RejectedMalformedDisposition RejectionReason = "malformed_disposition"
 )
 
 // Rejection is a refusal that names its cause.

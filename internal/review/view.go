@@ -98,6 +98,9 @@ type ViewModel struct {
 	StepStatuses   []StepStatus
 	ChangeRequests []ChangeRequest
 	Finished       bool
+	// Dispositions accounts for the previous round's Change Requests in a Revision
+	// Round — shown before any code, so a decline is seen before the fix.
+	Dispositions []ResolvedDisposition
 }
 
 // View reports what should be on screen right now.
@@ -120,13 +123,14 @@ func (s *Session) View() ViewModel {
 		Position:     s.position,
 		Repositories: w.ChangeSet.Repositories,
 		Coverage: Coverage{
-			Seen:  s.ledger.seenBy(w.Steps, s.position),
+			Seen:  s.ledger.seenBy(w.Steps, s.position, s.preShown),
 			Total: s.ledger.total(),
 		},
 		Seen:           s.seenFlags(),
 		StepStatuses:   s.stepStatuses(),
 		ChangeRequests: s.ChangeRequests(),
 		Finished:       s.finished,
+		Dispositions:   s.Dispositions(),
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)
