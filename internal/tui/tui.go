@@ -113,6 +113,12 @@ func (m *model) inStep() bool {
 	return m.view != nil && m.view.Posted && m.view.Position > 0 && m.view.Step != nil
 }
 
+// multiRepo reports whether the Walkthrough spans more than one repository, so
+// the UI can label files with their repository only when it is ambiguous.
+func (m *model) multiRepo() bool {
+	return m.view != nil && len(m.view.Repositories) > 1
+}
+
 // syncCursor rebuilds the selection cursor when the Step in view changes.
 func (m *model) syncCursor() {
 	if m.inStep() {
@@ -558,9 +564,9 @@ func (m model) View() string {
 		persistent = keybar("r reopen", "q quit")
 	default:
 		if m.inStep() && m.expandedAck {
-			body = renderExpanded(m.expanded, m.width, m.bodyHeight())
+			body = renderExpanded(m.expanded, m.width, m.bodyHeight(), m.multiRepo())
 		} else if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight())
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight(), m.multiRepo())
 		} else {
 			body = m.viewport.View()
 		}

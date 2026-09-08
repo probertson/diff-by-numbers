@@ -5,11 +5,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
+
+// fileLabel names a file for a Step header or manifest. When a Walkthrough spans
+// more than one repository the file alone is ambiguous, so it is prefixed with
+// the repository's base name; with a single repository that would be noise.
+func fileLabel(repository, file string, showRepo bool) string {
+	if showRepo {
+		return "[" + filepath.Base(repository) + "] " + file
+	}
+	return file
+}
 
 // codeLine is one selectable line of a Step: which Excerpt it belongs to, its
 // file line number, and its text. Selection works within a single Excerpt.
@@ -133,7 +144,7 @@ func truncateTo(s string, w int) string {
 // renderStep draws the Step with the cursor and selection, windowed to height
 // rows so a long Step stays navigable, and every row clipped to width so nothing
 // overflows the terminal.
-func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, width, height int) string {
+func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, width, height int, showRepo bool) string {
 	wrap := func(text string) string {
 		if width > 1 {
 			return lipgloss.NewStyle().Width(width).Render(text)
@@ -158,7 +169,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 
 	if len(cur.lines) == 0 {
 		// An Acknowledgement-only Step: no code lines, just the manifest.
-		fmt.Fprint(&b, renderManifest(step, width))
+		fmt.Fprint(&b, renderManifest(step, width, showRepo))
 		return b.String()
 	}
 
@@ -185,7 +196,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		line := cur.lines[i]
 		if line.excerpt != lastExcerpt {
 			e := step.Excerpts[line.excerpt]
-			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s)", e.File, beforeAfter(e.Side)))+"\n")
+			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s)", fileLabel(e.Repository, e.File, showRepo), beforeAfter(e.Side)))+"\n")
 			lastExcerpt = line.excerpt
 		}
 		sign := " "
@@ -219,7 +230,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		}
 	}
 	if len(step.Acknowledgements) > 0 {
-		fmt.Fprint(&b, renderManifest(step, width))
+		fmt.Fprint(&b, renderManifest(step, width, showRepo))
 	}
 	return b.String()
 }
@@ -227,7 +238,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 // renderManifest draws a Step's Acknowledgements as what they are: a claim the
 // Reviewer can weigh and call. Each names its reason and the files it stands in
 // for, with the size of what it skips — so a bulk claim is never invisible.
-func renderManifest(step *daemon.StepWire, width int) string {
+func renderManifest(step *daemon.StepWire, width int, showRepo bool) string {
 	wrap := func(text string) string {
 		if width > 1 {
 			return lipgloss.NewStyle().Width(width).Render(text)
@@ -261,7 +272,7 @@ func renderManifest(step *daemon.StepWire, width int) string {
 			}
 			fmt.Fprint(&b, "  "+dimSt.Render(g.label)+"\n")
 			for _, entry := range entries {
-				fmt.Fprint(&b, "    "+dimSt.Render("• "+entry.File+manifestSuffix(entry))+"\n")
+				fmt.Fprint(&b, "    "+dimSt.Render("• "+fileLabel(entry.Repository, entry.File, showRepo)+manifestSuffix(entry))+"\n")
 			}
 		}
 	}
@@ -285,7 +296,7 @@ func manifestSuffix(entry daemon.AcknowledgedFileWire) string {
 // it — read-only, since the expansion is a look, not part of the plan. Excerpts
 // are grouped by file under an orange header, then split into before/after; it is
 // capped to height rows so expanding a huge lockfile does not blow the frame.
-func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
+func renderExpanded(excerpts []daemon.ExcerptWire, width, height int, showRepo bool) string {
 	var b bytes.Buffer
 	fmt.Fprint(&b, labelSt.Render("Expanded")+dimSt.Render(" — the acknowledged code (x to collapse)")+"\n")
 	if len(excerpts) == 0 {
@@ -300,14 +311,17 @@ func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
 		return indent + text
 	}
 
-	// Group by file, preserving the order files first appear.
-	var order []string
-	byFile := map[string][]daemon.ExcerptWire{}
+	// Group by repository+file, preserving first-seen order. The key includes the
+	// repository so two repos with a same-named file are not merged into one.
+	type fileKey struct{ repository, file string }
+	var order []fileKey
+	byFile := map[fileKey][]daemon.ExcerptWire{}
 	for _, e := range excerpts {
-		if _, seen := byFile[e.File]; !seen {
-			order = append(order, e.File)
+		key := fileKey{e.Repository, e.File}
+		if _, seen := byFile[key]; !seen {
+			order = append(order, key)
 		}
-		byFile[e.File] = append(byFile[e.File], e)
+		byFile[key] = append(byFile[key], e)
 	}
 
 	shown, budget := 0, height
@@ -315,9 +329,9 @@ func renderExpanded(excerpts []daemon.ExcerptWire, width, height int) string {
 		budget = 4
 	}
 
-	for _, file := range order {
-		group := byFile[file]
-		fmt.Fprint(&b, "\n"+warnSt.Render("── "+file)+"\n")
+	for _, key := range order {
+		group := byFile[key]
+		fmt.Fprint(&b, "\n"+warnSt.Render("── "+fileLabel(key.repository, key.file, showRepo))+"\n")
 
 		hasBefore, hasAfter, opaque, opaqueNote := false, false, false, "opaque change"
 		for _, e := range group {
