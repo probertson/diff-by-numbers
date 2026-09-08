@@ -157,6 +157,16 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		fmt.Fprint(&b, "\n"+warnSt.Render("oversized: ")+wrap(step.OversizeJustification)+"\n")
 	}
 
+	if step.Stale {
+		fmt.Fprint(&b, "\n"+warnSt.Render("⚠ out of date")+"\n")
+		fmt.Fprint(&b, wrap("These files changed since the review began, so the code no longer matches the explanation:")+"\n")
+		for _, file := range step.StaleFiles {
+			fmt.Fprint(&b, dimSt.Render("  • "+file)+"\n")
+		}
+		fmt.Fprint(&b, "\n"+wrap(dimSt.Render("Ask the agent to re-plan — post a fresh Walkthrough — so this Step describes what is now on disk."))+"\n")
+		return b.String()
+	}
+
 	if len(cur.lines) == 0 && len(step.Acknowledgements) == 0 {
 		fmt.Fprint(&b, "\n"+dimSt.Render("no readable code in this Step")+"\n")
 		for _, e := range step.Excerpts {

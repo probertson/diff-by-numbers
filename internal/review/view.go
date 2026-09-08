@@ -65,6 +65,11 @@ type StepView struct {
 	OversizeJustification string
 	Excerpts              []ExcerptView
 	Acknowledgements      []AcknowledgementView
+	// Stale is set when a file this Step reads has changed since the Walkthrough
+	// was accepted; StaleFiles names them. A stale Step shows no code — the
+	// explanation can no longer be trusted to describe what is on disk.
+	Stale      bool
+	StaleFiles []string
 }
 
 // Coverage is the live progress the Reviewer sees: how many Changed Lines the
@@ -131,6 +136,18 @@ func (s *Session) View() ViewModel {
 
 func (s *Session) stepView(position int) *StepView {
 	step := s.walkthrough.Steps[position-1]
+	// A Step whose files have changed refuses to render: showing code beneath an
+	// explanation that no longer describes it is the worst thing this tool could
+	// do. The blast radius is only this Step — others render normally.
+	if stale := s.staleFiles(step); len(stale) > 0 {
+		return &StepView{
+			Number:      position,
+			Name:        step.Name,
+			Explanation: step.Explanation,
+			Stale:       true,
+			StaleFiles:  stale,
+		}
+	}
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
 	for _, excerpt := range step.Excerpts {
 		excerpts = append(excerpts, s.resolveExcerpt(excerpt))

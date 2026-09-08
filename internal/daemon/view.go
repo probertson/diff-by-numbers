@@ -47,6 +47,8 @@ type StepWire struct {
 	OversizeJustification string                `json:"oversize_justification,omitempty"`
 	Excerpts              []ExcerptWire         `json:"excerpts"`
 	Acknowledgements      []AcknowledgementWire `json:"acknowledgements,omitempty"`
+	Stale                 bool                  `json:"stale,omitempty"`
+	StaleFiles            []string              `json:"stale_files,omitempty"`
 }
 
 type BriefWire struct {
@@ -129,6 +131,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Name:                  v.Step.Name,
 			Explanation:           v.Step.Explanation,
 			OversizeJustification: v.Step.OversizeJustification,
+			Stale:                 v.Step.Stale,
+			StaleFiles:            v.Step.StaleFiles,
 		}
 		for _, excerpt := range v.Step.Excerpts {
 			excerptWire := ExcerptWire{

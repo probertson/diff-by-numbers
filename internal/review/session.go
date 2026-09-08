@@ -34,6 +34,10 @@ type Session struct {
 	changeRequests []ChangeRequest
 	nextCRID       int
 	finished       bool
+	// hashes fingerprints each new-side Excerpt file as it was when the
+	// Walkthrough was accepted, so a Step whose file later changes can refuse to
+	// show code beneath an explanation that has stopped describing it.
+	hashes map[fileRef]string
 }
 
 // NewSession returns a Session with no Walkthrough posted. The resolver turns
@@ -81,6 +85,7 @@ func (s *Session) Post(w Walkthrough) error {
 	s.changeRequests = nil
 	s.nextCRID = 0
 	s.finished = false
+	s.hashes = s.hashExcerptFiles(w.Steps)
 	return nil
 }
 

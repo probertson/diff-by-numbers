@@ -44,6 +44,9 @@ const (
 	// RejectedNoSuchAcknowledgement means an expansion names an Acknowledgement
 	// that does not exist on that Step.
 	RejectedNoSuchAcknowledgement RejectionReason = "no_such_acknowledgement"
+	// RejectedStaleContent means a file changed since the Walkthrough was accepted,
+	// so its Excerpt can no longer be trusted to match the explanation.
+	RejectedStaleContent RejectionReason = "stale_content"
 )
 
 // Rejection is a refusal that names its cause.

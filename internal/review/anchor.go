@@ -45,6 +45,13 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	}
 	excerpt := step.Excerpts[target.ExcerptIndex]
 
+	for _, file := range s.staleFiles(step) {
+		if file == excerpt.File {
+			return Anchor{}, reject(RejectedStaleContent,
+				"%s changed since the Walkthrough was accepted; ask the agent to re-plan before anchoring it", excerpt.File)
+		}
+	}
+
 	if target.LastLine < target.FirstLine {
 		return Anchor{}, reject(RejectedBadSelection,
 			"the selection ends at line %d, before it starts at %d", target.LastLine, target.FirstLine)

@@ -5,6 +5,8 @@
 package workingtree
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +47,19 @@ func (Resolver) Resolve(e review.Excerpt) ([]review.Line, error) {
 		lines = append(lines, review.Line{Number: n, Text: all[n-1]})
 	}
 	return lines, nil
+}
+
+// Hash fingerprints a file's current content, so the review core can tell when a
+// file has changed under review. It hashes whole-file bytes: a change anywhere in
+// the file shifts the line numbers an Excerpt named, so the whole file is the
+// unit of staleness.
+func (Resolver) Hash(repository, file string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(file)))
+	if err != nil {
+		return "", fmt.Errorf("could not read %s: %w", file, err)
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // splitLines splits file content into lines without inventing a final empty
