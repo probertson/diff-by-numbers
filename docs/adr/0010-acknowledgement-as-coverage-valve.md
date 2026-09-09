@@ -20,3 +20,13 @@ An Acknowledgement is a claim, not a dismissal. It renders as a manifest of file
 counts, and the Reviewer may expand it into real Excerpts at any time. Every bulk claim is
 therefore visible and callable, which is what stops it becoming a way to hide real code —
 the risk this mechanism obviously carries.
+
+## Amendment (#23): a deletion may now also be a Step
+
+When this was written a deletion could *only* be an Acknowledgement, because dbn could not
+read the old side and so had no lines to show. #23 reads the before-side, so a removal can
+now be shown in a regular Step — its removed code rendered as the "before", under the
+agent's explanation of why it went. This does not change the valve: the Acknowledgement
+still exists for bulk, mechanical removals (a deleted vendored directory), and the agent
+chooses per case whether a removal is worth a Step or belongs in an Acknowledgement — the
+same judgement it already makes for additions.

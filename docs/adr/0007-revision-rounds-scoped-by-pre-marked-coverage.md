@@ -30,3 +30,13 @@ The alternative — pre-marking them on a proxy key like the file path — would
 a re-touched binary or a re-deleted-differently region from review, which is exactly the
 escape the guarantee exists to prevent. Re-demanding them is the safe choice; making them
 pre-markable would need content dbn does not yet capture.
+
+## Amendment (#23): old-side content is now readable
+
+The claim above that "old-side removals carry no content dbn can compare across rounds" no
+longer holds: #23 reads the before-side from git's object store at the merge-base, which is
+stable across rounds, so a removed line's content *is* now available to compare. Pre-marking
+old-side removals by content is therefore feasible and is a natural follow-up; it was left
+out of #23 to keep that change to presentation. Until it lands, old-side removals are still
+re-demanded every round — conservative, never a hole. Opaque Changes are unaffected: they
+still carry no lines to compare, so they remain re-demanded.

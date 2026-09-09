@@ -27,7 +27,7 @@ type wireBrief struct {
 type wireExcerpt struct {
 	Repository string `json:"repository" jsonschema:"Root path of the repository this Excerpt is in. Must be one named in the Change Set"`
 	File       string `json:"file" jsonschema:"Path to the file, relative to the repository root"`
-	Side       string `json:"side" jsonschema:"'old' for deleted lines, 'new' for added or unchanged lines"`
+	Side       string `json:"side" jsonschema:"'new' for the after-side of a change — added or edited lines, and unchanged context. Point at the after-side of an edit and dbn shows the before-side it replaced automatically; you need not name the old side. Use 'old' only to show a standalone deletion: removed lines that nothing replaced"`
 	FirstLine  int    `json:"first_line" jsonschema:"First line of the range, counting from 1"`
 	LastLine   int    `json:"last_line" jsonschema:"Last line of the range, inclusive"`
 }

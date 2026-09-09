@@ -39,10 +39,20 @@ one git hunk. Plan them so:
   Step genuinely must be bigger, say why in `oversize_justification` — dbn never
   forbids a large Step, it only asks for a reason.
 - **Excerpts are ranges you choose**, `{repository, file, side, first_line,
-  last_line}`. `side` is `new` for added/unchanged lines, `old` for deletions.
-  Send ranges, never code — dbn reads the bytes from the working tree itself. An
-  Excerpt may include unchanged lines for context.
+  last_line}`. Send ranges, never code — dbn reads the bytes itself. An Excerpt
+  may include unchanged lines for context.
+- **Point once at a change.** For an edit, give a `new`-side Excerpt over the
+  after-side; dbn reads the before-side from git and shows a real before → after
+  diff, so you never name the old side for an edit. Use an `old`-side Excerpt only
+  to show a **standalone deletion** — removed code that nothing replaced — with
+  your explanation of why it went. (A bulk, mechanical removal can stay an
+  Acknowledgement instead; your call per case, exactly as for additions.)
 - **One Step may span several files** if one idea touches several.
+- **Prefer more, smaller Steps.** A Step should be comprehensible at a glance —
+  don't make the reviewer hold two functions in their head at once. Because an
+  edit shows both its before and after, the ~30-line budget counts both sides, so
+  a rewrite fills it faster than an addition. That pressure is intentional: split
+  it into more Steps rather than justify a wall of diff.
 
 **Acknowledgements** cover mechanical changes you should not make the reviewer
 read line by line: a regenerated lockfile, a deleted dead module, a re-exported

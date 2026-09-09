@@ -2,11 +2,15 @@ package review
 
 import "fmt"
 
-// Line is one row of resolved file content, tagged with whether git considers it
-// a Changed Line (versus reference context the Excerpt included for readability).
+// Line is one row of resolved file content, tagged with the Side it belongs to
+// and whether git considers it a Changed Line (versus reference context the
+// Excerpt included for readability). A new-side Excerpt's rendered lines are a
+// unified diff: mostly new-side rows, with the before-side rows of each edit it
+// shows injected as `-` lines, so Side is per line, not per Excerpt.
 type Line struct {
 	Number  int
 	Text    string
+	Side    Side
 	Changed bool
 }
 
@@ -16,6 +20,15 @@ type Line struct {
 // next time it is drawn, not hidden behind a cache.
 type Resolver interface {
 	Resolve(Excerpt) ([]Line, error)
+}
+
+// ChangeSetAware is an optional capability of a Resolver that reads the old side:
+// the before-side of a change lives in git at each repository's merge-base, which
+// needs that repository's range. The Session hands the resolver the Change Set
+// when a Walkthrough is posted. A resolver that reads only the working tree (or a
+// test stub) need not implement it.
+type ChangeSetAware interface {
+	UseChangeSet(ChangeSet)
 }
 
 // ExcerptView is an Excerpt with its content resolved, or the reason it could
@@ -172,15 +185,79 @@ func (s *Session) stepView(position int) *StepView {
 
 // resolveExcerpt reads an Excerpt's lines and marks the Changed ones, or records
 // why it could not be read. dbn never renders code it could not actually read.
+//
+// A new-side Excerpt renders as a unified diff: its after-side lines, with the
+// before-side of each edit it shows injected as removed lines just above their
+// replacement. An old-side Excerpt is a deliberately shown deletion and renders
+// before-only.
 func (s *Session) resolveExcerpt(excerpt Excerpt) ExcerptView {
 	lines, err := s.resolver.Resolve(excerpt)
 	if err != nil {
 		return ExcerptView{Excerpt: excerpt, Problem: err.Error()}
 	}
+	if excerpt.Side == NewSide {
+		return ExcerptView{Excerpt: excerpt, Lines: s.interleaveBefore(excerpt, lines)}
+	}
 	for i := range lines {
+		lines[i].Side = excerpt.Side
 		lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, lines[i].Number)
 	}
 	return ExcerptView{Excerpt: excerpt, Lines: lines}
+}
+
+// interleaveBefore turns a new-side Excerpt's after-side lines into a unified
+// diff: for each edit whose replacement begins inside the Excerpt, the before-side
+// lines it removed are read and placed immediately above their replacement, so the
+// Reviewer reads "these lines became these" as one thought. Reference lines stay
+// unmarked; a before-side that cannot be read is left out rather than faked.
+func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
+	afterText := map[int]string{}
+	for _, line := range after {
+		afterText[line.Number] = line.Text
+	}
+	newLine := func(n int) Line {
+		return Line{
+			Number:  n,
+			Text:    afterText[n],
+			Side:    NewSide,
+			Changed: s.ledger.isChanged(excerpt.Repository, excerpt.File, NewSide, n),
+		}
+	}
+
+	var out []Line
+	cursor := excerpt.FirstLine
+	for _, c := range s.ledger.modificationsShownBy(excerpt) {
+		for n := cursor; n < c.NewFirst && n <= excerpt.LastLine; n++ {
+			out = append(out, newLine(n))
+		}
+		before, err := s.resolver.Resolve(Excerpt{
+			Repository: excerpt.Repository, File: excerpt.File, Side: OldSide,
+			FirstLine: c.OldFirst, LastLine: c.OldLast,
+		})
+		if err != nil {
+			// The before-side rode along, so it is accounted for — it must not vanish
+			// silently, or a covered line would go unshown. Mark the gap instead.
+			out = append(out, Line{Number: c.OldFirst, Side: OldSide,
+				Text: fmt.Sprintf("(the before-side could not be read: %v)", err)})
+		}
+		for _, line := range before {
+			line.Side = OldSide
+			line.Changed = true
+			out = append(out, line)
+		}
+		last := c.NewLast
+		if last > excerpt.LastLine {
+			last = excerpt.LastLine
+		}
+		for n := c.NewFirst; n <= last; n++ {
+			out = append(out, newLine(n))
+		}
+		cursor = last + 1
+	}
+	for n := cursor; n <= excerpt.LastLine; n++ {
+		out = append(out, newLine(n))
+	}
+	return out
 }
 
 // acknowledgementView builds the manifest for one Acknowledgement from the

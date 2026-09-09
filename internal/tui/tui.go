@@ -91,13 +91,13 @@ type model struct {
 	status        string
 	mode          mode
 	note          textarea.Model
-	crCursor      int      // selected row in the change-request list
-	pendingSel    [3]int   // excerpt, first, last awaiting a note
-	pendingCode   string   // the code being commented on, shown above the note input
-	editingID     int      // >0 when editing an existing Change Request rather than adding
-	crFilter      crFilter // when active, the List shows only comments on one line
-	reraiseCursor int      // selected row among declined dispositions
-	expandedAck   bool     // showing the code behind this Step's Acknowledgements
+	crCursor      int              // selected row in the change-request list
+	pendingSel    pendingSelection // the selection awaiting a note
+	pendingCode   string           // the code being commented on, shown above the note input
+	editingID     int              // >0 when editing an existing Change Request rather than adding
+	crFilter      crFilter         // when active, the List shows only comments on one line
+	reraiseCursor int              // selected row among declined dispositions
+	expandedAck   bool             // showing the code behind this Step's Acknowledgements
 	expanded      []daemon.ExcerptWire
 	width         int
 	height        int
@@ -107,6 +107,7 @@ type model struct {
 type crFilter struct {
 	active bool
 	file   string
+	side   string
 	line   int
 }
 
@@ -145,9 +146,15 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-func (c client) raiseChangeRequest(excerpt, first, last int, note string) bool {
+// pendingSelection is a selection captured while the Reviewer types its note.
+type pendingSelection struct {
+	excerpt, first, last int
+	side                 string
+}
+
+func (c client) raiseChangeRequest(excerpt, first, last int, side, note string) bool {
 	body, _ := json.Marshal(map[string]any{
-		"excerpt_index": excerpt, "first_line": first, "last_line": last, "note": note,
+		"excerpt_index": excerpt, "first_line": first, "last_line": last, "side": side, "note": note,
 	})
 	response, err := http.Post(c.base+"/changerequest", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -177,12 +184,12 @@ func (c client) withdraw(id int) {
 }
 
 func (m *model) copyAnchor() tea.Cmd {
-	excerpt, first, last, ok := m.cursor.selection()
+	excerpt, first, last, side, ok := m.cursor.selection()
 	if !ok {
-		m.status = "selection spans two Excerpts — narrow it to one"
+		m.status = "selection spans two Excerpts or two sides — narrow it to one"
 		return nil
 	}
-	text, ok := m.client.composeAnchor(excerpt, first, last)
+	text, ok := m.client.composeAnchor(excerpt, first, last, side)
 	if !ok {
 		m.status = "could not compose the Anchor"
 		return nil
@@ -429,7 +436,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
-					m.crFilter = crFilter{active: true, file: m.view.Step.Excerpts[line.excerpt].File, line: line.number}
+					m.crFilter = crFilter{active: true, file: m.view.Step.Excerpts[line.excerpt].File, side: line.side, line: line.number}
 					m.crCursor = 0
 					m.mode = modeList
 				}
@@ -443,17 +450,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "review is finished — press r to reopen before commenting"
 					return m, nil
 				}
-				excerpt, first, last, ok := m.cursor.selection()
+				excerpt, first, last, side, ok := m.cursor.selection()
 				if !ok {
-					m.status = "selection spans two Excerpts — narrow it to one"
+					m.status = "selection spans two Excerpts or two sides — narrow it to one"
 					return m, nil
 				}
 				m.editingID = 0 // c always adds a fresh comment, never edits
 				m.mode = modeNote
 				m.note.SetValue("")
 				m.note.Focus()
-				m.pendingSel = [3]int{excerpt, first, last}
-				if code, ok := m.client.composeAnchor(excerpt, first, last); ok {
+				m.pendingSel = pendingSelection{excerpt, first, last, side}
+				if code, ok := m.client.composeAnchor(excerpt, first, last, side); ok {
 					m.pendingCode = code
 				} else {
 					m.pendingCode = ""
@@ -492,7 +499,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.status = "could not update the Change Request"
 					}
-				} else if m.client.raiseChangeRequest(m.pendingSel[0], m.pendingSel[1], m.pendingSel[2], note) {
+				} else if m.client.raiseChangeRequest(m.pendingSel.excerpt, m.pendingSel.first, m.pendingSel.last, m.pendingSel.side, note) {
 					m.status = "comment added"
 				} else {
 					m.status = "could not add the comment"
@@ -739,7 +746,7 @@ func (m model) noInteractionHint() string {
 func (m model) noteView() string {
 	code := m.pendingCode
 	if code == "" {
-		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel[1], m.pendingSel[2]))
+		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel.first, m.pendingSel.last))
 	}
 	title := "New Change Request"
 	if m.editingID > 0 {
@@ -826,7 +833,7 @@ func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
 	line := m.cursor.lines[m.cursor.cursor]
 	file := m.view.Step.Excerpts[line.excerpt].File
 	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.File == file && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+		if cr.Step == m.view.Position && cr.File == file && cr.Side == line.side && line.number >= cr.FirstLine && line.number <= cr.LastLine {
 			return cr, true
 		}
 	}
@@ -843,7 +850,7 @@ func (m model) filteredCRs() []daemon.ChangeRequestWire {
 	}
 	var out []daemon.ChangeRequestWire
 	for _, cr := range all {
-		if cr.File == m.crFilter.file && m.crFilter.line >= cr.FirstLine && m.crFilter.line <= cr.LastLine {
+		if cr.File == m.crFilter.file && cr.Side == m.crFilter.side && m.crFilter.line >= cr.FirstLine && m.crFilter.line <= cr.LastLine {
 			out = append(out, cr)
 		}
 	}
@@ -859,15 +866,16 @@ func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
 	file := m.view.Step.Excerpts[line.excerpt].File
 	var out []daemon.ChangeRequestWire
 	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.File == file && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+		if cr.Step == m.view.Position && cr.File == file && cr.Side == line.side && line.number >= cr.FirstLine && line.number <= cr.LastLine {
 			out = append(out, cr)
 		}
 	}
 	return out
 }
 
-// commentedLines is the set of "file:line" in the current Step that carry a
-// Change Request, so the diff can mark them.
+// commentedLines is the set of "file:side:line" in the current Step that carry a
+// Change Request, so the diff can mark them — keyed by side so a comment on a
+// before-side row does not mark the after-side row that shares its number.
 func (m model) commentedLines() map[string]bool {
 	out := map[string]bool{}
 	if m.view == nil {
@@ -878,10 +886,16 @@ func (m model) commentedLines() map[string]bool {
 			continue
 		}
 		for n := cr.FirstLine; n <= cr.LastLine; n++ {
-			out[fmt.Sprintf("%s:%d", cr.File, n)] = true
+			out[commentKey(cr.File, cr.Side, n)] = true
 		}
 	}
 	return out
+}
+
+// commentKey identifies a commented row by file, side, and line — the granularity
+// at which a Change Request is anchored in a unified diff.
+func commentKey(file, side string, line int) string {
+	return fmt.Sprintf("%s:%s:%d", file, side, line)
 }
 
 func (m model) bodyHeight() int {
@@ -1013,7 +1027,7 @@ func (m model) step() string {
 	}
 
 	for _, excerpt := range step.Excerpts {
-		b.WriteString("\n" + dimSt.Render(fmt.Sprintf("── %s:%d–%d (%s)", excerpt.File, excerpt.FirstLine, excerpt.LastLine, beforeAfter(excerpt.Side))) + "\n")
+		b.WriteString("\n" + dimSt.Render(fmt.Sprintf("── %s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine)) + "\n")
 		if excerpt.Problem != "" {
 			b.WriteString(warnSt.Render("  cannot show this Excerpt: ") + excerpt.Problem + "\n")
 			continue
@@ -1021,9 +1035,8 @@ func (m model) step() string {
 		for _, line := range excerpt.Lines {
 			gutter := gutterSt.Render(fmt.Sprintf("%5d │ ", line.Number))
 			if line.Changed {
-				marker := excerpt.Side // "new" -> +, "old" -> -
 				sign, style := "+", addSt
-				if marker == "old" {
+				if lineSide(line, excerpt) == "old" {
 					sign, style = "-", delSt
 				}
 				b.WriteString(gutter + style.Render(sign+" "+line.Text) + "\n")

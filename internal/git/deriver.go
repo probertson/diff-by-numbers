@@ -183,6 +183,18 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 			for n := newStart; n < newStart+newCount; n++ {
 				result.Lines = append(result.Lines, review.ChangedLine{Repository: root, File: file, Side: review.NewSide, Line: n})
 			}
+			// Each hunk is one edit: pair the lines it removed with the lines that
+			// replaced them, so showing the after-side can account for and render the
+			// before-side (the "point once" behaviour). A count of zero on a side
+			// leaves that side empty — a pure addition or a pure deletion.
+			corr := review.Correspondence{Repository: root, File: file}
+			if oldCount > 0 {
+				corr.OldFirst, corr.OldLast = oldStart, oldStart+oldCount-1
+			}
+			if newCount > 0 {
+				corr.NewFirst, corr.NewLast = newStart, newStart+newCount-1
+			}
+			result.Correspondences = append(result.Correspondences, corr)
 		}
 	}
 	flush()

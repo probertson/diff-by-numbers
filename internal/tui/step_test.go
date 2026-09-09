@@ -72,6 +72,99 @@ func TestRenderStepIndicatesMoreBelowAndStaysWithinHeight(t *testing.T) {
 	}
 }
 
+func TestRenderStepInterleavesBeforeAndAfterAsAUnifiedDiff(t *testing.T) {
+	// A new-side Excerpt carrying a unified diff: reference line 1, then the before
+	// of an edit (old line 2) immediately above its replacement (new lines 2-3),
+	// then reference line 4.
+	step := &daemon.StepWire{
+		Name:        "Rework the guard",
+		Explanation: "line two became two lines",
+		Excerpts: []daemon.ExcerptWire{{File: "guard.go", Side: "new", FirstLine: 1, LastLine: 4, Lines: []daemon.LineWire{
+			{Number: 1, Text: "reference one", Side: "new", Changed: false},
+			{Number: 2, Text: "the old guard", Side: "old", Changed: true},
+			{Number: 2, Text: "the new guard", Side: "new", Changed: true},
+			{Number: 3, Text: "and its helper", Side: "new", Changed: true},
+			{Number: 4, Text: "reference four", Side: "new", Changed: false},
+		}}},
+	}
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, 80, 40, false)
+
+	before := strings.Index(out, "the old guard")
+	after := strings.Index(out, "the new guard")
+	if before < 0 || after < 0 {
+		t.Fatalf("expected both the before and after lines to render, got:\n%s", out)
+	}
+	if before > after {
+		t.Error("expected the removed line to render above the line that replaced it")
+	}
+	// The removed line is marked '-', the added lines '+', the reference lines
+	// neither.
+	if !strings.Contains(out, "- ") || !strings.Contains(out, "+ ") {
+		t.Errorf("expected both a '-' and a '+' row in the unified diff, got:\n%s", out)
+	}
+}
+
+func TestAChangeRequestAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.T) {
+	// A before-row and an after-row both numbered 2; a Change Request on the
+	// before-side must attribute to the before-row alone.
+	step := &daemon.StepWire{
+		Number: 1, Name: "Edit", Explanation: "two became TWO",
+		Excerpts: []daemon.ExcerptWire{{File: "guard.go", Side: "new", FirstLine: 2, LastLine: 2, Lines: []daemon.LineWire{
+			{Number: 2, Text: "the old guard", Side: "old", Changed: true},
+			{Number: 2, Text: "the new guard", Side: "new", Changed: true},
+		}}},
+	}
+	m := model{
+		view: &daemon.ViewWire{
+			Posted: true, Position: 1, Step: step,
+			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1, Step: 1, File: "guard.go", Side: "old", FirstLine: 2, LastLine: 2}},
+		},
+		cursor: newStepCursor(step),
+	}
+
+	marked := m.commentedLines()
+
+	if !marked[commentKey("guard.go", "old", 2)] {
+		t.Error("expected the before-side row to be marked as commented")
+	}
+	if marked[commentKey("guard.go", "new", 2)] {
+		t.Error("the after-side row sharing the line number must not be marked")
+	}
+
+	m.cursor.cursor = 0 // the before-side row
+	if _, ok := m.commentAtCursor(); !ok {
+		t.Error("expected the Change Request to be found on the before-side row")
+	}
+	m.cursor.cursor = 1 // the after-side row
+	if _, ok := m.commentAtCursor(); ok {
+		t.Error("the after-side row must not resolve to the before-side's Change Request")
+	}
+}
+
+func TestRenderStepShowsADeletionAsBeforeOnly(t *testing.T) {
+	// A deliberately shown deletion: an old-side Excerpt whose lines are all removed.
+	step := &daemon.StepWire{
+		Name:        "Drop the dead path",
+		Explanation: "the legacy retry is gone",
+		Excerpts: []daemon.ExcerptWire{{File: "legacy.go", Side: "old", FirstLine: 10, LastLine: 11, Lines: []daemon.LineWire{
+			{Number: 10, Text: "legacy retry", Side: "old", Changed: true},
+			{Number: 11, Text: "more legacy", Side: "old", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, 80, 40, false)
+
+	if !strings.Contains(out, "- ") || strings.Contains(out, "+ ") {
+		t.Errorf("expected a before-only deletion (only '-' rows), got:\n%s", out)
+	}
+	if !strings.Contains(out, "legacy retry") {
+		t.Error("expected the removed code to render")
+	}
+}
+
 func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
 	step := &daemon.StepWire{
 		Name:        "Small",

@@ -11,8 +11,11 @@ import (
 // TUI imports them; still internal to the module.
 
 type LineWire struct {
-	Number  int    `json:"number"`
-	Text    string `json:"text"`
+	Number int    `json:"number"`
+	Text   string `json:"text"`
+	// Side is the line's own side, since a new-side Excerpt renders as a unified
+	// diff whose rows mix the after-side with the before-side it replaced.
+	Side    string `json:"side,omitempty"`
 	Changed bool   `json:"changed"`
 }
 
@@ -96,6 +99,7 @@ type ChangeRequestWire struct {
 	ID        int    `json:"id"`
 	Step      int    `json:"step"`
 	File      string `json:"file"`
+	Side      string `json:"side"`
 	FirstLine int    `json:"first_line"`
 	LastLine  int    `json:"last_line"`
 	Location  string `json:"location"`
@@ -125,7 +129,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 	for _, cr := range v.ChangeRequests {
 		wire.ChangeRequests = append(wire.ChangeRequests, ChangeRequestWire{
 			ID: cr.ID, Step: cr.Step,
-			File: cr.Anchor.File, FirstLine: cr.Anchor.FirstLine, LastLine: cr.Anchor.LastLine,
+			File: cr.Anchor.File, Side: string(cr.Anchor.Side), FirstLine: cr.Anchor.FirstLine, LastLine: cr.Anchor.LastLine,
 			Location: fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
 			Anchor:   cr.Anchor.Render(),
 			Note:     cr.Note,
@@ -163,7 +167,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 				Problem:    excerpt.Problem,
 			}
 			for _, line := range excerpt.Lines {
-				excerptWire.Lines = append(excerptWire.Lines, LineWire{Number: line.Number, Text: line.Text, Changed: line.Changed})
+				excerptWire.Lines = append(excerptWire.Lines, LineWire{Number: line.Number, Text: line.Text, Side: string(line.Side), Changed: line.Changed})
 			}
 			step.Excerpts = append(step.Excerpts, excerptWire)
 		}
@@ -200,7 +204,7 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			Problem:    view.Problem,
 		}
 		for _, line := range view.Lines {
-			wire.Lines = append(wire.Lines, LineWire{Number: line.Number, Text: line.Text, Changed: line.Changed})
+			wire.Lines = append(wire.Lines, LineWire{Number: line.Number, Text: line.Text, Side: string(line.Side), Changed: line.Changed})
 		}
 		wires = append(wires, wire)
 	}

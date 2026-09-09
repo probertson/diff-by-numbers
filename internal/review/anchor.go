@@ -7,11 +7,15 @@ import (
 )
 
 // AnchorTarget names a line range the Reviewer selected within the current Step:
-// which Excerpt, and the first and last line.
+// which Excerpt, the first and last line, and the Side of the selected rows. A
+// new-side Excerpt renders as a unified diff, so a selection may land on the
+// after-side or on a before-side row shown for context; an empty Side means the
+// Excerpt's own side.
 type AnchorTarget struct {
 	ExcerptIndex int
 	FirstLine    int
 	LastLine     int
+	Side         Side
 }
 
 // Anchor is dbn's composed reference to a selected line range. It exists because
@@ -44,6 +48,10 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 			"Step %d has no Excerpt %d", s.position, target.ExcerptIndex)
 	}
 	excerpt := step.Excerpts[target.ExcerptIndex]
+	side := target.Side
+	if side == "" {
+		side = excerpt.Side
+	}
 
 	for _, file := range s.staleFiles(step) {
 		if file == excerpt.File {
@@ -56,32 +64,43 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		return Anchor{}, reject(RejectedBadSelection,
 			"the selection ends at line %d, before it starts at %d", target.LastLine, target.FirstLine)
 	}
-	if target.FirstLine < excerpt.FirstLine || target.LastLine > excerpt.LastLine {
+	// A selection on the Excerpt's own side must lie within it. A before-side row
+	// shown for context inside a new-side Excerpt carries old-file line numbers
+	// unrelated to the Excerpt's range, so it is instead bounded by the removed
+	// range of an edit the Excerpt actually renders.
+	if side == excerpt.Side {
+		if target.FirstLine < excerpt.FirstLine || target.LastLine > excerpt.LastLine {
+			return Anchor{}, reject(RejectedBadSelection,
+				"the selection %d-%d lies outside the Excerpt's %d-%d", target.FirstLine, target.LastLine, excerpt.FirstLine, excerpt.LastLine)
+		}
+	} else if !s.ledger.beforeRangeShown(excerpt, target.FirstLine, target.LastLine) {
 		return Anchor{}, reject(RejectedBadSelection,
-			"the selection %d-%d lies outside the Excerpt's %d-%d", target.FirstLine, target.LastLine, excerpt.FirstLine, excerpt.LastLine)
+			"the before-side selection %d-%d is not part of a change shown in this Excerpt", target.FirstLine, target.LastLine)
 	}
 
-	lines, err := s.resolver.Resolve(excerpt)
+	// Resolve exactly the selected range on the selected side, so a before-side
+	// selection reads the before-side, not the after-side that shares its numbers.
+	selection := Excerpt{
+		Repository: excerpt.Repository, File: excerpt.File, Side: side,
+		FirstLine: target.FirstLine, LastLine: target.LastLine,
+	}
+	lines, err := s.resolver.Resolve(selection)
 	if err != nil {
 		return Anchor{}, fmt.Errorf("could not read the selected code: %w", err)
 	}
-
-	selected := make([]Line, 0, target.LastLine-target.FirstLine+1)
-	for _, line := range lines {
-		if line.Number >= target.FirstLine && line.Number <= target.LastLine {
-			line.Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, line.Number)
-			selected = append(selected, line)
-		}
+	for i := range lines {
+		lines[i].Side = side
+		lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, side, lines[i].Number)
 	}
 
 	return Anchor{
 		Repository: excerpt.Repository,
 		File:       excerpt.File,
-		Side:       excerpt.Side,
+		Side:       side,
 		FirstLine:  target.FirstLine,
 		LastLine:   target.LastLine,
 		StepName:   step.Name,
-		Lines:      selected,
+		Lines:      lines,
 	}, nil
 }
 

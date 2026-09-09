@@ -115,6 +115,14 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
+	// Every validation has passed and this Walkthrough is now the one under review.
+	// Only now hand the resolver this round's ranges — a rejected Post must not
+	// repoint the resolver away from the Walkthrough still on screen, or its
+	// before-side would resolve against the wrong merge-base.
+	if aware, ok := s.resolver.(ChangeSetAware); ok {
+		aware.UseChangeSet(w.ChangeSet)
+	}
+
 	s.walkthrough = &w
 	s.ledger = ledger
 	s.position = 0
@@ -141,10 +149,11 @@ func (s *Session) moveTo(position int) {
 	}
 }
 
-// validateNewSideResolves rejects a new-side Excerpt whose range the working
-// tree cannot satisfy. Old-side Excerpts are not checked here: reading the old
-// side needs the derived revision and is deferred, so an old-side range that
-// cannot be shown yet is a display limitation, not a malformed plan.
+// validateNewSideResolves rejects a new-side Excerpt whose range the working tree
+// cannot satisfy. Old-side Excerpts are not checked here: like staleness, an
+// old-side range that cannot be read is surfaced as a render Problem in place of
+// the code, never fabricated — resolution happens at render time so what the
+// Reviewer sees is always what is currently readable.
 func validateNewSideResolves(steps []Step, resolver Resolver) *Rejection {
 	for i, step := range steps {
 		for j, excerpt := range step.Excerpts {

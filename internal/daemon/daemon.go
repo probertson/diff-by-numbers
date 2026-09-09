@@ -142,6 +142,7 @@ func (d *Daemon) Handler() http.Handler {
 			ExcerptIndex int    `json:"excerpt_index"`
 			FirstLine    int    `json:"first_line"`
 			LastLine     int    `json:"last_line"`
+			Side         string `json:"side"`
 			Note         string `json:"note"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -150,7 +151,7 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		d.mu.Lock()
 		_, err := d.session.RaiseChangeRequest(review.AnchorTarget{
-			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine,
+			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine, Side: review.Side(req.Side),
 		}, req.Note)
 		d.mu.Unlock()
 		if err != nil {
@@ -220,9 +221,10 @@ func (d *Daemon) Handler() http.Handler {
 
 	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			ExcerptIndex int `json:"excerpt_index"`
-			FirstLine    int `json:"first_line"`
-			LastLine     int `json:"last_line"`
+			ExcerptIndex int    `json:"excerpt_index"`
+			FirstLine    int    `json:"first_line"`
+			LastLine     int    `json:"last_line"`
+			Side         string `json:"side"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad anchor request", http.StatusBadRequest)
@@ -230,7 +232,7 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		d.mu.Lock()
 		anchor, err := d.session.Anchor(review.AnchorTarget{
-			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine,
+			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine, Side: review.Side(req.Side),
 		})
 		d.mu.Unlock()
 		if err != nil {

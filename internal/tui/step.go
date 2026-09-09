@@ -45,11 +45,21 @@ func newStepCursor(step *daemon.StepWire) stepCursor {
 	for ei, excerpt := range step.Excerpts {
 		for _, line := range excerpt.Lines {
 			lines = append(lines, codeLine{
-				excerpt: ei, number: line.Number, side: excerpt.Side, text: line.Text, changed: line.Changed,
+				excerpt: ei, number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
 			})
 		}
 	}
 	return stepCursor{lines: lines, cursor: 0, sel: -1}
+}
+
+// lineSide is the side a rendered row belongs to: its own, since a new-side
+// Excerpt's lines are a unified diff mixing the after-side with the before-side it
+// replaced. It falls back to the Excerpt's side for a line that carries none.
+func lineSide(line daemon.LineWire, excerpt daemon.ExcerptWire) string {
+	if line.Side != "" {
+		return line.Side
+	}
+	return excerpt.Side
 }
 
 func (c *stepCursor) move(delta int) {
@@ -73,11 +83,13 @@ func (c *stepCursor) toggleSelect() {
 	c.sel = c.cursor
 }
 
-// selection returns the excerpt index and line range currently selected, and
-// whether the selection is valid (non-empty and within one Excerpt).
-func (c stepCursor) selection() (excerpt, first, last int, ok bool) {
+// selection returns the excerpt index, line range, and side currently selected,
+// and whether the selection is valid: non-empty, within one Excerpt, and on one
+// side (a unified diff mixes before- and after-side rows, and an Anchor is to one
+// side).
+func (c stepCursor) selection() (excerpt, first, last int, side string, ok bool) {
 	if len(c.lines) == 0 {
-		return 0, 0, 0, false
+		return 0, 0, 0, "", false
 	}
 	start := c.cursor
 	if c.sel >= 0 {
@@ -88,9 +100,12 @@ func (c stepCursor) selection() (excerpt, first, last int, ok bool) {
 		start, end = end, start
 	}
 	if c.lines[start].excerpt != c.lines[end].excerpt {
-		return 0, 0, 0, false // a selection may not straddle two Excerpts
+		return 0, 0, 0, "", false // a selection may not straddle two Excerpts
 	}
-	return c.lines[start].excerpt, c.lines[start].number, c.lines[end].number, true
+	if c.lines[start].side != c.lines[end].side {
+		return 0, 0, 0, "", false // nor two sides of a unified diff
+	}
+	return c.lines[start].excerpt, c.lines[start].number, c.lines[end].number, c.lines[start].side, true
 }
 
 func (c stepCursor) inSelection(i int) bool {
@@ -110,19 +125,6 @@ var (
 	selSt        = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#cfe6ff", Dark: "#0a3550"}) // an active selection range
 	commentSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}) // a line carrying a Change Request
 )
-
-// beforeAfter renders a Side for the Reviewer: "old"/"new" are git's words, but
-// "before"/"after" read more plainly on screen.
-func beforeAfter(side string) string {
-	switch side {
-	case "old":
-		return "before"
-	case "new":
-		return "after"
-	default:
-		return side
-	}
-}
 
 // truncateTo clips a plain (ANSI-free) string to w cells, marking the cut with an
 // ellipsis. Code lines are truncated rather than wrapped: a wrapped code line
@@ -249,7 +251,9 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			if firstHeader && showIndicators {
 				sep = ""
 			}
-			fmt.Fprint(&b, sep+dimSt.Render(fmt.Sprintf("── %s (%s)", fileLabel(e.Repository, e.File, showRepo), beforeAfter(e.Side)))+"\n")
+			// No side in the header: a new-side Excerpt renders as a unified diff, so
+			// the -/+ signs carry before/after per line, not the file header.
+			fmt.Fprint(&b, sep+dimSt.Render(fmt.Sprintf("── %s", fileLabel(e.Repository, e.File, showRepo)))+"\n")
 			lastExcerpt = line.excerpt
 			firstHeader = false
 		}
@@ -261,7 +265,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			}
 		}
 		note := " "
-		if commented[fmt.Sprintf("%s:%d", step.Excerpts[line.excerpt].File, line.number)] {
+		if commented[commentKey(step.Excerpts[line.excerpt].File, line.side, line.number)] {
 			note = "✎"
 		}
 		text := strings.ReplaceAll(line.text, "\t", "    ") // tabs display wider than one cell
@@ -411,45 +415,54 @@ func renderExpanded(excerpts []daemon.ExcerptWire, width, height int, showRepo b
 			fmt.Fprint(&b, wrap("  ", dimSt.Render(opaqueNote))+"\n")
 			continue
 		}
-		if hasBefore && !hasAfter {
-			removed := 0
+		// drawSide draws one side's resolved lines, marked, respecting the height
+		// budget. It reports false when the budget is spent and the whole expansion
+		// should stop.
+		drawSide := func(side, sign string) bool {
 			for _, e := range group {
-				if e.Side == "old" {
-					removed += e.LastLine - e.FirstLine + 1
+				if e.Side != side {
+					continue
+				}
+				for _, line := range e.Lines {
+					if shown >= budget {
+						fmt.Fprint(&b, "  "+dimSt.Render("… more not shown; collapse and read it as an Excerpt in full")+"\n")
+						return false
+					}
+					mark := " "
+					if line.Changed {
+						mark = sign
+					}
+					text := strings.ReplaceAll(line.Text, "\t", "    ")
+					row := fmt.Sprintf("    %s %5d │ %s", mark, line.Number, text)
+					fmt.Fprint(&b, truncateTo(row, width)+"\n")
+					shown++
 				}
 			}
-			fmt.Fprint(&b, wrap("  ", dimSt.Render(fmt.Sprintf("file removed · %d line(s); the before-side lives in git history, not shown", removed)))+"\n")
+			return true
+		}
+
+		if hasBefore && !hasAfter {
+			fmt.Fprint(&b, "  "+dimSt.Render("file removed")+"\n")
+			if !drawSide("old", "-") {
+				return b.String()
+			}
 			continue
 		}
 
 		// before
 		fmt.Fprint(&b, "  "+dimSt.Render("before")+"\n")
 		if hasBefore {
-			fmt.Fprint(&b, wrap("    ", dimSt.Render("not shown — dbn reads only the working tree; the before-side lives in git history"))+"\n")
+			if !drawSide("old", "-") {
+				return b.String()
+			}
 		} else {
 			fmt.Fprint(&b, "    "+dimSt.Render("file added")+"\n")
 		}
 
 		// after
 		fmt.Fprint(&b, "  "+dimSt.Render("after")+"\n")
-		for _, e := range group {
-			if e.Side != "new" {
-				continue
-			}
-			for _, line := range e.Lines {
-				if shown >= budget {
-					fmt.Fprint(&b, "  "+dimSt.Render("… more not shown; collapse and read it as an Excerpt in full")+"\n")
-					return b.String()
-				}
-				sign := " "
-				if line.Changed {
-					sign = "+"
-				}
-				text := strings.ReplaceAll(line.Text, "\t", "    ")
-				row := fmt.Sprintf("    %s %5d │ %s", sign, line.Number, text)
-				fmt.Fprint(&b, truncateTo(row, width)+"\n")
-				shown++
-			}
+		if !drawSide("new", "+") {
+			return b.String()
 		}
 	}
 	return b.String()
@@ -470,8 +483,8 @@ func parenthetical(s, fallback string) string {
 }
 
 // composeAnchor asks the daemon for the paste-ready Anchor text of a selection.
-func (c client) composeAnchor(excerpt, first, last int) (string, bool) {
-	body := fmt.Sprintf(`{"excerpt_index":%d,"first_line":%d,"last_line":%d}`, excerpt, first, last)
+func (c client) composeAnchor(excerpt, first, last int, side string) (string, bool) {
+	body := fmt.Sprintf(`{"excerpt_index":%d,"first_line":%d,"last_line":%d,"side":%q}`, excerpt, first, last, side)
 	response, err := http.Post(c.base+"/anchor", "application/json", bytes.NewReader([]byte(body)))
 	if err != nil {
 		return "", false
