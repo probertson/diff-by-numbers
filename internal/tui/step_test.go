@@ -27,7 +27,7 @@ func tallStep() *daemon.StepWire {
 
 func TestRenderStepKeepsTheExplanationOnScreen(t *testing.T) {
 	step := tallStep()
-	const width, height = 80, 12
+	const width, height = 80, 20
 
 	// The cursor at the very bottom of the code is the hard case: the code window
 	// has scrolled as far as it goes, yet the explanation must still be present.
@@ -44,5 +44,48 @@ func TestRenderStepKeepsTheExplanationOnScreen(t *testing.T) {
 	}
 	if !strings.Contains(out, "revision.go") {
 		t.Error("the Excerpt's file header is missing")
+	}
+	// Scrolled to the bottom, there is content above but none below.
+	if !strings.Contains(out, "more above") {
+		t.Error("expected an 'more above' indicator when scrolled down")
+	}
+	if strings.Contains(out, "more below") {
+		t.Error("did not expect a 'more below' indicator at the bottom of the code")
+	}
+}
+
+func TestRenderStepIndicatesMoreBelowAndStaysWithinHeight(t *testing.T) {
+	step := tallStep()
+	const width, height = 80, 20
+
+	cur := newStepCursor(step) // cursor at the top
+	out := renderStep(step, cur, map[string]bool{}, width, height, false)
+
+	if got := lipgloss.Height(out); got > height {
+		t.Errorf("Step body is %d rows, over the %d it was given", got, height)
+	}
+	if !strings.Contains(out, "more below") {
+		t.Error("expected a 'more below' indicator at the top of a too-tall Step")
+	}
+	if strings.Contains(out, "more above") {
+		t.Error("did not expect a 'more above' indicator at the top")
+	}
+}
+
+func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
+	step := &daemon.StepWire{
+		Name:        "Small",
+		Explanation: "short",
+		Excerpts: []daemon.ExcerptWire{{File: "a.ts", Side: "new", FirstLine: 1, LastLine: 2, Lines: []daemon.LineWire{
+			{Number: 1, Text: "one", Changed: true},
+			{Number: 2, Text: "two", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, 80, 40, false)
+
+	if strings.Contains(out, "more above") || strings.Contains(out, "more below") {
+		t.Errorf("expected no scroll indicators when the whole Step fits, got:\n%s", out)
 	}
 }

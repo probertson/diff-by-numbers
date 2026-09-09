@@ -196,10 +196,23 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	if len(step.Acknowledgements) > 0 {
 		reserve += 2 // the "press x to expand" hint
 	}
-	window := height - reserve
-	if window < 1 {
-		window = 1
+	available := height - reserve
+	if available < 1 {
+		available = 1
 	}
+
+	// When the code does not all fit, reserve two rows for scroll indicators. They
+	// are always present while scrolling (blank at an edge), so the body height
+	// stays constant and the frame below does not shift as the cursor moves.
+	overflow := len(cur.lines) > available
+	// The indicators cost two rows; only reserve them when there is room to spare,
+	// so a very short terminal shows more code rather than two arrows and nothing.
+	showIndicators := overflow && available >= 3
+	window := available
+	if showIndicators {
+		window = available - 2
+	}
+
 	start := cur.cursor - window/2
 	if start < 0 {
 		start = 0
@@ -213,13 +226,32 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		}
 	}
 
+	if showIndicators {
+		// The blank goes above the indicator so it separates from the explanation
+		// rather than blending into it; the first Excerpt header then follows the
+		// indicator directly. The row count is the same either way.
+		if start > 0 {
+			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("  ↑ %d more above", start))+"\n")
+		} else {
+			fmt.Fprint(&b, "\n\n")
+		}
+	}
+
 	lastExcerpt := -1
+	firstHeader := true
 	for i := start; i < end; i++ {
 		line := cur.lines[i]
 		if line.excerpt != lastExcerpt {
 			e := step.Excerpts[line.excerpt]
-			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("── %s (%s)", fileLabel(e.Repository, e.File, showRepo), beforeAfter(e.Side)))+"\n")
+			// A blank line normally sets the header off from what is above it, but
+			// when a scroll indicator was just drawn it already did that.
+			sep := "\n"
+			if firstHeader && showIndicators {
+				sep = ""
+			}
+			fmt.Fprint(&b, sep+dimSt.Render(fmt.Sprintf("── %s (%s)", fileLabel(e.Repository, e.File, showRepo), beforeAfter(e.Side)))+"\n")
 			lastExcerpt = line.excerpt
+			firstHeader = false
 		}
 		sign := " "
 		if line.changed {
@@ -249,6 +281,13 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			fmt.Fprint(&b, caret+commentSt.Render(row)+"\n")
 		default:
 			fmt.Fprint(&b, caret+row+"\n")
+		}
+	}
+	if showIndicators {
+		if end < len(cur.lines) {
+			fmt.Fprint(&b, dimSt.Render(fmt.Sprintf("  ↓ %d more below", len(cur.lines)-end))+"\n")
+		} else {
+			fmt.Fprint(&b, "\n")
 		}
 	}
 	if len(step.Acknowledgements) > 0 {
