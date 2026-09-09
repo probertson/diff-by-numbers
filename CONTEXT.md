@@ -6,6 +6,27 @@ walkthrough of its own changes; the human reviews and replies in place. The
 name plays on "paint by numbers" — a simple, ordered path through work that is
 otherwise overwhelming to approach all at once.
 
+## Guiding principle
+
+dbn optimises for one thing: **comprehension at a glance**. A change should reach
+the Reviewer as a sequence of small, self-contained ideas, each understandable
+without holding the rest in your head.
+
+The obstacle it exists to beat is **git's granularity floor**. git can only cut a
+diff where lines happen to be untouched, and those boundaries are routinely too
+coarse for understanding — a new file is one giant hunk, two unrelated edits land
+in one hunk because no blank line separates them. The Authoring Agent's Steps get
+*below* that floor: it groups and orders changes semantically, for a reader, rather
+than however the text diff fell out. This is the same instinct as hand-crafting a
+branch's commits with interactive rebase so they read well — dbn automates it,
+differing only in that it curates the *narrative over a single net diff*, not the
+intermediate states, so a line's evolution across commits is neither shown nor
+needed.
+
+Every mechanism here serves that end, and none may work against it: no mechanism
+may force an arbitrary boundary (ADR-0003), which is why Step size is a soft budget
+requiring justification, not a hard cap.
+
 ## Language
 
 **diff-by-numbers** (`dbn`):
