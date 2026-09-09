@@ -183,10 +183,22 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		return b.String()
 	}
 
-	// Window the code lines so the cursor stays on screen.
-	window := height
-	if window < 4 {
-		window = 4
+	// Window the code lines so the cursor stays on screen — but budget the window
+	// against everything else the body will hold: the fixed header already written
+	// (Step name and explanation), one line per Excerpt file header, and the
+	// manifest hint if there are Acknowledgements. Otherwise a long explanation
+	// pushes itself off the top of the screen, and the explanation is the whole
+	// reason the Reviewer is here. The explanation wins ties: the code window can
+	// shrink to a single line, and the Reviewer scrolls or enlarges the terminal.
+	// Each Excerpt shown costs two rows (a blank spacer and the file header); the
+	// manifest hint below costs two more when there are Acknowledgements.
+	reserve := lipgloss.Height(b.String()) + 2*len(step.Excerpts)
+	if len(step.Acknowledgements) > 0 {
+		reserve += 2 // the "press x to expand" hint
+	}
+	window := height - reserve
+	if window < 1 {
+		window = 1
 	}
 	start := cur.cursor - window/2
 	if start < 0 {
