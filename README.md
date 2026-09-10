@@ -36,7 +36,7 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
    by dbn to just what moved, with each of your requests marked addressed or
    declined. Repeat until you finish having raised nothing.
 
-## Install
+## Installation
 
 One line downloads the right prebuilt binary for your machine and puts it on your
 PATH — no Go toolchain needed:
@@ -46,16 +46,17 @@ curl -fsSL https://raw.githubusercontent.com/probertson/diff-by-numbers/main/ins
 ```
 
 It installs to `~/.local/bin` and verifies the download against the published
-SHA-256 checksum. Two knobs — note the variable goes on the `sh` side of the
-pipe, since that is the process that reads it:
+SHA-256 checksum. There are two options you can specify as environment variables:
 
 - `curl -fsSL … | DBN_VERSION=v0.2.0 sh` installs a specific release instead of the latest.
 - `curl -fsSL … | DBN_INSTALL_DIR=/somewhere/bin sh` installs elsewhere.
 
-macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
+Note the variables go on the `sh` side of the pipe, since that is the process that reads it.
+
+Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
 Linux build). `dbn version` confirms the install.
 
-## Build from source
+### ... or build from source
 
 ```sh
 go build -o /usr/local/bin/dbn ./cmd/dbn
@@ -76,11 +77,18 @@ claude mcp add --transport http dbn http://127.0.0.1:7373/mcp
 
 ### 2. Install the review skill
 
-Copy the review skill so your agent knows how to plan and post a Walkthrough:
+Copy the review skill so your agent knows how to interact with dbn:
 
+**Via `npx skills`**
 ```sh
-cp -r .claude/skills/dbn-review ~/.claude/skills/     # available in every project
-# or leave it in a project's .claude/skills/ for that project only
+npx skills add probertson/diff-by-numbers/skills/dbn-review
+```
+
+**As a Claude Code plugin**
+```sh
+# Add marketplace, one time
+/plugin marketplace add probertson/diff-by-numbers
+/plugin install dbn@diff-by-numbers
 ```
 
 The skill teaches Step sizing and narrative ordering, Provenance, when an
@@ -88,12 +96,46 @@ Acknowledgement is appropriate, and how to run the collect-and-revise loop.
 
 ### 3. Always-on daemon (recommended)
 
-So the MCP server is always there and no session reports a failed MCP server, run
-the daemon as a login agent:
+For the "don't touch my system" option, before asking your agent for a review 
+you must start the MCP server:
 
 ```sh
-# edit the path inside the plist to point at your dbn binary first
-cp docs/launchd/com.probertson.dbn.plist ~/Library/LaunchAgents/
+dbn serve
+```
+
+If you want the "set it and forget it" option, (the MCP server is always running)
+run the daemon on login/startup.
+
+**NOTE:** `dbn` needs to be on your PATH to run these commands, so before
+running them (immediately after installation) you may need to open a new terminal 
+window.
+
+#### macOS
+```sh
+cat > ~/Library/LaunchAgents/com.probertson.dbn.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.probertson.dbn</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$(command -v dbn)</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/dbn.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/dbn.err.log</string>
+</dict>
+</plist>
+EOF
+
 launchctl load ~/Library/LaunchAgents/com.probertson.dbn.plist
 ```
 
@@ -103,23 +145,57 @@ It starts at login and is restarted if it exits. To stop it:
 launchctl unload ~/Library/LaunchAgents/com.probertson.dbn.plist
 ```
 
-Prefer to run it by hand instead? `dbn serve` in a terminal does the same thing,
-and prints `press q to quit`.
+#### Linux/Unix (via systemd): install as a user service
 
-## Reviewing
+```sh
+mkdir -p ~/.config/systemd/user
 
-With the daemon running and your agent having posted a Walkthrough, open the
-review surface:
+cat > ~/.config/systemd/user/dbn.service <<EOF
+[Unit]
+Description=dbn review daemon (MCP server on 127.0.0.1:7373)
+
+[Service]
+ExecStart=$(command -v dbn) serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user enable --now dbn.service
+```
+
+To stop it:
+```sh
+systemctl --user disable --now dbn.service
+```
+
+To read its logs:
+```sh
+journalctl --user -u dbn
+```
+
+## Using dbn
+
+1. If the MCP server isn't already running, open a separate terminal and run:
+```sh
+dbn serve
+```
+
+2. Ask your agent to "review [describe set of changes, for example 'the last
+two commits'] with dbn."
+
+3. In a separate terminal, open the TUI:
 
 ```sh
 dbn
 ```
 
-Keys are shown along the bottom: a fixed row of global actions (go to Step,
-overview, list, finish, quit) and a row of the current page's actions (move,
-select, comment, copy an Anchor, expand an Acknowledgement). If no daemon is
-running, dbn says so and tells you to start one — it never leaves you staring at
-an empty screen.
+The first screen shows an overview. Use Left/Right arrows to navigate through screens.
+Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions
+mid-review) or to add a change request. When you're finished, press `f` and then tell your agent
+you've finished. It will then retrieve your change requests.
 
 Other subcommands: `dbn dump` prints the posted Walkthrough as text, `dbn
 abandon` discards it, `dbn version` reports the build.

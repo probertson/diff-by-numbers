@@ -1,0 +1,8 @@
+{
+  "name": "dbn",
+  "description": "Teach your agent to use diff-by-numbers for a logical code review journey.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Paul Robertson"
+  }
+}

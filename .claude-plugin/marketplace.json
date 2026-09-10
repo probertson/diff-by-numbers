@@ -1,0 +1,14 @@
+{
+  "name": "diff-by-numbers",
+  "owner": {
+    "name": "Paul Robertson"
+  },
+  "description": "Teach your agent to work with the diff-by-numbers tool for a logical code review journey.",
+  "plugins": [
+    {
+      "name": "dbn",
+      "source": "./",
+      "description": "Teach your agent to work with the diff-by-numbers tool for a logical code review journey."
+    }
+  ]
+}
