@@ -211,3 +211,13 @@ The review core (`internal/review`) owns the whole life of a Walkthrough and
 knows nothing of MCP, git, or the terminal. The git adapter (`internal/git`)
 derives changed lines; the working-tree adapter (`internal/workingtree`) reads
 and fingerprints files. The daemon and TUI are deliberately thin.
+
+### Cutting a release
+
+```sh
+scripts/release.sh v0.1.0
+```
+
+It validates (clean tree, on `main`, tag unused, tests pass), pushes `main` if
+needed, then tags and pushes the tag — which triggers the release workflow that
+builds and publishes the binaries. Pass `SKIP_TESTS=1` to skip the test gate.
