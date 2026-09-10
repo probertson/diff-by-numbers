@@ -1,0 +1,39 @@
+# Shipping-config validation: the guard against a broken release before a tag is
+# pushed. `goreleaser check` validates .goreleaser.yaml; `goreleaser build
+# --snapshot` proves all four targets cross-compile; and the installer's own
+# shell harness runs (via go test) to catch drift between the archive names
+# GoReleaser produces and the URLs install.sh constructs.
+#
+# General test/vet CI for the whole codebase is tracked separately.
+name: release-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          install-only: true
+      - run: goreleaser check
+      - run: goreleaser build --snapshot --clean
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/installer/...

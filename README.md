@@ -36,7 +36,26 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
    by dbn to just what moved, with each of your requests marked addressed or
    declined. Repeat until you finish having raised nothing.
 
-## Build
+## Install
+
+One line downloads the right prebuilt binary for your machine and puts it on your
+PATH — no Go toolchain needed:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/probertson/diff-by-numbers/main/install.sh | sh
+```
+
+It installs to `~/.local/bin` and verifies the download against the published
+SHA-256 checksum. Two knobs — note the variable goes on the `sh` side of the
+pipe, since that is the process that reads it:
+
+- `curl -fsSL … | DBN_VERSION=v0.2.0 sh` installs a specific release instead of the latest.
+- `curl -fsSL … | DBN_INSTALL_DIR=/somewhere/bin sh` installs elsewhere.
+
+macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
+Linux build). `dbn version` confirms the install.
+
+## Build from source
 
 ```sh
 go build -o /usr/local/bin/dbn ./cmd/dbn
