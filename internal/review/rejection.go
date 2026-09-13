@@ -50,6 +50,9 @@ const (
 	// RejectedMalformedDisposition means a Revision Round does not account for the
 	// previous round's Change Requests correctly.
 	RejectedMalformedDisposition RejectionReason = "malformed_disposition"
+	// RejectedUnknownReview means a conclude names a review id that is not the one
+	// currently under review.
+	RejectedUnknownReview RejectionReason = "unknown_review"
 )
 
 // Rejection is a refusal that names its cause.

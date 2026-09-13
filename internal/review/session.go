@@ -1,5 +1,10 @@
 package review
 
+import (
+	"crypto/rand"
+	"encoding/hex"
+)
+
 // Results is what the Authoring Agent receives when it asks how a review went.
 type Results struct {
 	// Posted reports whether a Walkthrough exists at all. Without it, an agent
@@ -48,14 +53,53 @@ type Session struct {
 	// dispositions accounts for the previous round's Change Requests in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
+	// id is the review's identity, minted when a new review is first posted and
+	// preserved across its Revision Rounds, so the Authoring Agent can refer back
+	// to the review to conclude it.
+	id string
+	// label is the optional human-readable name carried on the Walkthrough.
+	label string
+	// concluded records an explicit conclusion. A review also reads as concluded
+	// by inference — see isConcluded — when a round finishes with nothing raised.
+	concluded bool
+	// mint generates a new review id. Injected so tests can assert on a known id.
+	mint func() string
+}
+
+// SessionOption configures a Session at construction.
+type SessionOption func(*Session)
+
+// WithIDMinter overrides how review ids are generated, so a test can assert on a
+// known id rather than a random one.
+func WithIDMinter(mint func() string) SessionOption {
+	return func(s *Session) { s.mint = mint }
 }
 
 // NewSession returns a Session with no Walkthrough posted. The resolver turns
 // Excerpts into lines when a view is drawn; the deriver reports what git says
 // actually changed. The core itself neither reads files nor runs git.
-func NewSession(resolver Resolver, deriver Deriver) *Session {
-	return &Session{resolver: resolver, deriver: deriver}
+func NewSession(resolver Resolver, deriver Deriver, opts ...SessionOption) *Session {
+	s := &Session{resolver: resolver, deriver: deriver, mint: defaultMint}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
+
+// defaultMint returns a short random hex id, unique enough to tell concurrent
+// reviews apart without any coordination.
+func defaultMint() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// ReviewID returns the id of the review under review, or "" if none is posted.
+func (s *Session) ReviewID() string { return s.id }
+
+// Label returns the optional human-readable name the Authoring Agent attached to
+// the review, or "" if none was given.
+func (s *Session) Label() string { return s.label }
 
 // Post submits a Walkthrough for review. Posting after the previous Walkthrough
 // finished is a Revision Round: it re-derives the full Change Set, pre-marks what
@@ -134,6 +178,20 @@ func (s *Session) Post(w Walkthrough) error {
 	s.preShown = preShown
 	s.dispositions = dispositions
 	s.priorContent = s.captureContent(ledger)
+
+	// A new review mints an id and takes the Walkthrough's label as given; a
+	// Revision Round keeps the id and only updates the label if one is supplied,
+	// so an agent that omits it on a later round does not blank it. Either way,
+	// posting a round means the review is active again.
+	if revision {
+		if w.Label != "" {
+			s.label = w.Label
+		}
+	} else {
+		s.id = s.mint()
+		s.label = w.Label
+	}
+	s.concluded = false
 	return nil
 }
 
@@ -177,6 +235,9 @@ func (s *Session) Abandon() error {
 		return reject(RejectedNoWalkthrough, "there is no Walkthrough to abandon")
 	}
 	s.walkthrough = nil
+	s.id = ""
+	s.label = ""
+	s.concluded = false
 	return nil
 }
 

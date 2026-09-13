@@ -55,11 +55,50 @@ func (s *Session) Finish() error {
 }
 
 // Reopen undoes a Finish so the Reviewer can add or change more before handing
-// off. Finishing is a soft signal in the MVP, not a one-way door.
+// off. Finishing is a soft signal in the MVP, not a one-way door. It also clears
+// any conclusion — inferred or explicit — so a Reviewer who finished and then
+// thought better of it is not locked out, and the daemon knows the review is
+// live again.
 func (s *Session) Reopen() error {
 	if s.walkthrough == nil {
 		return reject(RejectedNoWalkthrough, "there is no Walkthrough to reopen")
 	}
 	s.finished = false
+	s.concluded = false
 	return nil
+}
+
+// Conclude ends the review named by id, so the Authoring Agent can release a
+// review it is done with and let the daemon stop holding it. Concluding is
+// idempotent; concluding an id that is not the review under review is refused, so
+// a stale reference cannot end the wrong review.
+func (s *Session) Conclude(id string) error {
+	if s.walkthrough == nil {
+		return reject(RejectedNoWalkthrough, "there is no review to conclude")
+	}
+	if id != s.id {
+		return reject(RejectedUnknownReview,
+			"no review with id %q; the review under review is %q", id, s.id)
+	}
+	s.concluded = true
+	return nil
+}
+
+// isConcluded reports whether the review has reached a terminal disposition:
+// declared so explicitly, or inferred from a round finished with no Change
+// Request raised — the natural end of the review loop.
+func (s *Session) isConcluded() bool {
+	return s.concluded || (s.finished && len(s.changeRequests) == 0)
+}
+
+// Concluded reports whether the posted review is over. It is false when nothing
+// is posted: there is no review to have concluded.
+func (s *Session) Concluded() bool {
+	return s.walkthrough != nil && s.isConcluded()
+}
+
+// Active reports whether a posted review still needs the daemon — posted and not
+// yet concluded. It is what the daemon consults to decide it may exit.
+func (s *Session) Active() bool {
+	return s.walkthrough != nil && !s.isConcluded()
 }

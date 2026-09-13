@@ -100,6 +100,11 @@ type Walkthrough struct {
 	// Dispositions accounts for the previous round's Change Requests when this
 	// Walkthrough is a Revision Round. It is empty for a first Walkthrough.
 	Dispositions []Disposition
+	// Label is an optional human-readable name the Authoring Agent may attach so a
+	// Reviewer juggling several reviews can tell them apart. It is not the review's
+	// identity — that is minted by dbn — only a display aid. It survives a Revision
+	// Round that omits it.
+	Label string
 }
 
 // contains reports whether the Change Set includes the given repository root.

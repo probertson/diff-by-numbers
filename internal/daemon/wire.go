@@ -62,12 +62,24 @@ type wireWalkthrough struct {
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
 	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a finish, one entry per Change Request the previous round raised, saying whether you addressed or declined it. Omit for a first Walkthrough"`
+	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
 }
 
 type postResult struct {
 	Accepted bool   `json:"accepted"`
+	ReviewID string `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
 	Reason   string `json:"reason,omitempty" jsonschema:"Why the Walkthrough was refused, as a value you can act on"`
 	Detail   string `json:"detail,omitempty" jsonschema:"What specifically to fix"`
+}
+
+type concludeInput struct {
+	ReviewID string `json:"review_id" jsonschema:"The id of the review to conclude, as returned by post_walkthrough"`
+}
+
+type concludeResult struct {
+	Concluded bool   `json:"concluded"`
+	Reason    string `json:"reason,omitempty" jsonschema:"Why the conclude was refused, as a value you can act on"`
+	Message   string `json:"message" jsonschema:"A human-readable account of the outcome"`
 }
 
 type changeRequestWire struct {
@@ -150,6 +162,7 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 		ChangeSet:    review.ChangeSet{Repositories: repositories},
 		Steps:        steps,
 		Dispositions: dispositions,
+		Label:        w.Label,
 	}
 }
 

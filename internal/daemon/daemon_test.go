@@ -124,7 +124,10 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 	}
 }
 
-func postWalkthrough(t *testing.T, baseURL string, walkthrough map[string]any) {
+// callTool opens a fresh MCP session, calls one tool, and returns its result.
+// The daemon reports refusals as structured output rather than protocol errors,
+// so the caller reads acceptance out of the decoded result.
+func callTool(t *testing.T, baseURL, name string, args any) *mcp.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
 
@@ -135,32 +138,40 @@ func postWalkthrough(t *testing.T, baseURL string, walkthrough map[string]any) {
 	}
 	defer session.Close()
 
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "post_walkthrough",
-		Arguments: walkthrough,
-	})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
-		t.Fatalf("post_walkthrough failed: %v", err)
+		t.Fatalf("%s failed: %v", name, err)
 	}
+	return result
+}
 
-	// The daemon reports a refusal as structured output rather than a protocol
-	// error, so acceptance has to be read out of the result. Without this the
-	// test would report every field as lost when the real cause was a rejection.
+func decodeResult[T any](t *testing.T, result *mcp.CallToolResult) T {
+	t.Helper()
 	encoded, err := json.Marshal(result.StructuredContent)
 	if err != nil {
-		t.Fatalf("could not read the post result: %v", err)
+		t.Fatalf("could not read the tool result: %v", err)
 	}
-	var outcome struct {
-		Accepted bool   `json:"accepted"`
-		Reason   string `json:"reason"`
-		Detail   string `json:"detail"`
+	var out T
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		t.Fatalf("could not decode the tool result: %v", err)
 	}
-	if err := json.Unmarshal(encoded, &outcome); err != nil {
-		t.Fatalf("could not decode the post result: %v", err)
-	}
+	return out
+}
+
+type postOutcome struct {
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason"`
+	Detail   string `json:"detail"`
+	ReviewID string `json:"review_id"`
+}
+
+func postWalkthrough(t *testing.T, baseURL string, walkthrough map[string]any) postOutcome {
+	t.Helper()
+	outcome := decodeResult[postOutcome](t, callTool(t, baseURL, "post_walkthrough", walkthrough))
 	if !outcome.Accepted {
 		t.Fatalf("expected the Walkthrough to be accepted, got %s: %s", outcome.Reason, outcome.Detail)
 	}
+	return outcome
 }
 
 func get(t *testing.T, url string) string {

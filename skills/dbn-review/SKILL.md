@@ -12,9 +12,11 @@ side terminal and raises **Change Requests**; you collect those and post a
 **Revision Round**. You never block waiting — you post, end your turn, and pick
 the results up later.
 
-The dbn daemon exposes two MCP tools: `post_walkthrough` and `fetch_results`. If
-they are not available, dbn's MCP server is not registered or not running — see
-the project README for the one-time setup.
+The dbn daemon exposes three MCP tools: `post_walkthrough`, `fetch_results`, and
+`conclude`. If they are not available, dbn's MCP server is not registered — see
+the project README for the one-time setup. (You do not need to start anything
+first: registering the shim is enough. It starts the daemon on demand the moment
+your session connects.)
 
 ## Planning a Walkthrough
 
@@ -71,7 +73,11 @@ you missed — add it and re-post.
 
 Call `post_walkthrough` once, complete. Name every repository under review in
 `repositories` (each with its own `range`, e.g. the default branch), then the
-`brief` and the ordered `steps`. Then **end your turn** — tell the human their
+`brief` and the ordered `steps`. You may add an optional `label` — a short name
+like "auth refactor" — to help a reviewer tell several reviews apart.
+
+`post_walkthrough` returns a `review_id`. **Record it**: you pass it back to
+`conclude` when the review is over. Then **end your turn** — tell the human their
 review is ready and that you will pick up their feedback when they are done. Do
 not poll.
 
@@ -91,3 +97,15 @@ plan Steps and coverage for the moved lines the same way.
 
 Repeat until the reviewer finishes having raised nothing — `fetch_results` will
 say the review is complete.
+
+## Concluding a review
+
+A review that ends this way — the reviewer finishing having raised nothing — is
+already concluded; dbn treats `fetch_results` reporting "complete" as the end of
+the loop. There is nothing more you must do.
+
+For any other ending — you decide to stop, or the reviewer declines everything and
+you will post no further round — call `conclude` with the `review_id` from
+`post_walkthrough`. Concluding does not discard anything; it tells dbn the review
+is over so it can release the daemon it started for you. A review you never
+conclude just leaves the daemon holding it, which is untidy, not harmful.

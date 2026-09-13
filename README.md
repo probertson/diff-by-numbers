@@ -21,9 +21,10 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
 
 ## The end-to-end flow
 
-1. **A daemon runs in the background**, owning the review state and exposing an
-   MCP server on `127.0.0.1:7373`. It is separate from any agent session, so
-   closing a window loses nothing.
+1. **A daemon owns the review state**, exposing an MCP server on
+   `127.0.0.1:7373`, separate from any agent session so closing a window loses
+   nothing. It starts on demand the first time an agent session connects and lets
+   go of itself once no review needs it — you never run it by hand.
 2. **Your agent posts a Walkthrough** over MCP — a Brief plus ordered Steps, each
    a self-contained idea built from line ranges it chose for comprehension. It
    posts once and ends its turn; it does not wait on you.
@@ -66,14 +67,17 @@ go build -o /usr/local/bin/dbn ./cmd/dbn
 
 ## One-time setup
 
-### 1. Register the MCP server with your agent
+### 1. Register dbn with your agent
 
-dbn speaks MCP over Streamable HTTP. Register it once so every session can reach
-it. For Claude Code:
+Register dbn once. Your agent launches it per session, and it starts the shared
+dbn daemon on demand — so the review tools are always present, with nothing to
+start by hand first. For Claude Code:
 
 ```sh
-claude mcp add --transport http dbn http://127.0.0.1:7373/mcp
+claude mcp add dbn -- dbn mcp
 ```
+
+(`dbn` must be on your PATH for your agent to launch it.)
 
 ### 2. Install the review skill
 
@@ -94,21 +98,15 @@ npx skills add probertson/diff-by-numbers/skills/dbn-review
 The skill teaches Step sizing and narrative ordering, Provenance, when an
 Acknowledgement is appropriate, and how to run the collect-and-revise loop.
 
-### 3. Always-on daemon (recommended)
+### 3. (Optional) Keep the daemon always running
 
-For the "don't touch my system" option, before asking your agent for a review 
-you must start the MCP server:
+You do not need this: the shim starts the daemon on demand, and it stops itself
+once no review needs it. But if you would rather the daemon be permanently warm —
+so the first review of a session has nothing to start — run it on login/startup.
+This is purely a pre-warm; the shim simply finds and shares a daemon that is
+already running.
 
-```sh
-dbn serve
-```
-
-If you want the "set it and forget it" option, (the MCP server is always running)
-run the daemon on login/startup.
-
-**NOTE:** `dbn` needs to be on your PATH to run these commands, so before
-running them (immediately after installation) you may need to open a new terminal 
-window.
+**NOTE:** `dbn` needs to be on your PATH for these.
 
 #### macOS
 ```sh
@@ -178,15 +176,11 @@ journalctl --user -u dbn
 
 ## Using dbn
 
-1. If the MCP server isn't already running, open a separate terminal and run:
-```sh
-dbn serve
-```
+1. Ask your agent to "review [describe set of changes, for example 'the last
+two commits'] with dbn." The daemon starts automatically the first time your
+agent uses dbn — you do not need to start anything.
 
-2. Ask your agent to "review [describe set of changes, for example 'the last
-two commits'] with dbn."
-
-3. In a separate terminal, open the TUI:
+2. In a separate terminal, open the TUI:
 
 ```sh
 dbn

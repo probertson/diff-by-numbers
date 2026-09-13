@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,10 +31,41 @@ const DefaultPort = 7373
 type Daemon struct {
 	mu      sync.Mutex
 	session *review.Session
+
+	// selfExit is set when the daemon was auto-started (by the stdio shim) rather
+	// than run by hand. An auto-started daemon lets go of itself once nothing
+	// needs it; a hand-run one (a login-item daemon) never does.
+	selfExit bool
+	// lastActive is the UnixNano of the most recent request of any kind — an agent
+	// call, the shim's keepalive, or a TUI poll — the clock the idle grace is
+	// measured against. While anyone is here, something keeps it fresh.
+	lastActive atomic.Int64
 }
 
-func New() *Daemon {
-	return &Daemon{session: review.NewSession(workingtree.NewResolver(), git.NewDeriver())}
+// Option configures a Daemon at construction.
+type Option func(*Daemon)
+
+// WithSelfExit makes the daemon exit on its own once no review needs it and no
+// client is attached. It is set only for an auto-started daemon.
+func WithSelfExit() Option {
+	return func(d *Daemon) { d.selfExit = true }
+}
+
+func New(opts ...Option) *Daemon {
+	d := &Daemon{session: review.NewSession(workingtree.NewResolver(), git.NewDeriver())}
+	d.touch()
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
+}
+
+// touch records that the daemon just saw activity, resetting the idle clock.
+func (d *Daemon) touch() { d.lastActive.Store(time.Now().UnixNano()) }
+
+// idleFor reports how long it has been since the last request of any kind.
+func (d *Daemon) idleFor() time.Duration {
+	return time.Since(time.Unix(0, d.lastActive.Load()))
 }
 
 // Serve listens on the loopback interface only. A review surface has no reason
@@ -57,6 +89,14 @@ func (d *Daemon) Serve(port int) error {
 		<-signals
 		signalQuit()
 	}()
+
+	// An auto-started daemon watches for the moment nothing needs it any more and
+	// quits itself. Start the idle clock fresh here so the grace is measured from
+	// when serving began, not from construction.
+	if d.selfExit {
+		d.touch()
+		go d.monitorForExit(signalQuit, quit)
+	}
 
 	// With a terminal attached, offer a single-key q. Raw mode disables the
 	// kernel's Ctrl-C, so watch for it explicitly. Headless (launchd, a pipe),
@@ -88,7 +128,71 @@ func (d *Daemon) Serve(port int) error {
 	fmt.Print("\rdbn shutting down\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return server.Shutdown(ctx)
+	// A live agent session holds a server→client stream open, which cannot drain
+	// inside the grace window; the resulting DeadlineExceeded is the expected shape
+	// of a clean shutdown, not a failure worth printing.
+	if err := server.Shutdown(ctx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return nil
+}
+
+// maxCheckInterval caps how often the self-exit decision is polled.
+const maxCheckInterval = 5 * time.Second
+
+// exitGraceDuration is how long the daemon stays idle before letting go. It is
+// measured from the last activity — a request, or a client stream closing — so it
+// also covers a brief reconnect gap. Overridable with DBN_EXIT_GRACE, chiefly so
+// tests need not wait a real minute.
+func exitGraceDuration() time.Duration {
+	if raw := os.Getenv("DBN_EXIT_GRACE"); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 60 * time.Second
+}
+
+// shouldExit is the whole of the self-exit decision, kept pure. The daemon stays
+// alive while a review is still active, and otherwise until it has been idle
+// through the grace window — where "not idle" means an agent call, a TUI poll, or
+// the shim keepalive touched it recently, i.e. someone is still here.
+func shouldExit(activeReview bool, idle, grace time.Duration) bool {
+	if activeReview {
+		return false
+	}
+	return idle >= grace
+}
+
+// monitorForExit polls the self-exit decision and signals a quit the first time
+// it is satisfied. The poll interval tracks the grace so a short (test) grace is
+// noticed promptly and a long (real) one is not polled needlessly often.
+func (d *Daemon) monitorForExit(signalQuit func(), quit <-chan struct{}) {
+	grace := exitGraceDuration()
+	interval := grace / 4
+	if interval < 50*time.Millisecond {
+		interval = 50 * time.Millisecond
+	}
+	if interval > maxCheckInterval {
+		interval = maxCheckInterval
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-quit:
+			return
+		case <-ticker.C:
+			d.mu.Lock()
+			active := d.session.Active()
+			d.mu.Unlock()
+			if shouldExit(active, d.idleFor(), grace) {
+				signalQuit()
+				return
+			}
+		}
+	}
 }
 
 // watchForQuitKey puts the terminal in raw mode and quits when q (or Ctrl-C,
@@ -130,6 +234,14 @@ func (d *Daemon) Handler() http.Handler {
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return d.mcpServer() },
 		&mcp.StreamableHTTPOptions{CrossOriginProtection: &http.CrossOriginProtection{}}))
+
+	// /ping is the shim's keepalive: while an agent session is alive its shim
+	// pings this, which (through withActivity) keeps the idle clock fresh so an
+	// auto-started daemon does not exit out from under a connected-but-idle
+	// session. It carries no state.
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "ok")
+	})
 
 	mux.HandleFunc("GET /dump", func(w http.ResponseWriter, _ *http.Request) {
 		d.mu.Lock()
@@ -305,7 +417,18 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		fmt.Fprintln(w, "Walkthrough abandoned")
 	})
-	return mux
+	return d.withActivity(mux)
+}
+
+// withActivity resets the idle clock on every request, so a Reviewer's TUI poll,
+// the shim's keepalive, and an agent's call all count equally as the daemon being
+// needed. This one signal — plus whether a review is still active — is the whole
+// of what keeps an auto-started daemon alive.
+func (d *Daemon) withActivity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d.touch()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // navHandler adapts a no-argument navigation intent to an HTTP handler under the
@@ -333,14 +456,26 @@ func (d *Daemon) mcpServer() *mcp.Server {
 		Description: "Post a Walkthrough of your changes for the Reviewer to work through. " +
 			"Send it once and completely: the Reviewer navigates it without involving you. " +
 			"Order Steps so each is comprehensible given only the Steps before it, and send " +
-			"line ranges rather than code — dbn reads the working tree itself.",
+			"line ranges rather than code — dbn reads the working tree itself. " +
+			"It returns a review id; record it, and pass it to conclude when the review is done.",
 	}, d.postWalkthrough)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "fetch_results",
 		Description: "Ask how the review went. Returns immediately whether or not the Reviewer " +
-			"has finished; it never waits. Call it once the Reviewer says they are done.",
+			"has finished; it never waits. Call it once the Reviewer says they are done. " +
+			"If it reports the review complete (the Reviewer finished having raised nothing), " +
+			"the loop is over and dbn treats the review as concluded.",
 	}, d.fetchResults)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "conclude",
+		Description: "Conclude a review you are finished with, by its id, so dbn can release it. " +
+			"Use it when you will post no further Revision Round — for instance the Reviewer " +
+			"finished having raised nothing, or you have decided to stop. A review the Reviewer " +
+			"finishes with nothing raised is already treated as concluded; calling this is the " +
+			"explicit way to end one otherwise. It does not discard anything.",
+	}, d.conclude)
 
 	return server
 }
@@ -360,7 +495,21 @@ func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in w
 		}
 		return nil, postResult{}, err
 	}
-	return nil, postResult{Accepted: true}, nil
+	return nil, postResult{Accepted: true, ReviewID: d.session.ReviewID()}, nil
+}
+
+func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in concludeInput) (*mcp.CallToolResult, concludeResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if err := d.session.Conclude(in.ReviewID); err != nil {
+		var rejection *review.Rejection
+		if errors.As(err, &rejection) {
+			return nil, concludeResult{Concluded: false, Reason: string(rejection.Reason), Message: rejection.Detail}, nil
+		}
+		return nil, concludeResult{}, err
+	}
+	return nil, concludeResult{Concluded: true, Message: "the review is concluded; dbn will release it once nothing else needs it"}, nil
 }
 
 func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, fetchResult, error) {

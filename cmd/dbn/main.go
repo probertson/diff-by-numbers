@@ -2,15 +2,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/shim"
 	"github.com/probertson/diff-by-numbers/internal/tui"
 )
 
@@ -50,10 +53,34 @@ func run(args []string, out io.Writer) error {
 	case "serve":
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 		port := flags.Int("port", defaultPort(), "port to listen on")
+		selfExit := flags.Bool("self-exit", false, "exit automatically once no review needs the daemon (used when auto-started)")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		return daemon.New().Serve(*port)
+		var opts []daemon.Option
+		if *selfExit {
+			opts = append(opts, daemon.WithSelfExit())
+		}
+		return daemon.New(opts...).Serve(*port)
+
+	case "mcp":
+		// The stdio MCP shim an agent registers and launches: it starts the daemon
+		// if none is running, then proxies to it. Registered with, e.g.,
+		// `claude mcp add dbn -- dbn mcp`.
+		flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
+		port := flags.Int("port", defaultPort(), "daemon port to connect to or start")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("could not find the dbn executable to start the daemon: %w", err)
+		}
+		return shim.Run(context.Background(), shim.Config{
+			Port:       *port,
+			Executable: exe,
+			LogPath:    filepath.Join(os.TempDir(), "dbn-daemon.log"),
+		})
 
 	case "dump":
 		flags := flag.NewFlagSet("dump", flag.ContinueOnError)
@@ -72,7 +99,7 @@ func run(args []string, out io.Writer) error {
 		return abandon(*port, out)
 
 	default:
-		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|dump|abandon> [flags]", args[0])
+		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon> [flags]", args[0])
 	}
 }
 
