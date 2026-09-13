@@ -75,6 +75,19 @@ func (c *stepCursor) move(delta int) {
 	}
 }
 
+// extend grows the selection by moving the cursor, dropping an anchor at the
+// current line first if none is set. It backs shift+arrow, the editor-conventional
+// way to select a range without first pressing a select key.
+func (c *stepCursor) extend(delta int) {
+	if len(c.lines) == 0 {
+		return
+	}
+	if c.sel < 0 {
+		c.sel = c.cursor
+	}
+	c.move(delta)
+}
+
 func (c *stepCursor) toggleSelect() {
 	if c.sel == c.cursor {
 		c.sel = -1
@@ -121,10 +134,24 @@ func (c stepCursor) inSelection(i int) bool {
 
 var (
 	caretSt      = lipgloss.NewStyle().Bold(true).Foreground(accent)                                         // the moving cursor
-	cursorLineSt = lipgloss.NewStyle().Bold(true)                                                            // cursor line, no selection
 	selSt        = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#cfe6ff", Dark: "#0a3550"}) // an active selection range
-	commentSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}) // a line carrying a Change Request
+	commentColor = lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}                                 // a line carrying a Change Request
 )
+
+// rowStyle composes the two independent signals of a code row: colour says the
+// line carries a Change Request, weight says it is the cursor line. They compose
+// rather than override — a commented cursor line is yellow AND bold — so the
+// cursor never hides the fact that a line is commented.
+func rowStyle(commented, cursor bool) lipgloss.Style {
+	style := lipgloss.NewStyle()
+	if commented {
+		style = style.Foreground(commentColor)
+	}
+	if cursor {
+		style = style.Bold(true)
+	}
+	return style
+}
 
 // truncateTo clips a plain (ANSI-free) string to w cells, marking the cut with an
 // ellipsis. Code lines are truncated rather than wrapped: a wrapped code line
@@ -156,7 +183,10 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	var b bytes.Buffer
 	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrap(step.Explanation)+"\n")
 	if step.OversizeJustification != "" {
-		fmt.Fprint(&b, "\n"+warnSt.Render("oversized: ")+wrap(step.OversizeJustification)+"\n")
+		// The label goes on its own line above the wrapped justification. Inlining it
+		// before the block pushed the first wrapped line past the width, and the text
+		// was dropped when the terminal reflowed it.
+		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrap(step.OversizeJustification)+"\n")
 	}
 
 	if step.Stale {
@@ -275,16 +305,10 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		if i == cur.cursor {
 			caret = caretSt.Render("▸ ")
 		}
-		selActive := cur.sel >= 0
-		switch {
-		case selActive && cur.inSelection(i):
+		if cur.sel >= 0 && cur.inSelection(i) {
 			fmt.Fprint(&b, caret+selSt.Render(row)+"\n")
-		case i == cur.cursor:
-			fmt.Fprint(&b, caret+cursorLineSt.Render(row)+"\n")
-		case note == "✎":
-			fmt.Fprint(&b, caret+commentSt.Render(row)+"\n")
-		default:
-			fmt.Fprint(&b, caret+row+"\n")
+		} else {
+			fmt.Fprint(&b, caret+rowStyle(note == "✎", i == cur.cursor).Render(row)+"\n")
 		}
 	}
 	if showIndicators {
@@ -354,7 +378,7 @@ func manifestSuffix(entry daemon.AcknowledgedFileWire) string {
 		}
 		return ""
 	}
-	return fmt.Sprintf("  ·  %d line(s)", entry.ChangedLines)
+	return "  ·  " + pluralize(entry.ChangedLines, "line")
 }
 
 // renderExpanded draws the code behind an Acknowledgement once the Reviewer calls

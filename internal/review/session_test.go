@@ -339,3 +339,14 @@ func assertDetailContains(t *testing.T, err error, want string) {
 		t.Errorf("expected the rejection detail to mention %q, got %q", want, rejection.Detail)
 	}
 }
+
+func assertDetailOmits(t *testing.T, err error, unwanted string) {
+	t.Helper()
+	var rejection *review.Rejection
+	if !errors.As(err, &rejection) {
+		t.Fatalf("expected a structured rejection, got %v", err)
+	}
+	if strings.Contains(rejection.Detail, unwanted) {
+		t.Errorf("expected the rejection detail not to contain %q, got %q", unwanted, rejection.Detail)
+	}
+}

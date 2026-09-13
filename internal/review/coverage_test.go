@@ -62,6 +62,18 @@ func TestAPlanLeavingChangedLinesUnshownIsRejectedNamingThem(t *testing.T) {
 	assertDetailContains(t, err, "100")
 }
 
+func TestUncoveredChangesRejectionPluralizesTheCount(t *testing.T) {
+	// The rejection reaches the agent as MCP detail, so its count must read
+	// properly: "1 change", never the lazy "change(s)".
+	session := sessionDeriving([]review.ChangedLine{{File: "src/fetch.ts", Side: review.NewSide, Line: 100}})
+
+	err := session.Post(validWalkthrough())
+
+	assertRejected(t, err, review.RejectedUncoveredChanges)
+	assertDetailContains(t, err, "1 change")
+	assertDetailOmits(t, err, "change(s)")
+}
+
 func TestADeletedLineOnTheOldSideMustBeCoveredToo(t *testing.T) {
 	// A deletion the new-side Excerpt cannot cover.
 	session := sessionDeriving([]review.ChangedLine{{File: "src/fetch.ts", Side: review.OldSide, Line: 8}})

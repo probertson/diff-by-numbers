@@ -241,7 +241,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.note = ta
 		}
 		m.note.SetWidth(max(20, msg.Width-4))
-		m.note.SetHeight(4)
+		m.setNoteHeight()
 		m.ready = true
 		m.syncCursor()
 		m.viewport.SetContent(m.content())
@@ -359,6 +359,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor.move(1)
 				}
 				return m, nil
+			case "shift+up":
+				if interactive {
+					m.cursor.extend(-1)
+					m.status = ""
+				}
+				return m, nil
+			case "shift+down":
+				if interactive {
+					m.cursor.extend(1)
+					m.status = ""
+				}
+				return m, nil
 			case "v", " ":
 				if !interactive {
 					m.status = m.noInteractionHint()
@@ -403,7 +415,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.expandedAck = true
 				m.cursor.sel = -1
 				if failed > 0 {
-					m.status = fmt.Sprintf("expanded — but %d acknowledgement(s) could not be fetched (x or <esc> to collapse)", failed)
+					m.status = fmt.Sprintf("expanded — but %s could not be fetched (x or <esc> to collapse)", pluralize(failed, "acknowledgement"))
 				} else {
 					m.status = "expanded — showing the acknowledged code (x or <esc> to collapse)"
 				}
@@ -432,6 +444,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.pendingCode = here[0].Anchor
 					m.note.SetValue(here[0].Note)
 					m.note.Focus()
+					m.setNoteHeight()
 					m.mode = modeNote
 					return m, textarea.Blink
 				default:
@@ -465,6 +478,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.pendingCode = ""
 				}
+				m.setNoteHeight()
 				return m, textarea.Blink
 			}
 			return m, nil
@@ -552,6 +566,7 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 			m.pendingCode = cr.Anchor
 			m.note.SetValue(cr.Note)
 			m.note.Focus()
+			m.setNoteHeight()
 			m.mode = modeNote
 			return m, textarea.Blink
 		}
@@ -743,16 +758,46 @@ func (m model) noInteractionHint() string {
 	return "no readable code on this Step"
 }
 
+// noteMaxHeight caps how tall the Change Request input grows: it fills the space
+// the modal has up to this, and shrinks below it on a short terminal.
+const noteMaxHeight = 10
+
+// setNoteHeight sizes the note input to fill the modal, up to noteMaxHeight. The
+// title, the code being commented on, and the counter each take rows the input
+// cannot, so a short terminal shrinks the input rather than overflowing.
+func (m *model) setNoteHeight() {
+	codeLines := 1 // the "lines %d-%d" placeholder shown when there is no anchor
+	if m.pendingCode != "" {
+		codeLines = lipgloss.Height(wrapTo(m.pendingCode, m.width))
+	}
+	// The fixed single-line rows around the input: the header and its blank line,
+	// the title and its blank line, the counter, and the keybar — six in all — plus
+	// one row for frame()'s minimum gap. The code block takes codeLines on top.
+	const fixedRows = 7
+	available := m.height - fixedRows - codeLines
+	height := min(noteMaxHeight, available)
+	if height < 1 {
+		height = 1
+	}
+	m.note.SetHeight(height)
+}
+
 func (m model) noteView() string {
 	code := m.pendingCode
 	if code == "" {
 		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel.first, m.pendingSel.last))
+	} else {
+		code = wrapTo(code, m.width) // the anchor's "Re: …" header is one long line
 	}
 	title := "New Change Request"
 	if m.editingID > 0 {
 		title = "Edit Change Request"
 	}
-	return labelSt.Render(title) + "\n\n" + code + "\n" + m.note.View()
+	// The counter sits just below the input, right-aligned under its edge, so the
+	// invisible 1000-char cap is visible before it is hit.
+	counter := lipgloss.NewStyle().Width(m.note.Width()).Align(lipgloss.Right).
+		Render(dimSt.Render(fmt.Sprintf("%d/%d", m.note.Length(), m.note.CharLimit)))
+	return labelSt.Render(title) + "\n\n" + code + "\n" + m.note.View() + "\n" + counter
 }
 
 func (m model) listView() string {
@@ -761,9 +806,9 @@ func (m model) listView() string {
 		return dimSt.Render("No comments to show.")
 	}
 	var b strings.Builder
-	title := fmt.Sprintf("%d Change Request(s)", len(list))
+	title := pluralize(len(list), "Change Request")
 	if m.crFilter.active {
-		title = fmt.Sprintf("%d comment(s) on %s:%d", len(list), m.crFilter.file, m.crFilter.line)
+		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "comment"), m.crFilter.file, m.crFilter.line)
 	}
 	b.WriteString(labelSt.Render(title) + "\n\n")
 	for i, cr := range list {
@@ -779,7 +824,10 @@ func (m model) listView() string {
 		for _, line := range strings.Split(strings.TrimRight(cr.Anchor, "\n"), "\n") {
 			b.WriteString("     " + dimSt.Render(line) + "\n")
 		}
-		b.WriteString("     " + cr.Note + "\n\n")
+		for _, line := range strings.Split(wrapTo(cr.Note, m.width-5), "\n") {
+			b.WriteString("     " + line + "\n")
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -816,8 +864,8 @@ func (m model) doneView() string {
 				flagged++
 			}
 		}
-		b.WriteString(fmt.Sprintf("%d Steps seen, %d flagged, %d Change Request(s) raised.\n\n",
-			seen, flagged, len(m.view.ChangeRequests)))
+		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
+			pluralize(seen, "Step"), flagged, pluralize(len(m.view.ChangeRequests), "Change Request")))
 		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
 		b.WriteString(dimSt.Render("Or press r to reopen and keep editing.") + "\n")
 	}
@@ -964,19 +1012,14 @@ func (m model) brief() string {
 	var b strings.Builder
 	brief := m.view.Brief
 
-	wrap := func(text string) string {
-		if m.viewport.Width > 1 {
-			return lipgloss.NewStyle().Width(m.viewport.Width).Render(text)
-		}
-		return text
-	}
+	wrap := func(text string) string { return wrapTo(text, m.viewport.Width) }
 
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Ask) + "\n\n")
 	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
 
 	b.WriteString(labelSt.Render("Source") + "\n")
 	if brief.ProvenanceKind == "stated" {
-		b.WriteString("stated — " + brief.ProvenanceCitation + "\n\n")
+		b.WriteString(wrap("stated — "+brief.ProvenanceCitation) + "\n\n")
 	} else {
 		b.WriteString(warnSt.Render("inferred") + " — reverse-engineered from the changes; trust the narrative accordingly\n\n")
 	}
@@ -1046,6 +1089,17 @@ func (m model) step() string {
 		}
 	}
 	return b.String()
+}
+
+// wrapTo renders text into a block width cells wide, wrapping long lines at word
+// boundaries. A width of 1 or less is treated as no limit, so a not-yet-sized
+// model does not collapse the text to a sliver. It is the one place the several
+// views reach for when they need text to stay inside the frame.
+func wrapTo(text string, width int) string {
+	if width > 1 {
+		return lipgloss.NewStyle().Width(width).Render(text)
+	}
+	return text
 }
 
 func pluralize(n int, noun string) string {

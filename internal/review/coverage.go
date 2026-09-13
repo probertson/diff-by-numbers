@@ -175,7 +175,7 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool) *R
 		return nil
 	}
 	return reject(RejectedUncoveredChanges,
-		"%d change(s) are accounted for by no Excerpt or Acknowledgement: %s", len(uncovered), summarize(uncovered))
+		"no Excerpt or Acknowledgement accounts for %s: %s", pluralize(len(uncovered), "change"), summarize(uncovered))
 }
 
 // validateAcknowledgements refuses an Acknowledgement that claims a file with no

@@ -165,6 +165,120 @@ func TestRenderStepShowsADeletionAsBeforeOnly(t *testing.T) {
 	}
 }
 
+func TestRenderStepKeepsTheOversizeJustificationWithinWidth(t *testing.T) {
+	// The label used to be inlined before a width-wrapped block, so "oversized: "
+	// pushed the first wrapped line past the width and the terminal dropped text
+	// when it reflowed. No row of the Step may exceed the width it was given.
+	justification := "One new file: the Correspondence type and the ridealong predicate are a single idea; splitting them would hide the relationship."
+	step := &daemon.StepWire{
+		Name:                  "Add the type",
+		Explanation:           "short",
+		OversizeJustification: justification,
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 1, Lines: []daemon.LineWire{
+			{Number: 1, Text: "x", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step)
+	const width = 80
+
+	out := renderStep(step, cur, map[string]bool{}, width, 40, false)
+
+	if over := widestLine(out); over > width {
+		t.Errorf("a row is %d cells wide, over the %d it was given — the oversize label pushed it past the edge:\n%s", over, width, out)
+	}
+}
+
+func TestRowStyleComposesCommentColourAndCursorBold(t *testing.T) {
+	// Colour carries "has a Change Request", weight carries "is the cursor line".
+	// They must compose, not override: the bug was a commented cursor line coming
+	// out white+bold because the cursor bold clobbered the comment colour.
+	cases := []struct {
+		name      string
+		commented bool
+		cursor    bool
+		wantBold  bool
+		wantFg    lipgloss.TerminalColor
+	}{
+		{"plain, not the cursor", false, false, false, lipgloss.NoColor{}},
+		{"plain, the cursor line", false, true, true, lipgloss.NoColor{}},
+		{"commented, not the cursor", true, false, false, commentColor},
+		{"commented, the cursor line", true, true, true, commentColor},
+	}
+
+	for _, c := range cases {
+		s := rowStyle(c.commented, c.cursor)
+
+		if s.GetBold() != c.wantBold {
+			t.Errorf("%s: bold = %v, want %v", c.name, s.GetBold(), c.wantBold)
+		}
+		if s.GetForeground() != c.wantFg {
+			t.Errorf("%s: foreground = %v, want %v", c.name, s.GetForeground(), c.wantFg)
+		}
+	}
+}
+
+func TestManifestSuffixPluralizesTheLineCount(t *testing.T) {
+	one := manifestSuffix(daemon.AcknowledgedFileWire{ChangedLines: 1})
+	if !strings.Contains(one, "1 line") || strings.Contains(one, "line(s)") {
+		t.Errorf("one changed line should read '1 line', got %q", one)
+	}
+
+	many := manifestSuffix(daemon.AcknowledgedFileWire{ChangedLines: 3})
+	if !strings.Contains(many, "3 lines") {
+		t.Errorf("three changed lines should read '3 lines', got %q", many)
+	}
+}
+
+func TestExtendAnchorsThenGrowsTheSelection(t *testing.T) {
+	// shift+arrow should behave like an editor: the first extend drops an anchor at
+	// the cursor and moves, and each further extend grows the range from that anchor.
+	step := &daemon.StepWire{
+		Name: "Range", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 4, Lines: []daemon.LineWire{
+			{Number: 1, Text: "one", Changed: true},
+			{Number: 2, Text: "two", Changed: true},
+			{Number: 3, Text: "three", Changed: true},
+			{Number: 4, Text: "four", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step) // cursor at line 1, no selection
+
+	cur.extend(1)
+	cur.extend(1)
+
+	_, first, last, _, ok := cur.selection()
+	if !ok {
+		t.Fatal("expected a valid selection after extending")
+	}
+	if first != 1 || last != 3 {
+		t.Errorf("expected the selection to span lines 1-3, got %d-%d", first, last)
+	}
+}
+
+func TestExtendKeepsTheAnchorWhenReversingDirection(t *testing.T) {
+	step := &daemon.StepWire{
+		Name: "Range", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 4, Lines: []daemon.LineWire{
+			{Number: 1, Text: "one", Changed: true},
+			{Number: 2, Text: "two", Changed: true},
+			{Number: 3, Text: "three", Changed: true},
+			{Number: 4, Text: "four", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step)
+	cur.cursor = 2 // start on line 3
+
+	cur.extend(-1) // anchor at line 3, move up to line 2
+
+	_, first, last, _, ok := cur.selection()
+	if !ok {
+		t.Fatal("expected a valid selection after extending up")
+	}
+	if first != 2 || last != 3 {
+		t.Errorf("expected the selection to span lines 2-3, got %d-%d", first, last)
+	}
+}
+
 func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
 	step := &daemon.StepWire{
 		Name:        "Small",
