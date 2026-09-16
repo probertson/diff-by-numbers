@@ -83,25 +83,26 @@ type refreshMsg struct {
 type tickMsg struct{}
 
 type model struct {
-	client        client
-	view          *daemon.ViewWire
-	lostErr       error
-	viewport      viewport.Model
-	cursor        stepCursor
-	status        string
-	mode          mode
-	note          textarea.Model
-	crCursor      int              // selected row in the change-request list
-	pendingSel    pendingSelection // the selection awaiting a note
-	pendingCode   string           // the code being commented on, shown above the note input
-	editingID     int              // >0 when editing an existing Change Request rather than adding
-	crFilter      crFilter         // when active, the List shows only comments on one line
-	reraiseCursor int              // selected row among declined dispositions
-	expandedAck   bool             // showing the code behind this Step's Acknowledgements
-	expanded      []daemon.ExcerptWire
-	width         int
-	height        int
-	ready         bool
+	client           client
+	view             *daemon.ViewWire
+	lostErr          error
+	viewport         viewport.Model
+	cursor           stepCursor
+	status           string
+	mode             mode
+	note             textarea.Model
+	crCursor         int              // selected row in the change-request list
+	pendingSel       pendingSelection // the selection awaiting a note
+	pendingCode      string           // the code being commented on, shown above the note input
+	editingID        int              // >0 when editing an existing Change Request rather than adding
+	confirmingDelete bool             // an inline y/n delete confirm is armed (edit screen or List)
+	crFilter         crFilter         // when active, the List shows only comments on one line
+	reraiseCursor    int              // selected row among declined dispositions
+	expandedAck      bool             // showing the code behind this Step's Acknowledgements
+	expanded         []daemon.ExcerptWire
+	width            int
+	height           int
+	ready            bool
 }
 
 type crFilter struct {
@@ -498,11 +499,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 	key, isKey := msg.(tea.KeyMsg)
 	if isKey {
+		if m.confirmingDelete {
+			switch readConfirm(key.String()) {
+			case confirmProceed:
+				id := m.editingID
+				m.confirmingDelete = false
+				m.editingID = 0
+				m.mode = modeReview // matches esc — origin (Step or List) is not tracked
+				m.note.Blur()
+				m.client.withdraw(id)
+				m.status = "Change Request deleted"
+				return m, m.refresh()
+			case confirmCancel:
+				m.confirmingDelete = false // cancel back into editing, note intact
+			}
+			return m, nil // confirmIgnore lands here — swallowed, still armed
+		}
 		switch key.String() {
 		case "esc":
 			m.editingID = 0
 			m.mode = modeReview
 			m.note.Blur()
+			return m, nil
+		case "ctrl+d":
+			// Delete only makes sense against an existing Change Request; while
+			// composing a new one there is nothing yet to delete.
+			if m.editingID > 0 {
+				m.confirmingDelete = true
+			}
 			return m, nil
 		case "enter":
 			note := m.note.Value()
@@ -536,6 +560,24 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	list := m.filteredCRs()
+	if m.confirmingDelete {
+		// The armed confirm intercepts esc too, so it cancels the delete rather
+		// than falling through to the List's esc-exits-to-review.
+		switch readConfirm(key) {
+		case confirmProceed:
+			if m.crCursor < len(list) {
+				m.client.withdraw(list[m.crCursor].ID)
+				if m.crCursor > 0 {
+					m.crCursor--
+				}
+			}
+			m.confirmingDelete = false
+			return m, m.refresh()
+		case confirmCancel:
+			m.confirmingDelete = false
+		}
+		return m, nil // confirmIgnore lands here — swallowed, still armed
+	}
 	switch key {
 	case "esc", "L", "q":
 		m.crFilter = crFilter{}
@@ -553,12 +595,9 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "d", "x":
 		if m.crCursor < len(list) {
-			m.client.withdraw(list[m.crCursor].ID)
-			if m.crCursor > 0 {
-				m.crCursor--
-			}
+			m.confirmingDelete = true
 		}
-		return m, m.refresh()
+		return m, nil
 	case "e", "enter":
 		if m.crCursor < len(list) {
 			cr := list[m.crCursor]
@@ -645,10 +684,16 @@ func (m model) View() string {
 	switch m.mode {
 	case modeNote:
 		body = m.noteView()
-		persistent = keybar("enter add", "shift+enter newline", "<esc> cancel")
+		persistent = m.noteKeys()
+		if m.confirmingDelete {
+			stateful = deleteConfirmPrompt
+		}
 	case modeList:
 		body = m.listView()
-		persistent = keybar("↑/↓ move", "e edit", "d withdraw", "<esc> back")
+		persistent = m.listKeys()
+		if m.confirmingDelete {
+			stateful = deleteConfirmPrompt
+		}
 	case modeReraise:
 		body = m.reraiseView()
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
@@ -744,6 +789,48 @@ func (m model) modeKeys() string {
 		tokens = append(tokens, "x expand")
 	}
 	return keybar(tokens...)
+}
+
+// deleteConfirmPrompt is the inline y/n guard the edit screen and the List both
+// show as an accent toast above the keybar while a delete is armed.
+const deleteConfirmPrompt = "Delete this Change Request? (y/n)"
+
+// confirmChoice is how a keystroke lands while an inline delete confirm is armed.
+type confirmChoice int
+
+const (
+	confirmIgnore  confirmChoice = iota // an unrelated key — swallow it, stay armed
+	confirmCancel                       // n/esc — disarm without deleting
+	confirmProceed                      // y — disarm and delete
+)
+
+// readConfirm interprets a key while a delete confirm is armed. Only y/n/esc are
+// live; every other key is ignored (swallowed) so a stray press neither deletes
+// nor leaks through to the note or the List cursor.
+func readConfirm(key string) confirmChoice {
+	switch key {
+	case "y":
+		return confirmProceed
+	case "n", "esc":
+		return confirmCancel
+	default:
+		return confirmIgnore
+	}
+}
+
+// noteKeys is the edit screen's keybar. It is context-aware: editing an existing
+// Change Request offers delete, while composing a new one has nothing to delete
+// yet. The armed confirm shows as a toast above this row, not in place of it.
+func (m model) noteKeys() string {
+	if m.editingID > 0 {
+		return keybar("enter save", "ctrl+d delete", "<esc> cancel")
+	}
+	return keybar("enter add", "<esc> cancel")
+}
+
+// listKeys is the List's keybar.
+func (m model) listKeys() string {
+	return keybar("↑/↓ move", "e edit", "d withdraw", "<esc> back")
 }
 
 // noInteractionHint explains why selecting, commenting or anchoring is

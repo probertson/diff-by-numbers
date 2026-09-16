@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
@@ -137,6 +138,204 @@ func TestDoneViewPluralizesItsCounts(t *testing.T) {
 	}
 	if !strings.Contains(out, "1 Change Request raised") {
 		t.Errorf("expected '1 Change Request raised', got:\n%s", out)
+	}
+}
+
+func TestCtrlDArmsDeleteOnlyWhenEditingAnExistingRequest(t *testing.T) {
+	editing := model{mode: modeNote, editingID: 7, note: newNote(80)}
+
+	armed, _ := editing.updateNote(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	if !armed.(model).confirmingDelete {
+		t.Error("ctrl+d while editing an existing Change Request should arm the delete confirm")
+	}
+
+	composing := model{mode: modeNote, editingID: 0, note: newNote(80)}
+
+	still, _ := composing.updateNote(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	if still.(model).confirmingDelete {
+		t.Error("ctrl+d while composing a new Change Request has nothing to delete and must not arm")
+	}
+}
+
+func TestArmedDeleteCancelKeepsTheNoteAndStaysInTheEditor(t *testing.T) {
+	m := model{mode: modeNote, editingID: 7, confirmingDelete: true, note: newNote(80)}
+	m.note.SetValue("half-written feedback")
+
+	cancelled, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyEsc})
+	cm := cancelled.(model)
+
+	if cm.confirmingDelete {
+		t.Error("esc should cancel the armed delete")
+	}
+	if cm.mode != modeNote {
+		t.Error("cancelling the delete should leave the reviewer in the editor, not exit it")
+	}
+	if cm.note.Value() != "half-written feedback" {
+		t.Errorf("the in-progress note should survive a cancelled delete, got %q", cm.note.Value())
+	}
+}
+
+func TestArmedDeleteConfirmedReturnsToTheStep(t *testing.T) {
+	m := model{mode: modeNote, editingID: 7, confirmingDelete: true, note: newNote(80)}
+
+	deleted, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	dm := deleted.(model)
+
+	if dm.confirmingDelete {
+		t.Error("confirming the delete should disarm the prompt")
+	}
+	if dm.mode != modeReview {
+		t.Error("deleting from the editor should return to the Step, matching esc")
+	}
+	if dm.editingID != 0 {
+		t.Error("editingID should clear after the Change Request is deleted")
+	}
+}
+
+func TestArmedDeleteSwallowsStrayKeys(t *testing.T) {
+	m := model{mode: modeNote, editingID: 7, confirmingDelete: true, note: newNote(80)}
+	m.note.SetValue("draft")
+
+	after, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	am := after.(model)
+
+	if !am.confirmingDelete {
+		t.Error("a stray key while armed should leave the delete armed, not disarm it")
+	}
+	if am.note.Value() != "draft" {
+		t.Errorf("a stray key while armed must not leak into the note, got %q", am.note.Value())
+	}
+}
+
+func TestListDeleteArmsBeforeWithdrawing(t *testing.T) {
+	m := model{
+		mode: modeList,
+		view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+	}
+
+	armed, _ := m.updateList("d")
+
+	if !armed.(model).confirmingDelete {
+		t.Error("d in the List should arm the confirm, not withdraw immediately")
+	}
+}
+
+func TestArmedListDeleteEscCancelsRatherThanLeavingTheList(t *testing.T) {
+	m := model{
+		mode:             modeList,
+		confirmingDelete: true,
+		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+	}
+
+	cancelled, _ := m.updateList("esc")
+	cm := cancelled.(model)
+
+	if cm.confirmingDelete {
+		t.Error("esc should cancel the armed delete")
+	}
+	if cm.mode != modeList {
+		t.Error("esc while a delete is armed should stay in the List, not exit to the Step")
+	}
+}
+
+func TestArmedListDeleteConfirmedWithdrawsAndStaysInList(t *testing.T) {
+	m := model{
+		mode:             modeList,
+		confirmingDelete: true,
+		crCursor:         0,
+		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+	}
+
+	confirmed, _ := m.updateList("y")
+	cm := confirmed.(model)
+
+	if cm.confirmingDelete {
+		t.Error("confirming should disarm the prompt")
+	}
+	if cm.mode != modeList {
+		t.Error("deleting from the List should stay in the List, not exit to the Step")
+	}
+}
+
+func TestArmedListDeleteSwallowsStrayKeys(t *testing.T) {
+	m := model{
+		mode:             modeList,
+		confirmingDelete: true,
+		crCursor:         0,
+		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+	}
+
+	after, _ := m.updateList("e")
+	am := after.(model)
+
+	if !am.confirmingDelete {
+		t.Error("a stray key while armed should leave the delete armed, not disarm it")
+	}
+	if am.mode != modeList {
+		t.Error("a stray key while armed must not act on the List (e would otherwise open the editor)")
+	}
+	if am.crCursor != 0 {
+		t.Errorf("a stray key while armed must not move the List cursor, got %d", am.crCursor)
+	}
+}
+
+func TestEditKeybarOffersDeleteOnlyWhenEditing(t *testing.T) {
+	editing := model{editingID: 7}
+	if !strings.Contains(editing.noteKeys(), "ctrl+d") {
+		t.Error("editing an existing Change Request should advertise ctrl+d delete")
+	}
+
+	composing := model{editingID: 0}
+	if strings.Contains(composing.noteKeys(), "ctrl+d") {
+		t.Error("composing a new Change Request has nothing to delete, so must not advertise ctrl+d")
+	}
+	if strings.Contains(composing.noteKeys(), "newline") {
+		t.Error("the unreliable shift+enter newline hint should be gone from the editor keybar")
+	}
+}
+
+func TestArmedDeleteShowsPromptAsAToastAboveTheKeybar(t *testing.T) {
+	m := model{
+		mode:             modeNote,
+		editingID:        7,
+		confirmingDelete: true,
+		ready:            true,
+		width:            80,
+		height:           24,
+		note:             newNote(80),
+		view:             &daemon.ViewWire{Posted: true},
+	}
+
+	out := m.View()
+
+	if !strings.Contains(out, deleteConfirmPrompt) {
+		t.Fatalf("an armed delete should show the confirm prompt, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ctrl+d") {
+		t.Error("the shortcut row should stay visible while the confirm is armed, not be replaced")
+	}
+	if strings.Index(out, "Delete this Change Request") > strings.LastIndex(out, "ctrl+d") {
+		t.Error("the confirm prompt should sit above the shortcut row, not below it")
+	}
+}
+
+func TestUnarmedEditorShowsNoConfirmToast(t *testing.T) {
+	m := model{
+		mode:      modeNote,
+		editingID: 7,
+		ready:     true,
+		width:     80,
+		height:    24,
+		note:      newNote(80),
+		view:      &daemon.ViewWire{Posted: true},
+	}
+
+	out := m.View()
+
+	if strings.Contains(out, deleteConfirmPrompt) {
+		t.Errorf("the confirm prompt should only appear while a delete is armed, got:\n%s", out)
 	}
 }
 
