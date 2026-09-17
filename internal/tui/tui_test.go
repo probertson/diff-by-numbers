@@ -339,6 +339,180 @@ func TestUnarmedEditorShowsNoConfirmToast(t *testing.T) {
 	}
 }
 
+// isQuit reports whether a command is tea.Quit (its message is a tea.QuitMsg).
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
+func TestAdvancePastTheLastStepEntersTheConclusionScreen(t *testing.T) {
+	last := model{
+		mode: modeReview,
+		view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2, Step: &daemon.StepWire{Name: "s"}},
+	}
+
+	after, _ := last.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	if after.(model).mode != modeConclusion {
+		t.Error("advancing past the last Step should land on the conclusion screen")
+	}
+}
+
+func TestAdvanceBeforeTheLastStepDoesNotEnterTheConclusionScreen(t *testing.T) {
+	notLast := model{
+		mode: modeReview,
+		view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2, Step: &daemon.StepWire{Name: "s"}},
+	}
+
+	after, _ := notLast.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	if after.(model).mode == modeConclusion {
+		t.Error("advancing before the last Step should not reach the conclusion screen")
+	}
+}
+
+func TestConclusionBackReturnsToTheStep(t *testing.T) {
+	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
+
+	after, _ := m.updateConclusion("left")
+
+	if after.(model).mode != modeReview {
+		t.Error("back from the conclusion screen should return to the Step")
+	}
+}
+
+func TestConclusionFinishGoesToTheFinishedScreen(t *testing.T) {
+	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
+
+	after, _ := m.updateConclusion("f")
+
+	if after.(model).mode != modeDone {
+		t.Error("f from the conclusion screen should finish and show the finished screen")
+	}
+}
+
+func TestQuitGuardArmsOnAnUnfinishedReviewThenASecondQQuits(t *testing.T) {
+	m := model{mode: modeReview, view: &daemon.ViewWire{Posted: true, Finished: false}}
+
+	armed, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	am := armed.(model)
+
+	if !am.confirmingQuit {
+		t.Fatal("q on an unfinished review should arm the quit heads-up, not quit outright")
+	}
+	if isQuit(cmd) {
+		t.Error("the first q must not quit")
+	}
+
+	_, cmd = am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+
+	if !isQuit(cmd) {
+		t.Error("a second q should quit")
+	}
+}
+
+func TestQuitGuardFinishTakesTheBetterPath(t *testing.T) {
+	m := model{mode: modeReview, confirmingQuit: true, view: &daemon.ViewWire{Posted: true}}
+
+	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	am := after.(model)
+
+	if am.confirmingQuit {
+		t.Error("choosing f should disarm the heads-up")
+	}
+	if am.mode != modeDone {
+		t.Error("f from the heads-up should finish, not quit")
+	}
+}
+
+func TestCtrlCQuitsEvenWithTheQuitGuardArmed(t *testing.T) {
+	fresh := model{mode: modeReview, view: &daemon.ViewWire{Posted: true, Finished: false}}
+	if _, cmd := fresh.Update(tea.KeyMsg{Type: tea.KeyCtrlC}); !isQuit(cmd) {
+		t.Error("ctrl+c should quit outright on an unfinished review")
+	}
+
+	armed := model{mode: modeReview, confirmingQuit: true, view: &daemon.ViewWire{Posted: true}}
+	if _, cmd := armed.Update(tea.KeyMsg{Type: tea.KeyCtrlC}); !isQuit(cmd) {
+		t.Error("ctrl+c should quit even while the quit heads-up is armed")
+	}
+}
+
+func TestFinishingElsewhereClearsTheGuardAndShowsTheFinishedScreen(t *testing.T) {
+	// The review finishes via another path (e.g. a second attached TUI) while this
+	// one sits armed on a Step: the stale heads-up must clear and the mode advance.
+	armed := model{mode: modeReview, confirmingQuit: true, view: &daemon.ViewWire{Posted: true}}
+
+	after, _ := armed.Update(refreshMsg{view: &daemon.ViewWire{Posted: true, Finished: true}})
+	am := after.(model)
+
+	if am.confirmingQuit {
+		t.Error("a review finishing should clear a stale quit heads-up")
+	}
+	if am.mode != modeDone {
+		t.Error("a review finishing should move a walking reviewer to the finished screen")
+	}
+}
+
+func TestFinishingElsewhereLeavesTheConclusionScreen(t *testing.T) {
+	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
+
+	after, _ := m.Update(refreshMsg{view: &daemon.ViewWire{Posted: true, Finished: true, Position: 2, StepCount: 2}})
+
+	if after.(model).mode != modeDone {
+		t.Error("a review finishing should move the conclusion screen to the finished screen")
+	}
+}
+
+func TestShouldGuardQuitOnlyWhenPostedAndUnfinished(t *testing.T) {
+	cases := []struct {
+		name string
+		view *daemon.ViewWire
+		want bool
+	}{
+		{"posted and unfinished", &daemon.ViewWire{Posted: true, Finished: false}, true},
+		{"posted but finished", &daemon.ViewWire{Posted: true, Finished: true}, false},
+		{"not posted", &daemon.ViewWire{Posted: false}, false},
+		{"no view", nil, false},
+	}
+
+	for _, c := range cases {
+		if got := (model{view: c.view}).shouldGuardQuit(); got != c.want {
+			t.Errorf("%s: shouldGuardQuit = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestQuitGuardMessageNamesPendingChangeRequests(t *testing.T) {
+	with := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}}}}
+	if !strings.Contains(with.quitGuardMessage(), "2 Change Requests are safe") {
+		t.Errorf("the heads-up should name the pending Change Requests, got:\n%s", with.quitGuardMessage())
+	}
+
+	without := model{view: &daemon.ViewWire{}}
+	if !strings.Contains(without.quitGuardMessage(), "nothing is lost") {
+		t.Errorf("with no Change Requests the heads-up should reassure plainly, got:\n%s", without.quitGuardMessage())
+	}
+}
+
+func TestConclusionViewShowsTheSummaryAndFinishCTA(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount:      3,
+		ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}},
+	}}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "2 Change Requests across 3 Steps") {
+		t.Errorf("expected the light summary, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Press f to finish") {
+		t.Errorf("expected the finish call to action, got:\n%s", out)
+	}
+}
+
 func TestListViewWrapsLongNotes(t *testing.T) {
 	// A long Change Request note used to print raw, running off the right edge.
 	const width = 50

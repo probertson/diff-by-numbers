@@ -96,6 +96,7 @@ type model struct {
 	pendingCode      string           // the code being commented on, shown above the note input
 	editingID        int              // >0 when editing an existing Change Request rather than adding
 	confirmingDelete bool             // an inline y/n delete confirm is armed (edit screen or List)
+	confirmingQuit   bool             // a second-q quit heads-up is armed on an unfinished review
 	crFilter         crFilter         // when active, the List shows only comments on one line
 	reraiseCursor    int              // selected row among declined dispositions
 	expandedAck      bool             // showing the code behind this Step's Acknowledgements
@@ -115,11 +116,12 @@ type crFilter struct {
 type mode int
 
 const (
-	modeReview  mode = iota // walking Steps
-	modeNote                // typing a Change Request note
-	modeList                // the Change Request list
-	modeDone                // the finish summary
-	modeReraise             // choosing a declined request to re-raise
+	modeReview     mode = iota // walking Steps
+	modeNote                   // typing a Change Request note
+	modeList                   // the Change Request list
+	modeDone                   // the finish summary
+	modeReraise                // choosing a declined request to re-raise
+	modeConclusion             // reached by advancing past the last Step: the pre-finish on-ramp
 )
 
 func (m *model) inStep() bool {
@@ -268,8 +270,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.expandedAck = false // the expansion belonged to the Step we just left
 			m.expanded = nil
 		}
-		if m.view != nil && m.view.Finished && m.mode == modeReview {
-			m.mode = modeDone
+		if m.view != nil && m.view.Finished {
+			// The review finished — possibly elsewhere (another attached TUI, or the
+			// daemon). A heads-up about an unfinished review is now moot, and both the
+			// walking and the pre-finish screens should fall to the finished screen.
+			m.confirmingQuit = false
+			if m.mode == modeReview || m.mode == modeConclusion {
+				m.mode = modeDone
+			}
 		}
 		if m.ready {
 			m.viewport.SetContent(m.content())
@@ -279,6 +287,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		key := msg.String()
 
+		if m.confirmingQuit {
+			// The heads-up is informational, not an are-you-sure: a repeat q quits,
+			// f takes the better path, and any other key just dismisses it. Only ever
+			// armed in modeReview or modeConclusion, so this intercept is safe here.
+			switch key {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "f", "F":
+				m.confirmingQuit = false
+				m.client.intent("/finish")
+				m.mode = modeDone
+				return m, m.refresh()
+			default:
+				m.confirmingQuit = false
+			}
+			return m, nil
+		}
+
 		switch m.mode {
 		case modeNote:
 			return m.updateNote(msg)
@@ -286,6 +312,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateList(key)
 		case modeReraise:
 			return m.updateReraise(key)
+		case modeConclusion:
+			return m.updateConclusion(key)
 		case modeDone:
 			switch key {
 			case "q", "ctrl+c":
@@ -300,10 +328,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch key {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
+		case "q":
+			return m.quit()
 		case "enter", "n", "right":
 			m.status = ""
+			// Advancing past the last Step lands on the conclusion screen — the
+			// pre-finish bookend to the Overview — rather than silently no-opping.
+			// It is TUI-only: the daemon stays at the last Step.
+			if m.inStep() && m.view.Position == m.view.StepCount {
+				m.mode = modeConclusion
+				return m, nil
+			}
 			m.client.intent("/advance")
 			return m, m.refresh()
 		case "p", "left":
@@ -646,6 +683,62 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateConclusion drives the pre-finish conclusion screen. It is purely
+// navigational and reversible: back returns to the last Step, g jumps to the
+// Overview, f is the deliberate hand-off, and q is guarded like everywhere else
+// on an unfinished review.
+func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "left", "p", "esc":
+		m.mode = modeReview // the daemon never left the last Step
+		return m, nil
+	case "g":
+		m.client.intent("/goto/0")
+		m.mode = modeReview
+		return m, m.refresh()
+	case "f", "F":
+		m.client.intent("/finish")
+		m.mode = modeDone
+		return m, m.refresh()
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q":
+		return m.quit()
+	}
+	return m, nil
+}
+
+// quit is q's shared behaviour in both modeReview and modeConclusion: arm the
+// heads-up on an unfinished review, otherwise quit outright.
+func (m model) quit() (tea.Model, tea.Cmd) {
+	if m.shouldGuardQuit() {
+		m.confirmingQuit = true
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
+// shouldGuardQuit reports whether q should raise the unfinished-review heads-up
+// rather than quit outright: only when a Walkthrough is posted and not yet
+// finished, since quitting then leaves the agent unable to post the next round.
+func (m model) shouldGuardQuit() bool {
+	return m.view != nil && m.view.Posted && !m.view.Finished
+}
+
+// quitGuardMessage reassures that nothing is lost, then points at finishing as
+// the better path. It names the pending Change Requests when there are some.
+func (m model) quitGuardMessage() string {
+	k := 0
+	if m.view != nil {
+		k = len(m.view.ChangeRequests)
+	}
+	safe := "nothing is lost"
+	if k > 0 {
+		safe = "your " + pluralize(k, "Change Request") + " are safe"
+	}
+	return fmt.Sprintf("Your review isn't finished — %s, but your agent can't pick up the next round until you finish. Press f to finish, or q again to quit anyway.", safe)
+}
+
 // declinedDispositions is the subset of the previous round's Change Requests the
 // agent declined — the ones the Reviewer may re-raise.
 func (m model) declinedDispositions() []daemon.DispositionWire {
@@ -697,6 +790,12 @@ func (m model) View() string {
 	case modeReraise:
 		body = m.reraiseView()
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
+	case modeConclusion:
+		body = m.conclusionView()
+		persistent = keybar("← back", "g Overview", "q quit")
+		if m.confirmingQuit {
+			stateful = m.quitGuardMessage()
+		}
 	case modeDone:
 		body = m.doneView()
 		persistent = keybar("r reopen", "q quit")
@@ -715,6 +814,9 @@ func (m model) View() string {
 		stateful = m.status
 		if stateful == "" {
 			stateful = m.modeKeys()
+		}
+		if m.confirmingQuit {
+			stateful = m.quitGuardMessage()
 		}
 	}
 
@@ -959,6 +1061,19 @@ func (m model) doneView() string {
 	return b.String()
 }
 
+// conclusionView is the pre-finish on-ramp reached by advancing past the last
+// Step: a light summary and the deliberate hand-off action, with "End of review"
+// carried by the header the way "Overview" is at the other end.
+func (m model) conclusionView() string {
+	var b strings.Builder
+	if m.view != nil {
+		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
+			pluralize(len(m.view.ChangeRequests), "Change Request"), pluralize(m.view.StepCount, "Step")))
+	}
+	b.WriteString(accentSt.Render("Press f to finish and hand off to your agent.") + "\n")
+	return b.String()
+}
+
 // commentAtCursor returns the Change Request anchored over the cursor's line, if
 // there is one, so it can be edited in place.
 func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
@@ -1047,6 +1162,8 @@ func (m model) header() string {
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
+	case m.mode == modeConclusion:
+		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
