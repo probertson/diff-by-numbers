@@ -114,6 +114,18 @@ func TestAZeroChangeRequestFinishReadsAsConcluded(t *testing.T) {
 	}
 }
 
+func TestTheViewReportsConcluded(t *testing.T) {
+	concluded, _, _ := finishRound1(t)
+	if !concluded.View().Concluded {
+		t.Error("a zero-Change-Request finish should report Concluded on the view")
+	}
+
+	awaiting, _ := finishRound1WithCR(t)
+	if awaiting.View().Concluded {
+		t.Error("a finish with a Change Request outstanding should not report Concluded on the view")
+	}
+}
+
 func TestAFinishWithChangeRequestsIsNotConcluded(t *testing.T) {
 	session, _ := finishRound1WithCR(t)
 

@@ -121,8 +121,10 @@ func TestListViewTitlePluralizesChangeRequests(t *testing.T) {
 }
 
 func TestDoneViewPluralizesItsCounts(t *testing.T) {
+	// Finished with a Change Request outstanding is the waiting face (State 1).
 	m := model{
 		view: &daemon.ViewWire{
+			Finished:       true,
 			StepStatuses:   []string{"seen"},
 			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}},
 		},
@@ -466,6 +468,23 @@ func TestFinishingElsewhereLeavesTheConclusionScreen(t *testing.T) {
 	}
 }
 
+func TestConcludingWithoutFinishingReachesTheFinishedScreen(t *testing.T) {
+	// An explicit conclude sets Concluded without Finished. A walking reviewer must
+	// still be moved to the finished screen (State 3), or they never see it — and
+	// the daemon, now no longer Active, could self-exit under them.
+	m := model{mode: modeReview, view: &daemon.ViewWire{Posted: true, Finished: false}}
+
+	after, _ := m.Update(refreshMsg{view: &daemon.ViewWire{Posted: true, Finished: false, Concluded: true}})
+	am := after.(model)
+
+	if am.mode != modeDone {
+		t.Error("a concluded review should move the reviewer to the finished screen even without a finish")
+	}
+	if am.doneState() != doneComplete {
+		t.Error("a concluded review should show the complete face")
+	}
+}
+
 func TestShouldGuardQuitOnlyWhenPostedAndUnfinished(t *testing.T) {
 	cases := []struct {
 		name string
@@ -474,6 +493,7 @@ func TestShouldGuardQuitOnlyWhenPostedAndUnfinished(t *testing.T) {
 	}{
 		{"posted and unfinished", &daemon.ViewWire{Posted: true, Finished: false}, true},
 		{"posted but finished", &daemon.ViewWire{Posted: true, Finished: true}, false},
+		{"posted but concluded outright", &daemon.ViewWire{Posted: true, Finished: false, Concluded: true}, false},
 		{"not posted", &daemon.ViewWire{Posted: false}, false},
 		{"no view", nil, false},
 	}
@@ -510,6 +530,101 @@ func TestConclusionViewShowsTheSummaryAndFinishCTA(t *testing.T) {
 	}
 	if !strings.Contains(out, "Press f to finish") {
 		t.Errorf("expected the finish call to action, got:\n%s", out)
+	}
+}
+
+func TestDoneStatePrecedence(t *testing.T) {
+	cases := []struct {
+		name string
+		view *daemon.ViewWire
+		want doneState
+	}{
+		{"concluded wins even over finished", &daemon.ViewWire{Finished: true, Concluded: true}, doneComplete},
+		{"unfinished means a revision arrived", &daemon.ViewWire{Finished: false}, doneRevision},
+		{"finished with work outstanding is waiting", &daemon.ViewWire{Finished: true}, doneWaiting},
+	}
+
+	for _, c := range cases {
+		if got := (model{view: c.view}).doneState(); got != c.want {
+			t.Errorf("%s: doneState = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDoneViewRevisionBoxSummarizesDispositions(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		Finished: false,
+		Dispositions: []daemon.DispositionWire{
+			{ChangeRequestID: 1, Status: "addressed"},
+			{ChangeRequestID: 2, Status: "addressed"},
+			{ChangeRequestID: 3, Status: "declined"},
+		},
+	}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "Revision Round ready") {
+		t.Errorf("expected the revision announcement, got:\n%s", out)
+	}
+	if !strings.Contains(out, "addressed 2 and declined 1") {
+		t.Errorf("expected the disposition summary, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Press enter to review it") {
+		t.Errorf("expected the review call to action, got:\n%s", out)
+	}
+}
+
+func TestDoneViewRevisionBoxOmitsSummaryWhenNoDispositions(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Finished: false}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "Revision Round ready") {
+		t.Errorf("expected the revision announcement, got:\n%s", out)
+	}
+	if strings.Contains(out, "addressed") {
+		t.Errorf("with no dispositions the summary line should be omitted, got:\n%s", out)
+	}
+}
+
+func TestDoneViewCompleteState(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Finished: true, Concluded: true}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "Review complete") {
+		t.Errorf("expected the complete face, got:\n%s", out)
+	}
+	if !strings.Contains(out, "raised nothing") {
+		t.Errorf("expected the complete explanation, got:\n%s", out)
+	}
+}
+
+func TestFinishedScreenEnterReviewsTheArrivedRevision(t *testing.T) {
+	// A Revision Round arrived (Finished flipped back off) while on the finished
+	// screen: enter — and r, for muscle memory — proceed into the new round.
+	for _, key := range []string{"enter", "r"} {
+		m := model{mode: modeDone, view: &daemon.ViewWire{Posted: true, Finished: false}}
+
+		after, _ := m.updateDone(key)
+
+		if after.(model).mode != modeReview {
+			t.Errorf("%q on the revision face should proceed into the new round", key)
+		}
+	}
+}
+
+func TestFinishedScreenResumeFromTheWaitingFace(t *testing.T) {
+	m := model{mode: modeDone, view: &daemon.ViewWire{Posted: true, Finished: true}}
+
+	after, _ := m.updateDone("r")
+	am := after.(model)
+
+	if am.mode != modeReview {
+		t.Error("r on the waiting face should resume the round for more editing")
+	}
+	if !strings.Contains(am.status, "resumed") {
+		t.Errorf("resuming should say so, got %q", am.status)
 	}
 }
 

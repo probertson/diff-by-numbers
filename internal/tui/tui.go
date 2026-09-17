@@ -270,10 +270,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.expandedAck = false // the expansion belonged to the Step we just left
 			m.expanded = nil
 		}
-		if m.view != nil && m.view.Finished {
-			// The review finished — possibly elsewhere (another attached TUI, or the
-			// daemon). A heads-up about an unfinished review is now moot, and both the
-			// walking and the pre-finish screens should fall to the finished screen.
+		if m.view != nil && (m.view.Finished || m.view.Concluded) {
+			// The review is done — finished, or concluded outright (an explicit
+			// conclude sets Concluded without Finished). Possibly elsewhere (another
+			// attached TUI, or the agent). A heads-up about an unfinished review is now
+			// moot, and both the walking and pre-finish screens fall to the finished
+			// screen — which, when Concluded, shows the complete face.
 			m.confirmingQuit = false
 			if m.mode == modeReview || m.mode == modeConclusion {
 				m.mode = modeDone
@@ -315,16 +317,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeConclusion:
 			return m.updateConclusion(key)
 		case modeDone:
-			switch key {
-			case "q", "ctrl+c":
-				return m, tea.Quit
-			case "r":
-				m.client.reopen()
-				m.mode = modeReview
-				m.status = "review reopened — add or change anything, then f to finish again"
-				return m, m.refresh()
-			}
-			return m, nil
+			return m.updateDone(key)
 		}
 
 		switch key {
@@ -358,7 +351,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.view != nil && m.view.Finished {
 				m.client.reopen()
-				m.status = "review reopened — add or change anything, then f to finish again"
+				m.status = "review resumed — add or change anything, then f to finish again"
 				return m, m.refresh()
 			}
 		case "l", "L":
@@ -470,7 +463,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.view.Finished {
-					m.status = "review is finished — press r to reopen before editing"
+					m.status = "review is finished — press r to resume before editing"
 					return m, nil
 				}
 				here := m.commentsAtCursor()
@@ -498,7 +491,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.view.Finished {
-					m.status = "review is finished — press r to reopen before commenting"
+					m.status = "review is finished — press r to resume before commenting"
 					return m, nil
 				}
 				excerpt, first, last, side, ok := m.cursor.selection()
@@ -719,10 +712,59 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 }
 
 // shouldGuardQuit reports whether q should raise the unfinished-review heads-up
-// rather than quit outright: only when a Walkthrough is posted and not yet
-// finished, since quitting then leaves the agent unable to post the next round.
+// rather than quit outright: only when a Walkthrough is posted and neither
+// finished nor concluded, since quitting then leaves the agent unable to post the
+// next round. A concluded review is over, so quitting it needs no heads-up.
 func (m model) shouldGuardQuit() bool {
-	return m.view != nil && m.view.Posted && !m.view.Finished
+	return m.view != nil && m.view.Posted && !m.view.Finished && !m.view.Concluded
+}
+
+// doneState is which face the finished screen shows.
+type doneState int
+
+const (
+	doneWaiting  doneState = iota // finished, a Revision Round is coming
+	doneRevision                  // a Revision Round has arrived
+	doneComplete                  // the review is over — finished having raised nothing
+)
+
+// doneStateOf reports the finished screen's face. Precedence matters: a concluded
+// review is complete even though it is also finished; a finished flag turned back
+// off (while still on the finished screen) means a Revision Round arrived.
+func (m model) doneState() doneState {
+	switch {
+	case m.view != nil && m.view.Concluded:
+		return doneComplete
+	case m.view != nil && !m.view.Finished:
+		return doneRevision
+	default:
+		return doneWaiting
+	}
+}
+
+// updateDone drives the finished screen. In the revision face enter (or the
+// unadvertised r, for muscle memory) proceeds into the new round; otherwise r
+// resumes the round for more editing. q always quits — the round is finished, so
+// there is nothing to guard.
+func (m model) updateDone(key string) (tea.Model, tea.Cmd) {
+	if key == "q" || key == "ctrl+c" {
+		return m, tea.Quit // the round is finished — nothing to guard in any state
+	}
+	if m.doneState() == doneRevision {
+		if key == "enter" || key == "r" {
+			m.mode = modeReview
+			m.status = ""
+			return m, m.refresh()
+		}
+		return m, nil
+	}
+	if key == "r" {
+		m.client.reopen()
+		m.mode = modeReview
+		m.status = "review resumed — add or change anything, then f to finish again"
+		return m, m.refresh()
+	}
+	return m, nil
 }
 
 // quitGuardMessage reassures that nothing is lost, then points at finishing as
@@ -766,6 +808,10 @@ var (
 	gutterSt = lipgloss.NewStyle().Foreground(subtle)
 	addSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#207520", Dark: "#87d787"})
 	delSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a01010", Dark: "#ff8787"})
+	// revisionBoxStyle sets the "Revision Round ready" announcement off in a bordered
+	// accent box, so a round arriving on the finished screen is announced rather than
+	// silently swapping the copy.
+	revisionBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1)
 )
 
 func (m model) View() string {
@@ -798,7 +844,11 @@ func (m model) View() string {
 		}
 	case modeDone:
 		body = m.doneView()
-		persistent = keybar("r reopen", "q quit")
+		if m.doneState() == doneRevision {
+			persistent = keybar("enter review revision", "q quit")
+		} else {
+			persistent = keybar("r resume", "q quit")
+		}
 	default:
 		if m.inStep() && m.expandedAck {
 			body = renderExpanded(m.expanded, m.width, m.bodyHeight(), m.multiRepo())
@@ -1040,25 +1090,68 @@ func (m model) reraiseView() string {
 	return b.String()
 }
 
+// doneView is the finished screen, with three faces the reviewer can be on after
+// finishing: waiting for a Revision Round, a Revision Round has arrived, or the
+// review is complete. The copy here is the manual-relay baseline; a later change
+// swaps it to push wording once dbn can notify the agent directly.
 func (m model) doneView() string {
-	var b strings.Builder
-	b.WriteString(labelSt.Render("Review finished") + "\n\n")
-	if m.view != nil {
-		seen, flagged := 0, 0
-		for _, st := range m.view.StepStatuses {
-			switch st {
-			case "seen":
-				seen++
-			case "flagged":
-				flagged++
-			}
+	if m.view == nil {
+		return labelSt.Render("Review finished")
+	}
+	switch m.doneState() {
+	case doneComplete:
+		var b strings.Builder
+		b.WriteString(labelSt.Render("Review complete") + "\n\n")
+		b.WriteString("You finished this round having raised nothing, so the review is over.\n\n")
+		b.WriteString(dimSt.Render("Press q to quit — or r to resume, if you changed your mind.") + "\n")
+		return b.String()
+	case doneRevision:
+		addressed, declined := m.dispositionCounts()
+		var inner strings.Builder
+		inner.WriteString(labelSt.Render("Revision Round ready") + "\n")
+		if addressed+declined > 0 {
+			inner.WriteString(fmt.Sprintf("The agent addressed %d and declined %d of your Change Requests.\n", addressed, declined))
 		}
+		inner.WriteString(accentSt.Render("Press enter to review it."))
+		return revisionBoxStyle.Render(inner.String()) + "\n"
+	default: // doneWaiting
+		seen, flagged := m.stepCounts()
+		var b strings.Builder
+		b.WriteString(labelSt.Render("Review finished") + "\n\n")
 		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
 			pluralize(seen, "Step"), flagged, pluralize(len(m.view.ChangeRequests), "Change Request")))
 		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
-		b.WriteString(dimSt.Render("Or press r to reopen and keep editing.") + "\n")
+		b.WriteString(dimSt.Render("Or press r to resume and keep editing.") + "\n")
+		return b.String()
 	}
-	return b.String()
+}
+
+// stepCounts tallies how many Steps the reviewer saw and flagged, for the
+// finished-screen summary.
+func (m model) stepCounts() (seen, flagged int) {
+	for _, st := range m.view.StepStatuses {
+		switch st {
+		case "seen":
+			seen++
+		case "flagged":
+			flagged++
+		}
+	}
+	return seen, flagged
+}
+
+// dispositionCounts tallies how the agent handled the previous round's Change
+// Requests, for the Revision-Round-ready summary.
+func (m model) dispositionCounts() (addressed, declined int) {
+	for _, disposition := range m.view.Dispositions {
+		switch disposition.Status {
+		case "addressed":
+			addressed++
+		case "declined":
+			declined++
+		}
+	}
+	return addressed, declined
 }
 
 // conclusionView is the pre-finish on-ramp reached by advancing past the last

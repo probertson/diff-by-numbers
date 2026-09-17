@@ -92,6 +92,7 @@ type ViewWire struct {
 	StepStatuses   []string            `json:"step_statuses"`
 	ChangeRequests []ChangeRequestWire `json:"change_requests"`
 	Finished       bool                `json:"finished"`
+	Concluded      bool                `json:"concluded"`
 	Dispositions   []DispositionWire   `json:"dispositions,omitempty"`
 }
 
@@ -122,6 +123,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Coverage:  CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
 		Seen:      v.Seen,
 		Finished:  v.Finished,
+		Concluded: v.Concluded,
 	}
 	for _, st := range v.StepStatuses {
 		wire.StepStatuses = append(wire.StepStatuses, string(st))

@@ -111,6 +111,10 @@ type ViewModel struct {
 	StepStatuses   []StepStatus
 	ChangeRequests []ChangeRequest
 	Finished       bool
+	// Concluded reports whether the review loop is over — finished having raised
+	// nothing, or ended explicitly. It lets the finished screen tell "a Revision
+	// Round is coming" from "the review is complete".
+	Concluded bool
 	// Dispositions accounts for the previous round's Change Requests in a Revision
 	// Round — shown before any code, so a decline is seen before the fix.
 	Dispositions []ResolvedDisposition
@@ -143,6 +147,7 @@ func (s *Session) View() ViewModel {
 		StepStatuses:   s.stepStatuses(),
 		ChangeRequests: s.ChangeRequests(),
 		Finished:       s.finished,
+		Concluded:      s.isConcluded(),
 		Dispositions:   s.Dispositions(),
 	}
 	if s.position > 0 {
