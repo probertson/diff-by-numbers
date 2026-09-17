@@ -8,7 +8,7 @@ import (
 // Results is what the Authoring Agent receives when it asks how a review went.
 type Results struct {
 	// Posted reports whether a Walkthrough exists at all. Without it, an agent
-	// whose post was rejected would be told the Reviewer "has not finished yet"
+	// whose post was rejected would be told the Reviewer "has not handed off yet"
 	// and wait on a Walkthrough that was never created.
 	Posted bool
 	// Finished reports whether the Reviewer has completed the Walkthrough. The
@@ -102,13 +102,13 @@ func (s *Session) ReviewID() string { return s.id }
 func (s *Session) Label() string { return s.label }
 
 // Post submits a Walkthrough for review. Posting after the previous Walkthrough
-// finished is a Revision Round: it re-derives the full Change Set, pre-marks what
-// is unchanged, and must account for the previous round's Change Requests.
+// was handed off is a Revision Round: it re-derives the full Change Set, pre-marks
+// what is unchanged, and must account for the previous round's Change Requests.
 func (s *Session) Post(w Walkthrough) error {
 	revision := s.walkthrough != nil && s.finished
 	if s.walkthrough != nil && !s.finished {
 		return reject(RejectedWalkthroughActive,
-			"a Walkthrough is already under review; finish or abandon it first")
+			"a Walkthrough is already under review; the Reviewer must hand it off, or you must abandon it, first")
 	}
 	if rejection := validate(w); rejection != nil {
 		return rejection

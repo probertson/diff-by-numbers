@@ -386,13 +386,13 @@ func TestConclusionBackReturnsToTheStep(t *testing.T) {
 	}
 }
 
-func TestConclusionFinishGoesToTheFinishedScreen(t *testing.T) {
+func TestConclusionHandOffGoesToTheHandedOffScreen(t *testing.T) {
 	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
 
-	after, _ := m.updateConclusion("f")
+	after, _ := m.updateConclusion("h")
 
 	if after.(model).mode != modeDone {
-		t.Error("f from the conclusion screen should finish and show the finished screen")
+		t.Error("h from the conclusion screen should hand off and show the handed-off screen")
 	}
 }
 
@@ -416,17 +416,17 @@ func TestQuitGuardArmsOnAnUnfinishedReviewThenASecondQQuits(t *testing.T) {
 	}
 }
 
-func TestQuitGuardFinishTakesTheBetterPath(t *testing.T) {
+func TestQuitGuardHandOffTakesTheBetterPath(t *testing.T) {
 	m := model{mode: modeReview, confirmingQuit: true, view: &daemon.ViewWire{Posted: true}}
 
-	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
 	am := after.(model)
 
 	if am.confirmingQuit {
-		t.Error("choosing f should disarm the heads-up")
+		t.Error("choosing h should disarm the heads-up")
 	}
 	if am.mode != modeDone {
-		t.Error("f from the heads-up should finish, not quit")
+		t.Error("h from the heads-up should hand off, not exit")
 	}
 }
 
@@ -517,7 +517,7 @@ func TestQuitGuardMessageNamesPendingChangeRequests(t *testing.T) {
 	}
 }
 
-func TestConclusionViewShowsTheSummaryAndFinishCTA(t *testing.T) {
+func TestConclusionViewShowsTheSummaryAndHandOffCTA(t *testing.T) {
 	m := model{view: &daemon.ViewWire{
 		StepCount:      3,
 		ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}},
@@ -528,8 +528,95 @@ func TestConclusionViewShowsTheSummaryAndFinishCTA(t *testing.T) {
 	if !strings.Contains(out, "2 Change Requests across 3 Steps") {
 		t.Errorf("expected the light summary, got:\n%s", out)
 	}
-	if !strings.Contains(out, "Press f to finish") {
-		t.Errorf("expected the finish call to action, got:\n%s", out)
+	if !strings.Contains(out, "Press h to hand off") {
+		t.Errorf("expected the hand-off call to action, got:\n%s", out)
+	}
+}
+
+// The #55 vocabulary sweep: the turn-boundary action is "hand off" on h, and
+// closing the viewer is "exit" on q. "finish" and "quit" read as synonyms of each
+// other, which is what made the end of a round ambiguous, so neither word should
+// survive anywhere the Reviewer reads.
+
+func TestTheKeybarNamesHandOffAndExit(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Posted: true, StepCount: 3}}
+
+	bar := m.globalKeys()
+
+	if !strings.Contains(bar, "h"+nbsp+"hand"+nbsp+"off") {
+		t.Errorf("expected the hand-off key, got:\n%s", bar)
+	}
+	if !strings.Contains(bar, "q"+nbsp+"exit") {
+		t.Errorf("expected exit rather than quit, got:\n%s", bar)
+	}
+	if strings.Contains(bar, "finish") || strings.Contains(bar, "quit") {
+		t.Errorf("neither old term should survive in the keybar, got:\n%s", bar)
+	}
+}
+
+func TestTheKeybarSaysExitBeforeAnythingIsPosted(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Posted: false}}
+
+	if bar := m.globalKeys(); !strings.Contains(bar, "q"+nbsp+"exit") {
+		t.Errorf("expected exit rather than quit with nothing posted, got:\n%s", bar)
+	}
+}
+
+func TestHandOffFromAStepShowsTheHandedOffScreen(t *testing.T) {
+	m := model{mode: modeReview, view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2}}
+
+	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+
+	if after.(model).mode != modeDone {
+		t.Error("h should hand off and show the handed-off screen")
+	}
+}
+
+func TestFNoLongerHandsOff(t *testing.T) {
+	// f is freed deliberately: "f hand off" renders as "f… off" in the keybar's
+	// `key label` format, so the key moved rather than the label being reworded.
+	m := model{mode: modeReview, view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2}}
+
+	after, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+
+	if after.(model).mode == modeDone {
+		t.Error("f should no longer hand off")
+	}
+}
+
+func TestTheHandedOffScreenSaysHandedOff(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		Posted: true, Finished: true,
+		ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}},
+	}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "Review handed off") {
+		t.Errorf("expected the handed-off heading, got:\n%s", out)
+	}
+}
+
+func TestTheCompleteScreenOffersExitRatherThanQuit(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Posted: true, Finished: true, Concluded: true}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "Press q to exit") {
+		t.Errorf("expected exit rather than quit, got:\n%s", out)
+	}
+}
+
+func TestQuitGuardMessagePointsAtHandingOff(t *testing.T) {
+	m := model{view: &daemon.ViewWire{Posted: true}}
+
+	msg := m.quitGuardMessage()
+
+	if !strings.Contains(msg, "Press h to hand off") {
+		t.Errorf("the heads-up should point at h, got:\n%s", msg)
+	}
+	if strings.Contains(msg, "finish") {
+		t.Errorf("the heads-up should not say finish, got:\n%s", msg)
 	}
 }
 

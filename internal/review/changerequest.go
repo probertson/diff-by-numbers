@@ -16,7 +16,7 @@ type ChangeRequest struct {
 func (s *Session) RaiseChangeRequest(target AnchorTarget, note string) (ChangeRequest, error) {
 	if s.finished {
 		return ChangeRequest{}, reject(RejectedWalkthroughFinished,
-			"this Walkthrough is finished; resume it to add more")
+			"this Walkthrough is handed off; resume it to add more")
 	}
 	anchor, err := s.Anchor(target)
 	if err != nil {

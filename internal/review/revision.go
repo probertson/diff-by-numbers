@@ -183,7 +183,7 @@ func (s *Session) Dispositions() []ResolvedDisposition {
 func (s *Session) ReRaise(changeRequestID int) (ChangeRequest, error) {
 	if s.finished {
 		return ChangeRequest{}, reject(RejectedWalkthroughFinished,
-			"this Walkthrough is finished; resume it before re-raising")
+			"this Walkthrough is handed off; resume it before re-raising")
 	}
 	for _, disposition := range s.dispositions {
 		if disposition.ChangeRequest.ID != changeRequestID {

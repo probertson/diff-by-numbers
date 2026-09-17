@@ -463,17 +463,17 @@ func (d *Daemon) mcpServer() *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "fetch_results",
 		Description: "Ask how the review went. Returns immediately whether or not the Reviewer " +
-			"has finished; it never waits. Call it once the Reviewer says they are done. " +
-			"If it reports the review complete (the Reviewer finished having raised nothing), " +
+			"has handed off; it never waits. Call it once the Reviewer says they are done. " +
+			"If it reports the review complete (the Reviewer handed off having raised nothing), " +
 			"the loop is over and dbn treats the review as concluded.",
 	}, d.fetchResults)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "conclude",
-		Description: "Conclude a review you are finished with, by its id, so dbn can release it. " +
+		Description: "Conclude a review you are done with, by its id, so dbn can release it. " +
 			"Use it when you will post no further Revision Round — for instance the Reviewer " +
-			"finished having raised nothing, or you have decided to stop. A review the Reviewer " +
-			"finishes with nothing raised is already treated as concluded; calling this is the " +
+			"handed off having raised nothing, or you have decided to stop. A review the Reviewer " +
+			"hands off with nothing raised is already treated as concluded; calling this is the " +
 			"explicit way to end one otherwise. It does not discard anything.",
 	}, d.conclude)
 
@@ -524,11 +524,11 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	message := "no Walkthrough is posted; post one before asking how the review went"
 	switch {
 	case results.Posted && results.Finished && len(results.ChangeRequests) == 0:
-		message = "the Reviewer finished and raised nothing — the review is complete; there is no Revision Round to post"
+		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
 	case results.Posted && results.Finished:
-		message = "the Reviewer has finished; work the Change Requests below, then post a Revision Round"
+		message = "the Reviewer has handed off; work the Change Requests below, then post a Revision Round"
 	case results.Posted:
-		message = "the Reviewer has not finished the Walkthrough yet"
+		message = "the Reviewer has not handed off the Walkthrough yet"
 	}
 
 	return nil, toFetchResult(results, message), nil

@@ -45,7 +45,7 @@ func (s *Session) stepStatuses() []StepStatus {
 // weakens.
 func (s *Session) Finish() error {
 	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to finish")
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to hand off")
 	}
 	if rejection := s.ledger.validateCoverage(s.walkthrough.Steps, s.preShown); rejection != nil {
 		return rejection
@@ -61,7 +61,7 @@ func (s *Session) Finish() error {
 // live again.
 func (s *Session) Reopen() error {
 	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to reopen")
+		return reject(RejectedNoWalkthrough, "there is no Walkthrough to resume")
 	}
 	s.finished = false
 	s.concluded = false

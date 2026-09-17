@@ -8,7 +8,7 @@ reviewer is handed a diff in the tool's arbitrary order, with no explanation, an
 has to reconstruct *why* from *what*. dbn is a channel for the agent that wrote
 the code to walk you through it: a narrated, semantically-ordered **Walkthrough**
 you navigate yourself, comment on in place, and hand back as a list of Change
-Requests — which the agent works and puts through review again until you finish
+Requests — which the agent works and puts through review again until you hand off
 having raised nothing.
 
 dbn holds no opinion about the code (it never decides what is shown) and enforces
@@ -32,10 +32,10 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
    attaches to the daemon, and draws the Walkthrough. You move through Steps,
    select a line range to copy a self-contained **Anchor** into your agent chat,
    or raise a **Change Request** in place.
-4. **You finish, the agent collects the Change Requests** with a second MCP call,
+4. **You hand off, the agent collects the Change Requests** with a second MCP call,
    works them, and posts a **Revision Round** — the full change set again, scoped
    by dbn to just what moved, with each of your requests marked addressed or
-   declined. Repeat until you finish having raised nothing.
+   declined. Repeat until you hand off having raised nothing.
 
 ## Installation
 
@@ -188,8 +188,9 @@ dbn
 
 The first screen shows an overview. Use Left/Right arrows to navigate through screens.
 Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions
-mid-review) or to add a change request. When you're finished, press `f` and then tell your agent
-you've finished. It will then retrieve your change requests.
+mid-review) or to add a change request. When you're done, press `h` to hand the review off, then
+tell your agent. It will then retrieve your change requests. Handing off is not leaving: `q` exits
+the viewer at any time without losing anything, and `dbn` reopens to the same review.
 
 Other subcommands: `dbn dump` prints the posted Walkthrough as text, `dbn
 abandon` discards it, `dbn version` reports the build.

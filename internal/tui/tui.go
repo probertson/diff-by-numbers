@@ -119,9 +119,9 @@ const (
 	modeReview     mode = iota // walking Steps
 	modeNote                   // typing a Change Request note
 	modeList                   // the Change Request list
-	modeDone                   // the finish summary
+	modeDone                   // the hand-off summary
 	modeReraise                // choosing a declined request to re-raise
-	modeConclusion             // reached by advancing past the last Step: the pre-finish on-ramp
+	modeConclusion             // reached by advancing past the last Step: the pre-hand-off on-ramp
 )
 
 func (m *model) inStep() bool {
@@ -290,13 +290,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		key := msg.String()
 
 		if m.confirmingQuit {
-			// The heads-up is informational, not an are-you-sure: a repeat q quits,
-			// f takes the better path, and any other key just dismisses it. Only ever
+			// The heads-up is informational, not an are-you-sure: a repeat q exits,
+			// h takes the better path, and any other key just dismisses it. Only ever
 			// armed in modeReview or modeConclusion, so this intercept is safe here.
 			switch key {
 			case "q", "ctrl+c":
 				return m, tea.Quit
-			case "f", "F":
+			case "h", "H":
 				m.confirmingQuit = false
 				m.client.intent("/finish")
 				m.mode = modeDone
@@ -351,7 +351,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.view != nil && m.view.Finished {
 				m.client.reopen()
-				m.status = "review resumed — add or change anything, then f to finish again"
+				m.status = "review resumed — add or change anything, then h to hand off again"
 				return m, m.refresh()
 			}
 		case "l", "L":
@@ -367,7 +367,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reraiseCursor = 0
 			m.mode = modeReraise
 			return m, nil
-		case "f", "F":
+		case "h", "H":
 			m.client.intent("/finish")
 			m.mode = modeDone
 			return m, m.refresh()
@@ -463,7 +463,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.view.Finished {
-					m.status = "review is finished — press r to resume before editing"
+					m.status = "review is handed off — press r to resume before editing"
 					return m, nil
 				}
 				here := m.commentsAtCursor()
@@ -491,7 +491,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if m.view.Finished {
-					m.status = "review is finished — press r to resume before commenting"
+					m.status = "review is handed off — press r to resume before commenting"
 					return m, nil
 				}
 				excerpt, first, last, side, ok := m.cursor.selection()
@@ -676,10 +676,10 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConclusion drives the pre-finish conclusion screen. It is purely
+// updateConclusion drives the pre-hand-off conclusion screen. It is purely
 // navigational and reversible: back returns to the last Step, g jumps to the
-// Overview, f is the deliberate hand-off, and q is guarded like everywhere else
-// on an unfinished review.
+// Overview, h is the deliberate hand-off, and q is guarded like everywhere else
+// on a review not yet handed off.
 func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "left", "p", "esc":
@@ -689,7 +689,7 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		m.client.intent("/goto/0")
 		m.mode = modeReview
 		return m, m.refresh()
-	case "f", "F":
+	case "h", "H":
 		m.client.intent("/finish")
 		m.mode = modeDone
 		return m, m.refresh()
@@ -742,10 +742,10 @@ func (m model) doneState() doneState {
 	}
 }
 
-// updateDone drives the finished screen. In the revision face enter (or the
+// updateDone drives the handed-off screen. In the revision face enter (or the
 // unadvertised r, for muscle memory) proceeds into the new round; otherwise r
-// resumes the round for more editing. q always quits — the round is finished, so
-// there is nothing to guard.
+// resumes the round for more editing. q always exits — the round is handed off,
+// so there is nothing to guard.
 func (m model) updateDone(key string) (tea.Model, tea.Cmd) {
 	if key == "q" || key == "ctrl+c" {
 		return m, tea.Quit // the round is finished — nothing to guard in any state
@@ -761,13 +761,13 @@ func (m model) updateDone(key string) (tea.Model, tea.Cmd) {
 	if key == "r" {
 		m.client.reopen()
 		m.mode = modeReview
-		m.status = "review resumed — add or change anything, then f to finish again"
+		m.status = "review resumed — add or change anything, then h to hand off again"
 		return m, m.refresh()
 	}
 	return m, nil
 }
 
-// quitGuardMessage reassures that nothing is lost, then points at finishing as
+// quitGuardMessage reassures that nothing is lost, then points at handing off as
 // the better path. It names the pending Change Requests when there are some.
 func (m model) quitGuardMessage() string {
 	k := 0
@@ -778,7 +778,7 @@ func (m model) quitGuardMessage() string {
 	if k > 0 {
 		safe = "your " + pluralize(k, "Change Request") + " are safe"
 	}
-	return fmt.Sprintf("Your review isn't finished — %s, but your agent can't pick up the next round until you finish. Press f to finish, or q again to quit anyway.", safe)
+	return fmt.Sprintf("You haven't handed this review off — %s, but your agent can't pick up the next round until you do. Press h to hand off, or q again to exit anyway.", safe)
 }
 
 // declinedDispositions is the subset of the previous round's Change Requests the
@@ -838,16 +838,16 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeConclusion:
 		body = m.conclusionView()
-		persistent = keybar("← back", "g Overview", "q quit")
+		persistent = keybar("← back", "g Overview", "q exit")
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
 	case modeDone:
 		body = m.doneView()
 		if m.doneState() == doneRevision {
-			persistent = keybar("enter review revision", "q quit")
+			persistent = keybar("enter review revision", "q exit")
 		} else {
-			persistent = keybar("r resume", "q quit")
+			persistent = keybar("r resume", "q exit")
 		}
 	default:
 		if m.inStep() && m.expandedAck {
@@ -902,9 +902,9 @@ func (m model) frame(header, body, stateful, persistent string) string {
 // position never changes as the Reviewer moves.
 func (m model) globalKeys() string {
 	if m.view == nil || !m.view.Posted {
-		return keybar("q quit")
+		return keybar("q exit")
 	}
-	return keybar(m.navHint(), "g Overview", "l list", "f finish", "q quit")
+	return keybar(m.navHint(), "g Overview", "l list", "h hand off", "q exit")
 }
 
 // modeKeys is the blue row: the actions available on the current page only. It
@@ -1090,20 +1090,20 @@ func (m model) reraiseView() string {
 	return b.String()
 }
 
-// doneView is the finished screen, with three faces the reviewer can be on after
-// finishing: waiting for a Revision Round, a Revision Round has arrived, or the
-// review is complete. The copy here is the manual-relay baseline; a later change
-// swaps it to push wording once dbn can notify the agent directly.
+// doneView is the handed-off screen, with three faces the reviewer can be on
+// after handing off: waiting for a Revision Round, a Revision Round has arrived,
+// or the review is complete. The copy here is the manual-relay baseline; a later
+// change swaps it to push wording once dbn can notify the agent directly.
 func (m model) doneView() string {
 	if m.view == nil {
-		return labelSt.Render("Review finished")
+		return labelSt.Render("Review handed off")
 	}
 	switch m.doneState() {
 	case doneComplete:
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review complete") + "\n\n")
-		b.WriteString("You finished this round having raised nothing, so the review is over.\n\n")
-		b.WriteString(dimSt.Render("Press q to quit — or r to resume, if you changed your mind.") + "\n")
+		b.WriteString("You handed off having raised nothing, so the review is over.\n\n")
+		b.WriteString(dimSt.Render("Press q to exit — or r to resume, if you changed your mind.") + "\n")
 		return b.String()
 	case doneRevision:
 		addressed, declined := m.dispositionCounts()
@@ -1117,7 +1117,7 @@ func (m model) doneView() string {
 	default: // doneWaiting
 		seen, flagged := m.stepCounts()
 		var b strings.Builder
-		b.WriteString(labelSt.Render("Review finished") + "\n\n")
+		b.WriteString(labelSt.Render("Review handed off") + "\n\n")
 		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
 			pluralize(seen, "Step"), flagged, pluralize(len(m.view.ChangeRequests), "Change Request")))
 		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
@@ -1154,7 +1154,7 @@ func (m model) dispositionCounts() (addressed, declined int) {
 	return addressed, declined
 }
 
-// conclusionView is the pre-finish on-ramp reached by advancing past the last
+// conclusionView is the pre-hand-off on-ramp reached by advancing past the last
 // Step: a light summary and the deliberate hand-off action, with "End of review"
 // carried by the header the way "Overview" is at the other end.
 func (m model) conclusionView() string {
@@ -1163,7 +1163,7 @@ func (m model) conclusionView() string {
 		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
 			pluralize(len(m.view.ChangeRequests), "Change Request"), pluralize(m.view.StepCount, "Step")))
 	}
-	b.WriteString(accentSt.Render("Press f to finish and hand off to your agent.") + "\n")
+	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
 	return b.String()
 }
 

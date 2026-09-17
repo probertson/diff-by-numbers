@@ -122,8 +122,15 @@ _Avoid_: comment, note, feedback, todo
 The Authoring Agent working the collected Change Requests, followed by a fresh
 Walkthrough over just the resulting changes. Its Brief maps every Change Request
 to its resolution, so a decline is read before any code. Repeats until the Reviewer
-finishes a Walkthrough having raised nothing.
+hands a Walkthrough off having raised nothing.
 _Avoid_: fix pass, iteration, follow-up
+
+**Hand Off**:
+The Reviewer ending a round and passing the baton back: it locks their own edits
+until they resume, and authorizes the Authoring Agent's next Revision Round. A
+turn boundary in a loop, not a conclusion — which is why it is not called
+*finishing*, a word that reads as a synonym of leaving the viewer.
+_Avoid_: finish, finalize, submit, sign off, complete
 
 **Coverage Ledger**:
 dbn's own record, derived from git rather than from the Authoring Agent, of every

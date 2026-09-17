@@ -61,7 +61,7 @@ type wireWalkthrough struct {
 	Brief        wireBrief         `json:"brief"`
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
-	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a finish, one entry per Change Request the previous round raised, saying whether you addressed or declined it. Omit for a first Walkthrough"`
+	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, one entry per Change Request the previous round raised, saying whether you addressed or declined it. Omit for a first Walkthrough"`
 	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
 }
 
@@ -98,7 +98,7 @@ type stepReportWire struct {
 
 type fetchResult struct {
 	Posted         bool                `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
-	Finished       bool                `json:"finished" jsonschema:"Whether the Reviewer has completed the Walkthrough"`
+	Finished       bool                `json:"finished" jsonschema:"Whether the Reviewer has handed the Walkthrough off to you"`
 	Message        string              `json:"message"`
 	Ask            string              `json:"ask" jsonschema:"What the review was originally about, so you can re-ground yourself if your context has moved on"`
 	Approach       string              `json:"approach"`

@@ -83,7 +83,7 @@ not poll.
 
 ## Collecting feedback and revising
 
-When the human says they have finished, call `fetch_results`. It returns
+When the human says they have handed the review off, call `fetch_results`. It returns
 immediately (it never waits) with the reviewer's Change Requests, each carrying
 an anchored reference to the exact code it concerns. Work them.
 
@@ -95,12 +95,12 @@ re-derives everything and pre-marks as already-seen every line whose content is
 unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
 plan Steps and coverage for the moved lines the same way.
 
-Repeat until the reviewer finishes having raised nothing — `fetch_results` will
+Repeat until the reviewer hands off having raised nothing — `fetch_results` will
 say the review is complete.
 
 ## Concluding a review
 
-A review that ends this way — the reviewer finishing having raised nothing — is
+A review that ends this way — the reviewer handing off having raised nothing — is
 already concluded; dbn treats `fetch_results` reporting "complete" as the end of
 the loop. There is nothing more you must do.
 
