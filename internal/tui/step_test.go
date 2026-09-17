@@ -6,8 +6,28 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
+
+// lineWith returns the single output line containing marker, failing if there is
+// not exactly one — a small helper for the render tests that need to inspect one
+// row's styling without depending on its exact position in the window.
+func lineWith(t *testing.T, out, marker string) string {
+	t.Helper()
+	var found string
+	hits := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, marker) {
+			found = line
+			hits++
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("expected exactly one row containing %q, found %d in:\n%s", marker, hits, out)
+	}
+	return found
+}
 
 // a Step with a multi-line explanation and more code than fits, to exercise the
 // windowing budget.
@@ -188,25 +208,31 @@ func TestRenderStepKeepsTheOversizeJustificationWithinWidth(t *testing.T) {
 	}
 }
 
-func TestRowStyleComposesCommentColourAndCursorBold(t *testing.T) {
-	// Colour carries "has a Change Request", weight carries "is the cursor line".
-	// They must compose, not override: the bug was a commented cursor line coming
-	// out white+bold because the cursor bold clobbered the comment colour.
+func TestRowStyleComposesCommentCursorAndReferenceDim(t *testing.T) {
+	// Colour carries "has a Change Request", weight carries "is the cursor line",
+	// and a dim colour carries "unchanged reference context". Comment colour and
+	// cursor weight compose (a commented cursor line is yellow AND bold). The dim
+	// is the lowest-priority layer: a reference row is dimmed only when it is
+	// neither commented nor the cursor, so context never hides a Change Request or
+	// the cursor.
 	cases := []struct {
-		name      string
-		commented bool
-		cursor    bool
-		wantBold  bool
-		wantFg    lipgloss.TerminalColor
+		name                         string
+		commented, cursor, reference bool
+		wantBold                     bool
+		wantFg                       lipgloss.TerminalColor
 	}{
-		{"plain, not the cursor", false, false, false, lipgloss.NoColor{}},
-		{"plain, the cursor line", false, true, true, lipgloss.NoColor{}},
-		{"commented, not the cursor", true, false, false, commentColor},
-		{"commented, the cursor line", true, true, true, commentColor},
+		{"plain changed, not the cursor", false, false, false, false, lipgloss.NoColor{}},
+		{"plain changed, the cursor line", false, true, false, true, lipgloss.NoColor{}},
+		{"commented, not the cursor", true, false, false, false, commentColor},
+		{"commented, the cursor line", true, true, false, true, commentColor},
+		{"plain reference row is dimmed", false, false, true, false, subtle},
+		{"reference cursor line keeps the cursor, not dim", false, true, true, true, lipgloss.NoColor{}},
+		{"commented reference keeps the comment colour", true, false, true, false, commentColor},
+		{"commented reference cursor line", true, true, true, true, commentColor},
 	}
 
 	for _, c := range cases {
-		s := rowStyle(c.commented, c.cursor)
+		s := rowStyle(c.commented, c.cursor, c.reference)
 
 		if s.GetBold() != c.wantBold {
 			t.Errorf("%s: bold = %v, want %v", c.name, s.GetBold(), c.wantBold)
@@ -214,6 +240,57 @@ func TestRowStyleComposesCommentColourAndCursorBold(t *testing.T) {
 		if s.GetForeground() != c.wantFg {
 			t.Errorf("%s: foreground = %v, want %v", c.name, s.GetForeground(), c.wantFg)
 		}
+	}
+}
+
+func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
+	// lipgloss strips styling when stdout is not a TTY (as under `go test`), so to
+	// see the dim at the render level we force a colour profile for this test and
+	// restore whatever it was afterwards (the profile is process-global). A dimmed row then carries an ANSI
+	// escape; a plain changed row carries none. This guards the !changed wiring at
+	// each call site, which the rowStyle unit test alone cannot.
+	orig := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(orig)
+
+	const changed, reference = "CHANGEDROW", "REFERENCEROW"
+
+	step := &daemon.StepWire{
+		Name:        "styling",
+		Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{
+			File: "f.go", Side: "new", FirstLine: 1, LastLine: 3,
+			Lines: []daemon.LineWire{
+				{Number: 1, Text: "cursorrow", Changed: true, Side: "new"}, // index 0 is the cursor; keep our probes off it
+				{Number: 2, Text: changed, Changed: true, Side: "new"},
+				{Number: 3, Text: reference, Changed: false, Side: "new"},
+			},
+		}},
+	}
+	cur := newStepCursor(step)
+
+	stepOut := renderStep(step, cur, map[string]bool{}, 80, 40, false)
+
+	if strings.Contains(lineWith(t, stepOut, changed), "\x1b") {
+		t.Error("renderStep: a plain changed row should not be styled")
+	}
+	if !strings.Contains(lineWith(t, stepOut, reference), "\x1b") {
+		t.Error("renderStep: a plain reference row should be dimmed")
+	}
+
+	expandedOut := renderExpanded([]daemon.ExcerptWire{{
+		File: "f.go", Side: "new",
+		Lines: []daemon.LineWire{
+			{Number: 1, Text: changed, Changed: true, Side: "new"},
+			{Number: 2, Text: reference, Changed: false, Side: "new"},
+		},
+	}}, 80, 40, false)
+
+	if strings.Contains(lineWith(t, expandedOut, changed), "\x1b") {
+		t.Error("renderExpanded: a plain changed row should not be styled")
+	}
+	if !strings.Contains(lineWith(t, expandedOut, reference), "\x1b") {
+		t.Error("renderExpanded: a plain reference row should be dimmed")
 	}
 }
 

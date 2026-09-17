@@ -138,14 +138,20 @@ var (
 	commentColor = lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}                                 // a line carrying a Change Request
 )
 
-// rowStyle composes the two independent signals of a code row: colour says the
-// line carries a Change Request, weight says it is the cursor line. They compose
-// rather than override — a commented cursor line is yellow AND bold — so the
-// cursor never hides the fact that a line is commented.
-func rowStyle(commented, cursor bool) lipgloss.Style {
+// rowStyle composes the signals of a code row: colour says the line carries a
+// Change Request, weight says it is the cursor line, and a dim colour says it is
+// unchanged reference context. Comment colour and cursor weight compose — a
+// commented cursor line is yellow AND bold — so the cursor never hides that a
+// line is commented. The dim is the lowest-priority layer: a reference row is
+// dimmed only when it is neither commented nor the cursor (and the caller's
+// selection background, drawn separately, overrides it too), so context recedes
+// without ever hiding a Change Request, the cursor, or a selection.
+func rowStyle(commented, cursor, reference bool) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	if commented {
 		style = style.Foreground(commentColor)
+	} else if reference && !cursor {
+		style = style.Foreground(subtle)
 	}
 	if cursor {
 		style = style.Bold(true)
@@ -308,7 +314,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		if cur.sel >= 0 && cur.inSelection(i) {
 			fmt.Fprint(&b, caret+selSt.Render(row)+"\n")
 		} else {
-			fmt.Fprint(&b, caret+rowStyle(note == "✎", i == cur.cursor).Render(row)+"\n")
+			fmt.Fprint(&b, caret+rowStyle(note == "✎", i == cur.cursor, !line.changed).Render(row)+"\n")
 		}
 	}
 	if showIndicators {
@@ -458,7 +464,9 @@ func renderExpanded(excerpts []daemon.ExcerptWire, width, height int, showRepo b
 					}
 					text := strings.ReplaceAll(line.Text, "\t", "    ")
 					row := fmt.Sprintf("    %s %5d │ %s", mark, line.Number, text)
-					fmt.Fprint(&b, truncateTo(row, width)+"\n")
+					// Read-only view: no cursor or comment here, so this dims plain
+					// reference rows and leaves changed rows at normal brightness.
+					fmt.Fprint(&b, rowStyle(false, false, !line.Changed).Render(truncateTo(row, width))+"\n")
 					shown++
 				}
 			}
