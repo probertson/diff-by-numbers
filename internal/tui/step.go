@@ -176,6 +176,37 @@ func truncateTo(s string, w int) string {
 	return string(r[:w-1]) + "…"
 }
 
+// wrapRunes hard-wraps a plain (ANSI-free) string into chunks of at most w cells,
+// so the line under the cursor can be read in full where a single row would clip
+// it. It caps the result at maxRows chunks; when the text overruns that cap the
+// last chunk is truncated with an ellipsis exactly as a single clipped line is, so
+// an enormous line cannot grow the pane without bound. It wraps on runes rather
+// than words: code has no reliable word boundaries, and a full row is easier to
+// read back against the original than a ragged one.
+func wrapRunes(s string, w, maxRows int) []string {
+	if w < 1 || maxRows < 1 {
+		return []string{truncateTo(s, w)}
+	}
+	r := []rune(s)
+	if len(r) == 0 {
+		return []string{""}
+	}
+	var chunks []string
+	for len(r) > 0 {
+		if len(chunks)+1 == maxRows && len(r) > w {
+			// The last row allowed, with more text than fits: clip the remainder.
+			return append(chunks, truncateTo(string(r), w))
+		}
+		n := w
+		if n > len(r) {
+			n = len(r)
+		}
+		chunks = append(chunks, string(r[:n]))
+		r = r[n:]
+	}
+	return chunks
+}
+
 // renderStep draws the Step with the cursor and selection, windowed to height
 // rows so a long Step stays navigable, and every row clipped to width so nothing
 // overflows the terminal.
@@ -239,16 +270,48 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		available = 1
 	}
 
+	// The line under the cursor soft-wraps in place (#26): it is shown in full while
+	// every other line stays one truncated row. Its wrapped height is capped at
+	// roughly half the code area — with a small floor so even a short pane wraps
+	// something — so one enormous line cannot crowd out all the surrounding context;
+	// past the cap its last row ends in an ellipsis. The cursor line is reserved its
+	// full (capped) height and is never clipped by the window: context shrinks to
+	// make room, absorbed into the "more above/below" counts.
+	cursorCap := available / 2
+	if cursorCap < 3 {
+		cursorCap = 3
+	}
+	if cursorCap > available {
+		cursorCap = available
+	}
+	cursorLine := cur.lines[cur.cursor]
+	cursorText := strings.ReplaceAll(cursorLine.text, "\t", "    ")
+	cursorGutter := fmt.Sprintf("%s%s %5d │ ", " ", " ", cursorLine.number)
+	cursorTextWidth := (width - 2) - lipgloss.Width(cursorGutter)
+	cursorRows := 1
+	if cursorTextWidth >= 1 {
+		cursorRows = len(wrapRunes(cursorText, cursorTextWidth, cursorCap))
+	}
+
 	// When the code does not all fit, reserve two rows for scroll indicators. They
 	// are always present while scrolling (blank at an edge), so the body height
-	// stays constant and the frame below does not shift as the cursor moves.
-	overflow := len(cur.lines) > available
-	// The indicators cost two rows; only reserve them when there is room to spare,
-	// so a very short terminal shows more code rather than two arrows and nothing.
-	showIndicators := overflow && available >= 3
-	window := available
+	// stays constant and the frame below does not shift as the cursor moves. The
+	// cursor line's extra wrapped rows count against the budget, so a long line
+	// pushes more context off the edges rather than overflowing the frame.
+	overflow := len(cur.lines)-1+cursorRows > available
+	// The indicators cost two rows; only reserve them when the cursor line's full
+	// height plus both arrows fit, so a very short terminal shows code rather than
+	// two arrows and nothing.
+	showIndicators := overflow && available >= cursorRows+2
+	rowBudget := available
 	if showIndicators {
-		window = available - 2
+		rowBudget -= 2
+	}
+	// Lines to show: the cursor (cursorRows rows) plus as many one-row lines as the
+	// remaining budget holds.
+	window := rowBudget - (cursorRows - 1)
+	if window < 1 {
+		window = 1
 	}
 
 	start := cur.cursor - window/2
@@ -305,16 +368,40 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			note = "✎"
 		}
 		text := strings.ReplaceAll(line.text, "\t", "    ") // tabs display wider than one cell
-		row := fmt.Sprintf("%s%s %5d │ %s", note, sign, line.number, text)
-		row = truncateTo(row, width-2) // leave room for the caret
-		caret := "  "
-		if i == cur.cursor {
-			caret = caretSt.Render("▸ ")
-		}
-		if cur.sel >= 0 && cur.inSelection(i) {
-			fmt.Fprint(&b, caret+selSt.Render(row)+"\n")
+		hasComment := note == "✎"
+		selected := cur.sel >= 0 && cur.inSelection(i)
+
+		var rows []string
+		if i == cur.cursor && cursorRows > 1 {
+			// The cursor line soft-wraps in place so its tail is readable without
+			// scrolling. Continuation rows carry a blank gutter aligned under the code
+			// column — the missing line number is itself the continuation signal.
+			gutter := fmt.Sprintf("%s%s %5d │ ", note, sign, line.number)
+			indent := strings.Repeat(" ", lipgloss.Width(gutter))
+			for ci, chunk := range wrapRunes(text, cursorTextWidth, cursorCap) {
+				if ci == 0 {
+					rows = append(rows, gutter+chunk)
+				} else {
+					rows = append(rows, indent+chunk)
+				}
+			}
 		} else {
-			fmt.Fprint(&b, caret+rowStyle(note == "✎", i == cur.cursor, !line.changed).Render(row)+"\n")
+			row := fmt.Sprintf("%s%s %5d │ %s", note, sign, line.number, text)
+			rows = append(rows, truncateTo(row, width-2)) // leave room for the caret
+		}
+
+		// The caret marks only the first row; cursor, comment, and selection styling
+		// span every row so the wrapped line reads as one unit.
+		for ri, row := range rows {
+			caret := "  "
+			if i == cur.cursor && ri == 0 {
+				caret = caretSt.Render("▸ ")
+			}
+			if selected {
+				fmt.Fprint(&b, caret+selSt.Render(row)+"\n")
+			} else {
+				fmt.Fprint(&b, caret+rowStyle(hasComment, i == cur.cursor, !line.changed).Render(row)+"\n")
+			}
 		}
 	}
 	if showIndicators {

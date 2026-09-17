@@ -356,6 +356,119 @@ func TestExtendKeepsTheAnchorWhenReversingDirection(t *testing.T) {
 	}
 }
 
+func wrapStep() *daemon.StepWire {
+	long := strings.Repeat("a", 30) + "TAIL"
+	return &daemon.StepWire{
+		Name: "Wrap", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 3, Lines: []daemon.LineWire{
+			{Number: 1, Text: "short one", Changed: true, Side: "new"},
+			{Number: 2, Text: long, Changed: true, Side: "new"},
+			{Number: 3, Text: "short three", Changed: true, Side: "new"},
+		}}},
+	}
+}
+
+func TestRenderStepWrapsTheCursorLineInPlace(t *testing.T) {
+	// At width 40 the code column is 27 cells wide, so a 34-cell line's tail
+	// ("TAIL") can only be seen if the cursor line soft-wraps.
+	step := wrapStep()
+	const width, height = 40, 40
+	cur := newStepCursor(step)
+	cur.cursor = 1 // the long line
+
+	out := renderStep(step, cur, map[string]bool{}, width, height, false)
+
+	if !strings.Contains(out, "TAIL") {
+		t.Errorf("the cursor line's tail should wrap into view, got:\n%s", out)
+	}
+	tail := lineWith(t, out, "TAIL")
+	if strings.Contains(tail, "│") {
+		t.Errorf("a continuation row should carry a blank gutter, not the line separator, got %q", tail)
+	}
+	if n := strings.Count(out, "▸"); n != 1 {
+		t.Errorf("the caret should mark only the first row of the wrapped line, found %d in:\n%s", n, out)
+	}
+	if w := widestLine(out); w > width {
+		t.Errorf("a wrapped row is %d cells wide, over the %d given:\n%s", w, width, out)
+	}
+	if h := lipgloss.Height(out); h > height {
+		t.Errorf("the wrapped Step is %d rows, over the %d given", h, height)
+	}
+}
+
+func TestRenderStepTruncatesLinesThatAreNotUnderTheCursor(t *testing.T) {
+	step := wrapStep()
+
+	cur := newStepCursor(step) // cursor at index 0, a short line
+
+	out := renderStep(step, cur, map[string]bool{}, 40, 40, false)
+
+	if strings.Contains(out, "TAIL") {
+		t.Errorf("a line that is not under the cursor should stay truncated, got:\n%s", out)
+	}
+	if !strings.Contains(out, "…") {
+		t.Error("the long non-cursor line should be truncated with an ellipsis")
+	}
+}
+
+func TestRenderStepCapsAnEnormousCursorLine(t *testing.T) {
+	// A line far longer than half the pane is capped: past the cap the remainder
+	// ("ZEND") is unreachable and the last visible row ends in an ellipsis, and the
+	// reserved height must not blow the frame.
+	huge := strings.Repeat("b", 4000) + "ZEND"
+	step := &daemon.StepWire{
+		Name: "Huge", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 1, Lines: []daemon.LineWire{
+			{Number: 1, Text: huge, Changed: true, Side: "new"},
+		}}},
+	}
+	const width, height = 40, 16
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, width, height, false)
+
+	if h := lipgloss.Height(out); h > height {
+		t.Errorf("an enormous wrapped line blew the height: %d rows over the %d given", h, height)
+	}
+	if strings.Contains(out, "ZEND") {
+		t.Error("past the cap the remainder of the line must be unreachable")
+	}
+	if !strings.Contains(out, "…") {
+		t.Error("the capped cursor line should end its last visible row with an ellipsis")
+	}
+	if w := widestLine(out); w > width {
+		t.Errorf("a wrapped row is %d cells wide, over the %d given", w, width)
+	}
+}
+
+func TestRenderStepStylesEveryRowOfTheWrappedCursorLine(t *testing.T) {
+	// The cursor line's styling (here the cursor's bold) must span its wrapped
+	// continuation rows so the whole line reads as one unit. lipgloss strips styling
+	// off a non-TTY, so force a colour profile and restore it after.
+	orig := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(orig)
+
+	long := strings.Repeat("a", 30) + "TAIL"
+	step := &daemon.StepWire{
+		Name: "Wrap", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 1, Lines: []daemon.LineWire{
+			{Number: 1, Text: long, Changed: true, Side: "new"},
+		}}},
+	}
+	cur := newStepCursor(step) // the only line, under the cursor
+
+	out := renderStep(step, cur, map[string]bool{}, 40, 40, false)
+
+	tail := lineWith(t, out, "TAIL")
+	if strings.Contains(tail, "▸") {
+		t.Fatal("the continuation row should not carry the caret")
+	}
+	if !strings.Contains(tail, "\x1b") {
+		t.Error("the cursor line's styling should span its wrapped continuation rows")
+	}
+}
+
 func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
 	step := &daemon.StepWire{
 		Name:        "Small",
