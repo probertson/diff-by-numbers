@@ -335,19 +335,41 @@ func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptVi
 	ack := step.Acknowledgements[ackIndex]
 
 	var views []ExcerptView
-	for _, file := range ack.Files {
-		if opaque, ok := s.ledger.opaqueFor(ack.Repository, file); ok {
+	for _, part := range s.acknowledgedParts(ack) {
+		if part.opaque != nil {
 			views = append(views, ExcerptView{
-				Excerpt: Excerpt{Repository: ack.Repository, File: file},
-				Problem: fmt.Sprintf("%s is an Opaque Change (%s) with no lines to show", file, opaque.Detail),
+				Excerpt: Excerpt{Repository: ack.Repository, File: part.opaque.File},
+				Problem: fmt.Sprintf("%s is an Opaque Change (%s) with no lines to show", part.opaque.File, part.opaque.Detail),
 			})
 			continue
 		}
-		for _, excerpt := range excerptsForChangedLines(ack.Repository, file, s.ledger.changedLinesFor(ack.Repository, file)) {
-			views = append(views, s.resolveExcerpt(excerpt))
-		}
+		views = append(views, s.resolveExcerpt(part.excerpt))
 	}
 	return views, nil
+}
+
+// acknowledgedPart is one piece of what an Acknowledgement expands into: an
+// Excerpt of a file's Changed Lines, or an Opaque Change, which has none.
+type acknowledgedPart struct {
+	excerpt Excerpt
+	opaque  *OpaqueChange
+}
+
+// acknowledgedParts derives, from the ledger alone, what an Acknowledgement
+// stands in for, in the order it is drawn. It is the one source for both the
+// expansion the Reviewer reads and the Excerpt an Anchor into it resolves against.
+func (s *Session) acknowledgedParts(ack Acknowledgement) []acknowledgedPart {
+	var parts []acknowledgedPart
+	for _, file := range ack.Files {
+		if opaque, ok := s.ledger.opaqueFor(ack.Repository, file); ok {
+			parts = append(parts, acknowledgedPart{opaque: &opaque})
+			continue
+		}
+		for _, excerpt := range s.ledger.expansionExcerpts(ack.Repository, file) {
+			parts = append(parts, acknowledgedPart{excerpt: excerpt})
+		}
+	}
+	return parts
 }
 
 func (s *Session) seenFlags() []bool {

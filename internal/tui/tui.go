@@ -124,11 +124,13 @@ type model struct {
 	confirmingQuit   bool        // a second-q quit heads-up is armed on an unfinished review
 	crFilter         crFilter    // when active, the List shows only comments on one line
 	reraiseCursor    int         // selected row among declined dispositions
-	expandedAck      bool        // showing the code behind this Step's Acknowledgements
-	expanded         []daemon.ExcerptWire
-	width            int
-	height           int
-	ready            bool
+	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
+	// has expanded, by index. Expansion is viewing, not review state, so it lives
+	// here rather than in the daemon.
+	expanded map[int][]daemon.ExcerptWire
+	width    int
+	height   int
+	ready    bool
 }
 
 type crFilter struct {
@@ -162,7 +164,53 @@ func (m *model) multiRepo() bool {
 // syncCursor rebuilds the selection cursor when the Step in view changes.
 func (m *model) syncCursor() {
 	if m.inStep() {
-		m.cursor = newStepCursor(m.view.Step)
+		m.cursor = newStepCursor(m.view.Step, m.expanded)
+	}
+}
+
+// relayout rebuilds the pane after an Acknowledgement expands or collapses, and
+// puts the cursor on spot — found by what it is, since the indices have moved.
+func (m *model) relayout(spot codeLine) {
+	m.cursor = newStepCursor(m.view.Step, m.expanded)
+	m.cursor.restore(spot)
+}
+
+// toggleAcknowledgement expands or collapses the Acknowledgement the cursor is in:
+// on its stop, or anywhere in its expanded code. Expanding lands on the first line
+// of its code, if it has any; collapsing returns to its stop.
+func (m *model) toggleAcknowledgement() {
+	if len(m.view.Step.Acknowledgements) == 0 {
+		m.status = "nothing to expand on this Step"
+		return
+	}
+	line := m.cursor.lines[m.cursor.cursor]
+	if line.ack < 0 {
+		m.status = "move down to an Acknowledgement to expand it"
+		return
+	}
+	k := line.ack
+	stop := codeLine{kind: kindStop, ack: k, excerpt: -1}
+	m.status = ""
+	if m.cursor.isExpanded(k) {
+		delete(m.expanded, k)
+		m.relayout(stop)
+		return
+	}
+	views, ok := m.client.expand(m.view.Position, k)
+	if !ok {
+		m.status = "could not fetch the acknowledged code"
+		return
+	}
+	if m.expanded == nil {
+		m.expanded = map[int][]daemon.ExcerptWire{}
+	}
+	m.expanded[k] = views
+	m.relayout(stop)
+	for i, candidate := range m.cursor.lines {
+		if candidate.ack == k && candidate.kind == kindCode {
+			m.cursor.cursor = i
+			break
+		}
 	}
 }
 
@@ -199,11 +247,17 @@ func tick() tea.Cmd {
 // anchorBody is a selected run as the daemon's /anchor and /changerequest
 // endpoints take it: the Excerpt and the row at each end, never a range.
 func anchorBody(run selectedRun) map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"excerpt_index": run.excerpt,
 		"start":         map[string]any{"side": run.start.side, "line": run.start.line},
 		"end":           map[string]any{"side": run.end.side, "line": run.end.line},
 	}
+	// A run in acknowledged code counts its Excerpt within that Acknowledgement's
+	// expansion, so the daemon must be told which one.
+	if run.ack >= 0 {
+		body["acknowledgement_index"] = run.ack
+	}
+	return body
 }
 
 func (c client) raiseChangeRequest(run selectedRun, note string) bool {
@@ -359,10 +413,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.view = msg.view
 		}
 		if positionChanged {
+			m.expanded = nil // the expansions belonged to the Step we just left
 			m.syncCursor()
 			m.viewport.GotoTop()
-			m.expandedAck = false // the expansion belonged to the Step we just left
-			m.expanded = nil
 		}
 		if m.view != nil && (m.view.Finished || m.view.Concluded) {
 			// The review is done — finished, or concluded outright (an explicit
@@ -472,33 +525,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.inStep() {
-			// A Step with no code lines (Acknowledgement-only, or one whose Excerpts
-			// all failed to resolve) has nothing to select, comment on or anchor —
-			// and neither does an expanded view, which is read-only. Only x/esc and
-			// navigation apply there.
-			interactive := len(m.cursor.lines) > 0 && !m.expandedAck
+			// Only a line of code can be selected, commented on or anchored — not an
+			// Acknowledgement's stop, and nothing on a Step with no readable code.
+			interactive := m.cursor.onCode()
 			switch key {
 			case "up", "k":
-				if interactive {
-					m.noteBoundary(m.cursor.move(-1))
-				}
+				m.noteBoundary(m.cursor.move(-1))
 				return m, nil
 			case "down", "j":
-				if interactive {
-					m.noteBoundary(m.cursor.move(1))
-				}
+				m.noteBoundary(m.cursor.move(1))
 				return m, nil
 			case "shift+up":
-				if interactive {
-					m.status = ""
-					m.noteBoundary(m.cursor.extend(-1))
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
 				}
+				m.status = ""
+				m.noteBoundary(m.cursor.extend(-1))
 				return m, nil
 			case "shift+down":
-				if interactive {
-					m.status = ""
-					m.noteBoundary(m.cursor.extend(1))
+				if !interactive {
+					m.status = m.noInteractionHint()
+					return m, nil
 				}
+				m.status = ""
+				m.noteBoundary(m.cursor.extend(1))
 				return m, nil
 			case "v", " ":
 				if !interactive {
@@ -509,45 +560,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 				return m, nil
 			case "esc":
-				if m.expandedAck {
-					m.expandedAck = false
-					m.expanded = nil
-					m.cursor.sel = -1
-					m.status = ""
-					return m, nil
-				}
 				m.cursor.sel = -1
 				m.status = ""
 				return m, nil
 			case "x":
-				if len(m.view.Step.Acknowledgements) == 0 {
+				if len(m.cursor.lines) == 0 {
 					m.status = "nothing to expand on this Step"
 					return m, nil
 				}
-				if m.expandedAck {
-					m.expandedAck = false
-					m.expanded = nil
-					m.cursor.sel = -1
-					m.status = ""
-					return m, nil
-				}
-				var all []daemon.ExcerptWire
-				failed := 0
-				for i := range m.view.Step.Acknowledgements {
-					if views, ok := m.client.expand(m.view.Position, i); ok {
-						all = append(all, views...)
-					} else {
-						failed++
-					}
-				}
-				m.expanded = all
-				m.expandedAck = true
 				m.cursor.sel = -1
-				if failed > 0 {
-					m.status = fmt.Sprintf("expanded — but %s could not be fetched (x or <esc> to collapse)", pluralize(failed, "acknowledgement"))
-				} else {
-					m.status = "expanded — showing the acknowledged code (x or <esc> to collapse)"
-				}
+				m.toggleAcknowledgement()
 				return m, nil
 			case "y":
 				if !interactive {
@@ -578,7 +600,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
-					m.crFilter = crFilter{active: true, file: m.view.Step.Excerpts[line.excerpt].File, side: line.side, line: line.number}
+					m.crFilter = crFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
 					m.crCursor = 0
 					m.mode = modeList
 				}
@@ -949,10 +971,8 @@ func (m model) View() string {
 			persistent = keybar("r resume", "q exit")
 		}
 	default:
-		if m.inStep() && m.expandedAck {
-			body = renderExpanded(m.expanded, m.width, m.bodyHeight(), m.multiRepo())
-		} else if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.width, m.bodyHeight(), m.multiRepo())
+		if m.inStep() {
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackChangeRequests(), m.width, m.bodyHeight(), m.multiRepo())
 		} else {
 			body = m.viewport.View()
 		}
@@ -1007,7 +1027,7 @@ func (m model) globalKeys() string {
 }
 
 // modeKeys is the blue row: the actions available on the current page only. It
-// changes with the page — code selection on a Step, expansion on an
+// changes with the cursor — code selection on a line of code, expansion on an
 // Acknowledgement — while the global row underneath stays put.
 func (m model) modeKeys() string {
 	if m.view == nil || !m.view.Posted {
@@ -1020,24 +1040,26 @@ func (m model) modeKeys() string {
 		}
 		return keybar(tokens...)
 	}
-	if m.expandedAck {
-		return keybar("x/<esc> collapse")
-	}
-	if !m.inStep() {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
 		return ""
 	}
 	if m.cursor.sel >= 0 {
 		return keybar("↑/↓ extend", "y copy", "c comment", "<esc> stop selecting")
 	}
-	var tokens []string
-	if len(m.cursor.lines) > 0 {
-		tokens = append(tokens, "↑/↓ move", "<space>/v select", "y copy", "c comment")
+	tokens := []string{"↑/↓ move"}
+	line := m.cursor.lines[m.cursor.cursor]
+	if line.kind == kindCode {
+		tokens = append(tokens, "<space>/v select", "y copy", "c comment")
 		if _, ok := m.commentAtCursor(); ok {
 			tokens = append(tokens, "e edit")
 		}
 	}
-	if len(m.view.Step.Acknowledgements) > 0 {
-		tokens = append(tokens, "x expand")
+	if line.ack >= 0 {
+		if m.cursor.isExpanded(line.ack) {
+			tokens = append(tokens, "x collapse")
+		} else {
+			tokens = append(tokens, "x expand")
+		}
 	}
 	return keybar(tokens...)
 }
@@ -1085,13 +1107,14 @@ func (m model) listKeys() string {
 }
 
 // noInteractionHint explains why selecting, commenting or anchoring is
-// unavailable on the current Step — expanded, acknowledged, or code-less.
+// unavailable where the cursor is — on an Acknowledgement's stop, or on a Step
+// with no readable code.
 func (m model) noInteractionHint() string {
-	if m.expandedAck {
-		return "collapse with x first to select code"
-	}
-	if m.inStep() && len(m.view.Step.Acknowledgements) > 0 {
-		return "no code to select here — press x to expand the acknowledged files"
+	if m.inStep() && len(m.cursor.lines) > 0 && m.cursor.lines[m.cursor.cursor].kind == kindStop {
+		if m.cursor.isExpanded(m.cursor.lines[m.cursor.cursor].ack) {
+			return "move down into the code to select it"
+		}
+		return "expand with x to select code"
 	}
 	return "no readable code on this Step"
 }
@@ -1269,11 +1292,11 @@ func (m model) conclusionView() string {
 // commentAtCursor returns the Change Request anchored over the cursor's line, if
 // there is one, so it can be edited in place.
 func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
-	if !m.inStep() || len(m.cursor.lines) == 0 {
+	if !m.inStep() || !m.cursor.onCode() {
 		return daemon.ChangeRequestWire{}, false
 	}
 	line := m.cursor.lines[m.cursor.cursor]
-	file := m.view.Step.Excerpts[line.excerpt].File
+	file := m.cursor.excerptOf(m.view.Step, line).File
 	for _, cr := range m.view.ChangeRequests {
 		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
 			return cr, true
@@ -1301,11 +1324,11 @@ func (m model) filteredCRs() []daemon.ChangeRequestWire {
 
 // commentsAtCursor returns every Change Request anchored over the cursor's line.
 func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
-	if !m.inStep() || len(m.cursor.lines) == 0 {
+	if !m.inStep() || !m.cursor.onCode() {
 		return nil
 	}
 	line := m.cursor.lines[m.cursor.cursor]
-	file := m.view.Step.Excerpts[line.excerpt].File
+	file := m.cursor.excerptOf(m.view.Step, line).File
 	var out []daemon.ChangeRequestWire
 	for _, cr := range m.view.ChangeRequests {
 		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
@@ -1336,6 +1359,30 @@ func (m model) commentedLines() map[string]bool {
 		}
 	}
 	return out
+}
+
+// ackChangeRequests counts, for each of this Step's Acknowledgements, the Change
+// Requests raised in the files it claims — so a collapsed Acknowledgement still
+// shows that a point was made inside it.
+func (m model) ackChangeRequests() []int {
+	if !m.inStep() {
+		return nil
+	}
+	counts := make([]int, len(m.view.Step.Acknowledgements))
+	for k, ack := range m.view.Step.Acknowledgements {
+		for _, cr := range m.view.ChangeRequests {
+			if cr.Step != m.view.Position {
+				continue
+			}
+			for _, entry := range ack.Entries {
+				if entry.File == cr.File {
+					counts[k]++
+					break
+				}
+			}
+		}
+	}
+	return counts
 }
 
 // commentKey identifies a commented row by file, side, and line — the granularity

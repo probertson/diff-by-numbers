@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
@@ -155,4 +156,50 @@ func postStatus(t *testing.T, url string, body map[string]any) int {
 	}
 	defer response.Body.Close()
 	return response.StatusCode
+}
+
+// A selection in an expanded Acknowledgement names the Acknowledgement as well as
+// the Excerpt, so the daemon resolves it against the expansion the TUI drew and
+// the Anchor says it disputes a "mechanical" claim.
+func TestAChangeRequestCanBeRaisedInAcknowledgedCode(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := editedRepo(t)
+	postWalkthrough(t, server.URL, map[string]any{
+		"brief": map[string]any{
+			"ask": "rework the guard", "approach": "renamed it",
+			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
+		},
+		"repositories": []any{map[string]any{"root": root, "range": "main"}},
+		"steps": []any{map[string]any{
+			"name": "Mechanical", "explanation": "a rename, nothing to read",
+			"acknowledgements": []any{map[string]any{
+				"repository": root, "files": []any{"fetch.ts"}, "reason": "renamed by the IDE",
+			}},
+		}},
+	})
+	post(t, server.URL+"/advance", nil)
+
+	post(t, server.URL+"/changerequest", map[string]any{
+		"acknowledgement_index": 0,
+		"excerpt_index":         0,
+		"start":                 map[string]any{"side": "old", "line": 2},
+		"end":                   map[string]any{"side": "new", "line": 2},
+		"note":                  "this is not mechanical",
+	})
+
+	var view daemon.ViewWire
+	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
+		t.Fatalf("could not read the view: %v", err)
+	}
+	if len(view.ChangeRequests) != 1 {
+		t.Fatalf("expected one Change Request, got %d", len(view.ChangeRequests))
+	}
+	cr := view.ChangeRequests[0]
+	if cr.Location != "fetch.ts — before 2 — after 2" {
+		t.Errorf("unexpected location %q", cr.Location)
+	}
+	if !strings.Contains(cr.Anchor, `acknowledged in Step "Mechanical" (renamed by the IDE)`) {
+		t.Errorf("expected the Anchor to name the Acknowledgement it disputes:\n%s", cr.Anchor)
+	}
 }

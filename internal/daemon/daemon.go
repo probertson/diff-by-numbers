@@ -235,11 +235,14 @@ func watchForQuitKey(onQuit func()) (func(), error) {
 
 // anchorRequest is a Reviewer's selection as it arrives from the TUI: the Excerpt
 // it lies in and the row at each end of it. The rows between them are the core's
-// to derive, so the client never states a range (#57).
+// to derive, so the client never states a range (#57). AcknowledgementIndex is
+// present only for a selection in an expanded Acknowledgement, whose Excerpts
+// ExcerptIndex then counts.
 type anchorRequest struct {
-	ExcerptIndex int          `json:"excerpt_index"`
-	Start        endpointWire `json:"start"`
-	End          endpointWire `json:"end"`
+	AcknowledgementIndex *int         `json:"acknowledgement_index,omitempty"`
+	ExcerptIndex         int          `json:"excerpt_index"`
+	Start                endpointWire `json:"start"`
+	End                  endpointWire `json:"end"`
 }
 
 type endpointWire struct {
@@ -249,9 +252,10 @@ type endpointWire struct {
 
 func (r anchorRequest) target() review.AnchorTarget {
 	return review.AnchorTarget{
-		ExcerptIndex: r.ExcerptIndex,
-		Start:        review.AnchorEndpoint{Side: review.Side(r.Start.Side), Line: r.Start.Line},
-		End:          review.AnchorEndpoint{Side: review.Side(r.End.Side), Line: r.End.Line},
+		Acknowledgement: r.AcknowledgementIndex,
+		ExcerptIndex:    r.ExcerptIndex,
+		Start:           review.AnchorEndpoint{Side: review.Side(r.Start.Side), Line: r.Start.Line},
+		End:             review.AnchorEndpoint{Side: review.Side(r.End.Side), Line: r.End.Line},
 	}
 }
 

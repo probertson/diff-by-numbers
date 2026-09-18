@@ -322,8 +322,55 @@ func (l ledger) opaqueFor(repository, file string) (OpaqueChange, bool) {
 	return OpaqueChange{}, false
 }
 
+// expansionExcerpts is what an acknowledged file expands into: one Excerpt per
+// edit git found, in file order, shaped so each renders as a unified diff. An
+// edit with an after-side becomes a new-side Excerpt, whose rendering injects the
+// before-side it replaced; a pure removal has no after-side to sit beside and
+// becomes a before-only Excerpt. Any Changed Line no edit accounts for (a ledger
+// derived without Correspondences) falls back to plain side-by-side runs, so
+// nothing the Acknowledgement claims is left out.
+func (l ledger) expansionExcerpts(repository, file string) []Excerpt {
+	type row struct {
+		side Side
+		line int
+	}
+	target := filepath.Clean(file)
+	shown := map[row]bool{}
+	var out []Excerpt
+	for _, c := range l.correspondences {
+		if c.Repository != repository || filepath.Clean(c.File) != target {
+			continue
+		}
+		switch {
+		case c.hasNew():
+			out = append(out, Excerpt{Repository: repository, File: c.File, Side: NewSide, FirstLine: c.NewFirst, LastLine: c.NewLast})
+			for n := c.NewFirst; n <= c.NewLast; n++ {
+				shown[row{NewSide, n}] = true
+			}
+			// Only a modification's before-side is injected beside its replacement.
+			if c.isModification() {
+				for n := c.OldFirst; n <= c.OldLast; n++ {
+					shown[row{OldSide, n}] = true
+				}
+			}
+		case c.hasOld():
+			out = append(out, Excerpt{Repository: repository, File: c.File, Side: OldSide, FirstLine: c.OldFirst, LastLine: c.OldLast})
+			for n := c.OldFirst; n <= c.OldLast; n++ {
+				shown[row{OldSide, n}] = true
+			}
+		}
+	}
+	var rest []ChangedLine
+	for _, line := range l.changedLinesFor(repository, file) {
+		if !shown[row{line.Side, line.Line}] {
+			rest = append(rest, line)
+		}
+	}
+	return append(out, excerptsForChangedLines(repository, file, rest)...)
+}
+
 // excerptsForChangedLines groups a file's Changed Lines into the smallest set of
-// contiguous Excerpts that show them all — what an Acknowledgement expands into.
+// contiguous Excerpts that show them all, one side at a time.
 func excerptsForChangedLines(repository, file string, lines []ChangedLine) []Excerpt {
 	bySide := map[Side][]int{}
 	for _, line := range lines {

@@ -21,9 +21,14 @@ type AnchorEndpoint struct {
 // it lies in, and the rows at each end of it. It is the two ends rather than the
 // range itself because the run may cross from the before-side to the after-side,
 // and dbn — not the client — is the authority on what order those rows are in.
+//
+// Acknowledgement, when set, says the run lies in acknowledged code the Reviewer
+// expanded: ExcerptIndex then counts into that Acknowledgement's expansion rather
+// than the Step's own Excerpts.
 type AnchorTarget struct {
-	ExcerptIndex int
-	Start, End   AnchorEndpoint
+	Acknowledgement *int
+	ExcerptIndex    int
+	Start, End      AnchorEndpoint
 }
 
 // AnchorSegment is one side-qualified run of lines within an Anchor. An Anchor
@@ -50,6 +55,10 @@ type Anchor struct {
 	Segments   []AnchorSegment
 	StepName   string
 	Lines      []Line
+	// AcknowledgementReason is set when the Anchor lies in acknowledged code: a
+	// point raised there disputes the Acknowledgement's "mechanical" claim as well
+	// as the line, so the Anchor carries the claim it disputes.
+	AcknowledgementReason string
 }
 
 // Anchor composes an Anchor for a selection within the Step in view. The run
@@ -64,11 +73,10 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	}
 
 	step := s.walkthrough.Steps[s.position-1]
-	if target.ExcerptIndex < 0 || target.ExcerptIndex >= len(step.Excerpts) {
-		return Anchor{}, reject(RejectedBadSelection,
-			"Step %d has no Excerpt %d", s.position, target.ExcerptIndex)
+	excerpt, reason, err := s.anchoredExcerpt(step, target)
+	if err != nil {
+		return Anchor{}, err
 	}
-	excerpt := step.Excerpts[target.ExcerptIndex]
 
 	for _, file := range s.staleFiles(step) {
 		if file == excerpt.File {
@@ -111,7 +119,41 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		Segments:   segmentsOf(lines),
 		StepName:   step.Name,
 		Lines:      lines,
+
+		AcknowledgementReason: reason,
 	}, nil
+}
+
+// anchoredExcerpt finds the Excerpt a selection lies in — one of the Step's own,
+// or one an Acknowledgement expands into — and, for the latter, the reason the
+// Acknowledgement gave. The expansion is derived by the same helper that drew it,
+// so what the Reviewer saw and what the Anchor resolves against cannot drift.
+func (s *Session) anchoredExcerpt(step Step, target AnchorTarget) (Excerpt, string, error) {
+	if target.Acknowledgement == nil {
+		if target.ExcerptIndex < 0 || target.ExcerptIndex >= len(step.Excerpts) {
+			return Excerpt{}, "", reject(RejectedBadSelection,
+				"Step %d has no Excerpt %d", s.position, target.ExcerptIndex)
+		}
+		return step.Excerpts[target.ExcerptIndex], "", nil
+	}
+
+	ackIndex := *target.Acknowledgement
+	if ackIndex < 0 || ackIndex >= len(step.Acknowledgements) {
+		return Excerpt{}, "", reject(RejectedBadSelection,
+			"Step %d has no Acknowledgement %d", s.position, ackIndex+1)
+	}
+	ack := step.Acknowledgements[ackIndex]
+	parts := s.acknowledgedParts(ack)
+	if target.ExcerptIndex < 0 || target.ExcerptIndex >= len(parts) {
+		return Excerpt{}, "", reject(RejectedBadSelection,
+			"Acknowledgement %d of Step %d has no Excerpt %d", ackIndex+1, s.position, target.ExcerptIndex)
+	}
+	part := parts[target.ExcerptIndex]
+	if part.opaque != nil {
+		return Excerpt{}, "", reject(RejectedBadSelection,
+			"%s is an Opaque Change (%s) with no lines to select", part.opaque.File, part.opaque.Kind)
+	}
+	return part.excerpt, ack.Reason, nil
 }
 
 // rowIndex finds the endpoint among an Excerpt's rendered rows. An endpoint that
@@ -198,7 +240,11 @@ func rangesOn(segments []AnchorSegment, side Side) string {
 // line's own side, since the run may cross from the before-side to the after-side.
 func (a Anchor) Render() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Re: %s — Step %q in %s\n\n", a.Location(), a.StepName, filepath.Base(a.Repository))
+	where := fmt.Sprintf("Step %q", a.StepName)
+	if a.AcknowledgementReason != "" {
+		where = fmt.Sprintf("acknowledged in Step %q (%s)", a.StepName, a.AcknowledgementReason)
+	}
+	fmt.Fprintf(&b, "Re: %s — %s in %s\n\n", a.Location(), where, filepath.Base(a.Repository))
 	for _, line := range a.Lines {
 		marker := " "
 		if line.Changed {
