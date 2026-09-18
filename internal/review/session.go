@@ -64,6 +64,9 @@ type Session struct {
 	concluded bool
 	// mint generates a new review id. Injected so tests can assert on a known id.
 	mint func() string
+	// postings counts the Walkthroughs accepted, so a surface can tell when a
+	// different one — a new review, or a Revision Round — has taken the screen.
+	postings int
 }
 
 // SessionOption configures a Session at construction.
@@ -178,6 +181,7 @@ func (s *Session) Post(w Walkthrough) error {
 	s.preShown = preShown
 	s.dispositions = dispositions
 	s.priorContent = s.captureContent(ledger)
+	s.postings++
 
 	// A new review mints an id and takes the Walkthrough's label as given; a
 	// Revision Round keeps the id and only updates the label if one is supplied,

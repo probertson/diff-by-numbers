@@ -101,7 +101,10 @@ type Coverage struct {
 // ViewModel is everything needed to draw the current screen. Position 0 is the
 // Brief; positions 1..StepCount are Steps.
 type ViewModel struct {
-	Posted       bool
+	Posted bool
+	// Posting identifies the Walkthrough on screen among those this Session has
+	// accepted: it changes exactly when a new one, or a Revision Round, replaces it.
+	Posting      int
 	Brief        Brief
 	StepNames    []string
 	StepCount    int
@@ -138,6 +141,7 @@ func (s *Session) View() ViewModel {
 
 	view := ViewModel{
 		Posted:       true,
+		Posting:      s.postings,
 		Brief:        w.Brief,
 		StepNames:    names,
 		StepCount:    len(w.Steps),

@@ -128,9 +128,23 @@ type model struct {
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
 	expanded map[int][]daemon.ExcerptWire
-	width    int
-	height   int
-	ready    bool
+	// leftSteps is how the Reviewer left each Step of the Walkthrough on screen,
+	// by position, so returning to one finds it as it was. It is forgotten when a
+	// different Walkthrough arrives.
+	leftSteps map[int]leftStep
+	width     int
+	height    int
+	ready     bool
+}
+
+// leftStep is how the Reviewer left a Step: the row the cursor was on and the
+// Acknowledgements they had expanded. The pane is windowed around the cursor, so
+// restoring the cursor restores the scroll position too. A selection is not
+// kept: it is a gesture in progress, and a restored one would make the next
+// arrow extend it rather than move.
+type leftStep struct {
+	spot     codeLine
+	expanded map[int][]daemon.ExcerptWire
 }
 
 type crFilter struct {
@@ -165,6 +179,32 @@ func (m *model) multiRepo() bool {
 func (m *model) syncCursor() {
 	if m.inStep() {
 		m.cursor = newStepCursor(m.view.Step, m.expanded)
+	}
+}
+
+// leaveStep records how the Reviewer is leaving the Step in view.
+func (m *model) leaveStep() {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
+		return
+	}
+	if m.leftSteps == nil {
+		m.leftSteps = map[int]leftStep{}
+	}
+	m.leftSteps[m.view.Position] = leftStep{spot: m.cursor.lines[m.cursor.cursor], expanded: m.expanded}
+}
+
+// enterStep lays out the Step now in view as the Reviewer last left it, or fresh
+// from the top on a first visit.
+func (m *model) enterStep() {
+	var left leftStep
+	visited := false
+	if m.view != nil {
+		left, visited = m.leftSteps[m.view.Position]
+	}
+	m.expanded = left.expanded
+	m.syncCursor()
+	if visited {
+		m.cursor.restore(left.spot)
 	}
 }
 
@@ -369,7 +409,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.note.SetWidth(max(20, msg.Width-4))
 		m.setNoteHeight()
 		m.ready = true
-		m.syncCursor()
+		// The pane's rows do not depend on the terminal's size, so a resize keeps
+		// the cursor where it is; the cursor is only laid out if it never was.
+		if len(m.cursor.lines) == 0 {
+			m.syncCursor()
+		}
 		m.viewport.SetContent(m.content())
 		return m, nil
 
@@ -398,12 +442,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		positionChanged := false
+		newWalkthrough := false
 		reconnected := false
 		if msg.err != nil {
 			m.lostErr = msg.err
 		} else {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true
+			}
+			// How the Reviewer left each Step belongs to one Walkthrough: a new
+			// review, a Revision Round or a restarted daemon starts every Step fresh.
+			if msg.view != nil && (m.view == nil || !msg.view.Posted || msg.view.Posting != m.view.Posting) {
+				newWalkthrough = true
+			}
+			if positionChanged && !newWalkthrough {
+				m.leaveStep()
 			}
 			// Coming back after losing the daemon, the daemon on the other end may
 			// not be the one we left — a restart is exactly how it gets replaced by
@@ -412,9 +465,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lostErr = nil
 			m.view = msg.view
 		}
-		if positionChanged {
-			m.expanded = nil // the expansions belonged to the Step we just left
-			m.syncCursor()
+		if newWalkthrough {
+			m.leftSteps = nil
+		}
+		if positionChanged || newWalkthrough {
+			m.enterStep()
 			m.viewport.GotoTop()
 		}
 		if m.view != nil && (m.view.Finished || m.view.Concluded) {

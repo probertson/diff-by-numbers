@@ -373,3 +373,26 @@ func assertDetailOmits(t *testing.T, err error, unwanted string) {
 		t.Errorf("expected the rejection detail not to contain %q, got %q", unwanted, rejection.Detail)
 	}
 }
+
+func TestEachAcceptedWalkthroughIsANewPosting(t *testing.T) {
+	// A surface that remembers how the Reviewer left each Step must forget it when
+	// a different Walkthrough takes the screen, so it needs to see that happen.
+	session := newSession()
+	mustPost(t, session, validWalkthrough())
+	first := session.View().Posting
+
+	_ = session.Post(validWalkthrough()) // rejected: one is already under review
+	rejected := session.View().Posting
+	if err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	mustPost(t, session, validWalkthrough()) // a Revision Round
+	revised := session.View().Posting
+
+	if first == 0 || rejected != first {
+		t.Errorf("expected a rejected post to leave the posting at %d, got %d", first, rejected)
+	}
+	if revised == first {
+		t.Errorf("expected a Revision Round to be a new posting, still %d", revised)
+	}
+}

@@ -79,6 +79,7 @@ type DispositionWire struct {
 
 type ViewWire struct {
 	Posted         bool                `json:"posted"`
+	Posting        int                 `json:"posting"`
 	Brief          BriefWire           `json:"brief"`
 	StepNames      []string            `json:"step_names"`
 	StepCount      int                 `json:"step_count"`
@@ -139,7 +140,8 @@ func toSegmentWires(segments []review.AnchorSegment) []SegmentWire {
 
 func toViewWire(v review.ViewModel) ViewWire {
 	wire := ViewWire{
-		Posted: v.Posted,
+		Posted:  v.Posted,
+		Posting: v.Posting,
 		Brief: BriefWire{
 			Ask:                v.Brief.Ask,
 			Approach:           v.Brief.Approach,
