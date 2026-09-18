@@ -368,6 +368,67 @@ func wrapStep() *daemon.StepWire {
 	}
 }
 
+// indentOf reports the column the first non-space character of a row sits at, so
+// a continuation's alignment can be compared against the row it continues.
+func indentOf(row string) int {
+	return len([]rune(row)) - len([]rune(strings.TrimLeft(row, " ")))
+}
+
+// colOf reports the column marker starts at, counting cells rather than bytes —
+// the caret and gutter separator are multi-byte, so a byte index would be wrong.
+func colOf(t *testing.T, row, marker string) int {
+	t.Helper()
+	i := strings.Index(row, marker)
+	if i < 0 {
+		t.Fatalf("expected %q in row %q", marker, row)
+	}
+	return len([]rune(row[:i]))
+}
+
+// oneLineStep wraps a single code line in a Step, for the indent tests.
+func oneLineStep(text string) *daemon.StepWire {
+	return &daemon.StepWire{
+		Name: "Indent", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 1, Lines: []daemon.LineWire{
+			{Number: 1, Text: text, Changed: true, Side: "new"},
+		}}},
+	}
+}
+
+func TestRenderStepHangsAContinuationUnderTheLinesOwnIndent(t *testing.T) {
+	// A tab expands to four spaces, so the continuation should start four cells
+	// right of the code column — under the "f" of "foo", not at the gutter edge.
+	step := oneLineStep("\tfoo := " + strings.Repeat("a", 60) + "TAIL")
+	const width, height = 60, 20
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, width, height, false)
+
+	first := lineWith(t, out, "foo :=")
+	tail := lineWith(t, out, "TAIL")
+
+	if want, got := colOf(t, first, "foo"), indentOf(tail); want != got {
+		t.Errorf("the continuation should hang under the line's own indent (column %d), got %d:\n%s", want, got, out)
+	}
+}
+
+func TestRenderStepDoesNotCarryAlignmentPaddingOntoAContinuation(t *testing.T) {
+	// gofmt aligns end-of-line comments with a long run of spaces. A wrap landing
+	// inside that run must not push the continuation to an arbitrary column.
+	step := oneLineStep(strings.Repeat("x", 40) + strings.Repeat(" ", 20) + "// TAIL")
+	const width, height = 60, 20
+	cur := newStepCursor(step)
+
+	out := renderStep(step, cur, map[string]bool{}, width, height, false)
+
+	first := lineWith(t, out, "xxx")
+	tail := lineWith(t, out, "TAIL")
+
+	if want, got := colOf(t, first, "xxx"), indentOf(tail); want != got {
+		t.Errorf("padding at the wrap point leaked onto the continuation: code starts at column %d, continuation at %d:\n%s", want, got, out)
+	}
+}
+
 func TestRenderStepWrapsTheCursorLineInPlace(t *testing.T) {
 	// At width 40 the code column is 27 cells wide, so a 34-cell line's tail
 	// ("TAIL") can only be seen if the cursor line soft-wraps.

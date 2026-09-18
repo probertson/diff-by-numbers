@@ -176,22 +176,32 @@ func truncateTo(s string, w int) string {
 	return string(r[:w-1]) + "…"
 }
 
-// wrapRunes hard-wraps a plain (ANSI-free) string into chunks of at most w cells,
-// so the line under the cursor can be read in full where a single row would clip
-// it. It caps the result at maxRows chunks; when the text overruns that cap the
-// last chunk is truncated with an ellipsis exactly as a single clipped line is, so
-// an enormous line cannot grow the pane without bound. It wraps on runes rather
-// than words: code has no reliable word boundaries, and a full row is easier to
-// read back against the original than a ragged one.
-func wrapRunes(s string, w, maxRows int) []string {
-	if w < 1 || maxRows < 1 {
-		return []string{truncateTo(s, w)}
+// leadingSpaces counts the spaces a line starts with, which is how far a
+// continuation row hangs so it sits under the line's own first character rather
+// than at the gutter edge. Tabs are expanded before this is called.
+func leadingSpaces(s string) int {
+	return len(s) - len(strings.TrimLeft(s, " "))
+}
+
+// wrapRunes hard-wraps a plain (ANSI-free) string so the line under the cursor
+// can be read in full where a single row would clip it. The first row gets first
+// cells and every continuation gets rest, which is narrower by the hanging
+// indent the caller will prepend. It caps the result at maxRows chunks; when the
+// text overruns that cap the last chunk is truncated with an ellipsis exactly as
+// a single clipped line is, so an enormous line cannot grow the pane without
+// bound. It wraps on runes rather than words: code has no reliable word
+// boundaries, and a full row is easier to read back against the original than a
+// ragged one.
+func wrapRunes(s string, first, rest, maxRows int) []string {
+	if first < 1 || rest < 1 || maxRows < 1 {
+		return []string{truncateTo(s, first)}
 	}
 	r := []rune(s)
 	if len(r) == 0 {
 		return []string{""}
 	}
 	var chunks []string
+	w := first
 	for len(r) > 0 {
 		if len(chunks)+1 == maxRows && len(r) > w {
 			// The last row allowed, with more text than fits: clip the remainder.
@@ -203,6 +213,14 @@ func wrapRunes(s string, w, maxRows int) []string {
 		}
 		chunks = append(chunks, string(r[:n]))
 		r = r[n:]
+		// A break landing inside a run of spaces — gofmt's end-of-line comment
+		// alignment, say — would otherwise carry that padding onto the next row and
+		// start it at an arbitrary column. Drop it: at a wrap point it is layout,
+		// not content, and keeping it is what made the indent look random.
+		for len(r) > 0 && r[0] == ' ' {
+			r = r[1:]
+		}
+		w = rest
 	}
 	return chunks
 }
@@ -288,9 +306,18 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	cursorText := strings.ReplaceAll(cursorLine.text, "\t", "    ")
 	cursorGutter := fmt.Sprintf("%s%s %5d │ ", " ", " ", cursorLine.number)
 	cursorTextWidth := (width - 2) - lipgloss.Width(cursorGutter)
+	// Continuations hang under the line's own first character rather than at the
+	// gutter edge, so a wrapped statement reads as one indented block. The hang is
+	// capped at half the code column: a deeply nested line would otherwise wrap
+	// into a sliver narrower than the indent in front of it.
+	cursorHang := leadingSpaces(cursorText)
+	if limit := cursorTextWidth / 2; cursorHang > limit {
+		cursorHang = limit
+	}
+	cursorRestWidth := cursorTextWidth - cursorHang
 	cursorRows := 1
-	if cursorTextWidth >= 1 {
-		cursorRows = len(wrapRunes(cursorText, cursorTextWidth, cursorCap))
+	if cursorTextWidth >= 1 && cursorRestWidth >= 1 {
+		cursorRows = len(wrapRunes(cursorText, cursorTextWidth, cursorRestWidth, cursorCap))
 	}
 
 	// When the code does not all fit, reserve two rows for scroll indicators. They
@@ -374,11 +401,12 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		var rows []string
 		if i == cur.cursor && cursorRows > 1 {
 			// The cursor line soft-wraps in place so its tail is readable without
-			// scrolling. Continuation rows carry a blank gutter aligned under the code
-			// column — the missing line number is itself the continuation signal.
+			// scrolling. Continuation rows carry a blank gutter — the missing line
+			// number is itself the continuation signal — plus the hanging indent, so
+			// they sit under the line's own first character.
 			gutter := fmt.Sprintf("%s%s %5d │ ", note, sign, line.number)
-			indent := strings.Repeat(" ", lipgloss.Width(gutter))
-			for ci, chunk := range wrapRunes(text, cursorTextWidth, cursorCap) {
+			indent := strings.Repeat(" ", lipgloss.Width(gutter)+cursorHang)
+			for ci, chunk := range wrapRunes(text, cursorTextWidth, cursorRestWidth, cursorCap) {
 				if ci == 0 {
 					rows = append(rows, gutter+chunk)
 				} else {

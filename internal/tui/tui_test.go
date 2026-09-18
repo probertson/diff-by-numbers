@@ -506,13 +506,18 @@ func TestShouldGuardQuitOnlyWhenPostedAndUnfinished(t *testing.T) {
 }
 
 func TestQuitGuardMessageNamesPendingChangeRequests(t *testing.T) {
-	with := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}}}}
-	if !strings.Contains(with.quitGuardMessage(), "2 Change Requests are safe") {
-		t.Errorf("the heads-up should name the pending Change Requests, got:\n%s", with.quitGuardMessage())
+	many := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}}}}
+	if !strings.Contains(many.quitGuardMessage(), "Your 2 Change Requests will not be lost") {
+		t.Errorf("the heads-up should name the pending Change Requests, got:\n%s", many.quitGuardMessage())
+	}
+
+	one := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}}}}
+	if !strings.Contains(one.quitGuardMessage(), "Your 1 Change Request will not be lost") {
+		t.Errorf("a single Change Request should read in the singular, got:\n%s", one.quitGuardMessage())
 	}
 
 	without := model{view: &daemon.ViewWire{}}
-	if !strings.Contains(without.quitGuardMessage(), "nothing is lost") {
+	if !strings.Contains(without.quitGuardMessage(), "Nothing will be lost") {
 		t.Errorf("with no Change Requests the heads-up should reassure plainly, got:\n%s", without.quitGuardMessage())
 	}
 }
@@ -607,16 +612,35 @@ func TestTheCompleteScreenOffersExitRatherThanQuit(t *testing.T) {
 	}
 }
 
-func TestQuitGuardMessagePointsAtHandingOff(t *testing.T) {
+func TestQuitGuardMessageOffersAllThreeWaysOut(t *testing.T) {
 	m := model{view: &daemon.ViewWire{Posted: true}}
 
 	msg := m.quitGuardMessage()
 
-	if !strings.Contains(msg, "Press h to hand off") {
-		t.Errorf("the heads-up should point at h, got:\n%s", msg)
+	for _, want := range []string{"Confirm exit?", "Press <esc> to go back", "h to hand off the review", "q again to exit anyway"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the heads-up should offer %q, got:\n%s", want, msg)
+		}
 	}
 	if strings.Contains(msg, "finish") {
 		t.Errorf("the heads-up should not say finish, got:\n%s", msg)
+	}
+}
+
+func TestQuitGuardEscGoesBack(t *testing.T) {
+	m := model{mode: modeReview, confirmingQuit: true, view: &daemon.ViewWire{Posted: true}}
+
+	after, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	am := after.(model)
+
+	if am.confirmingQuit {
+		t.Error("esc should dismiss the heads-up")
+	}
+	if isQuit(cmd) {
+		t.Error("esc should go back, not exit")
+	}
+	if am.mode != modeReview {
+		t.Error("esc should leave the reviewer where they were")
 	}
 }
 

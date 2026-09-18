@@ -291,8 +291,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.confirmingQuit {
 			// The heads-up is informational, not an are-you-sure: a repeat q exits,
-			// h takes the better path, and any other key just dismisses it. Only ever
-			// armed in modeReview or modeConclusion, so this intercept is safe here.
+			// h takes the better path, and esc — the advertised way back — dismisses
+			// it, as does any other key, so a stray press cannot strand the reviewer.
+			// Only ever armed in modeReview or modeConclusion, so this is safe here.
 			switch key {
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -767,18 +768,19 @@ func (m model) updateDone(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// quitGuardMessage reassures that nothing is lost, then points at handing off as
-// the better path. It names the pending Change Requests when there are some.
+// quitGuardMessage reassures that nothing is lost, names the real consequence,
+// then offers all three ways out. It counts the pending Change Requests when
+// there are some, so the reassurance is about the reviewer's actual work.
 func (m model) quitGuardMessage() string {
 	k := 0
 	if m.view != nil {
 		k = len(m.view.ChangeRequests)
 	}
-	safe := "nothing is lost"
+	safe := "Nothing will be lost"
 	if k > 0 {
-		safe = "your " + pluralize(k, "Change Request") + " are safe"
+		safe = "Your " + pluralize(k, "Change Request") + " will not be lost"
 	}
-	return fmt.Sprintf("You haven't handed this review off — %s, but your agent can't pick up the next round until you do. Press h to hand off, or q again to exit anyway.", safe)
+	return fmt.Sprintf("Confirm exit? %s, but your agent will not be able to continue the review. Press <esc> to go back, h to hand off the review, or q again to exit anyway.", safe)
 }
 
 // declinedDispositions is the subset of the previous round's Change Requests the
@@ -1121,7 +1123,7 @@ func (m model) doneView() string {
 		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
 			pluralize(seen, "Step"), flagged, pluralize(len(m.view.ChangeRequests), "Change Request")))
 		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
-		b.WriteString(dimSt.Render("Or press r to resume and keep editing.") + "\n")
+		b.WriteString(dimSt.Render("Or press r to resume your review.") + "\n")
 		return b.String()
 	}
 }
