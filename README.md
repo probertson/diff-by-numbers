@@ -244,9 +244,11 @@ and fingerprints files. The daemon and TUI are deliberately thin.
 ### Cutting a release
 
 ```sh
-scripts/release.sh v0.1.0
+scripts/release.sh v0.1.0   # an explicit version
+scripts/release.sh MINOR    # or bump the latest tag: MAJOR, MINOR or PATCH
 ```
 
-It validates (clean tree, on `main`, tag unused, tests pass), pushes `main` if
+A bump keyword reads the latest `vX.Y.Z` tag (after fetching tags from origin)
+and bumps it, resetting the lower parts: `MINOR` takes v0.2.0 to v0.3.0. It validates (clean tree, on `main`, tag unused, tests pass), pushes `main` if
 needed, then tags and pushes the tag — which triggers the release workflow that
 builds and publishes the binaries. Pass `SKIP_TESTS=1` to skip the test gate.

@@ -4,6 +4,7 @@
 # binaries the installer downloads.
 #
 # Usage: scripts/release.sh vX.Y.Z
+#        scripts/release.sh MAJOR|MINOR|PATCH   # bump the latest vX.Y.Z tag
 #   SKIP_TESTS=1 scripts/release.sh vX.Y.Z   # skip the local test gate
 set -eu
 
@@ -12,14 +13,37 @@ die() {
 	exit 1
 }
 
-version="${1:-}"
-[ -n "$version" ] || die "usage: scripts/release.sh vX.Y.Z"
-echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
-	die "version must look like vX.Y.Z (got: ${version})"
+usage="usage: scripts/release.sh vX.Y.Z | MAJOR | MINOR | PATCH"
+arg="${1:-}"
+[ -n "$arg" ] || die "$usage"
 
 # Work from the repo root, wherever the script was invoked from.
 root=$(git rev-parse --show-toplevel) || die "not in a git repository"
 cd "$root"
+
+# A bump keyword resolves against the latest release tag. Fetch tags first, so a
+# release cut from another clone is not bumped from twice.
+case "$arg" in
+MAJOR | MINOR | PATCH | major | minor | patch)
+	git fetch -q --tags origin || die "could not fetch tags from origin"
+	latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+	[ -n "$latest" ] || latest=v0.0.0
+	IFS=. read -r major minor patch <<-EOF
+		${latest#v}
+	EOF
+	case "$arg" in
+	MAJOR | major) version="v$((major + 1)).0.0" ;;
+	MINOR | minor) version="v${major}.$((minor + 1)).0" ;;
+	*) version="v${major}.${minor}.$((patch + 1))" ;;
+	esac
+	printf 'latest release is %s; %s bump makes it %s\n' "$latest" "$arg" "$version"
+	;;
+*)
+	version="$arg"
+	echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+		die "version must look like vX.Y.Z, or be MAJOR, MINOR or PATCH (got: ${version})"
+	;;
+esac
 
 branch=$(git rev-parse --abbrev-ref HEAD)
 [ "$branch" = "main" ] || die "releases are cut from main, but you are on '${branch}'"
