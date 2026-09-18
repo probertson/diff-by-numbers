@@ -30,3 +30,17 @@ agent's explanation of why it went. This does not change the valve: the Acknowle
 still exists for bulk, mechanical removals (a deleted vendored directory), and the agent
 chooses per case whether a removal is worth a Step or belongs in an Acknowledgement — the
 same judgement it already makes for additions.
+
+## Amendment (#31): expansion is inline, navigable and anchorable
+
+"The Reviewer may expand it into real Excerpts" was first built as a separate read-only view:
+expand-all, capped in height, with no cursor. It could not be scrolled, so a long expansion lost
+its file names off the top and was cut off with a truncation line; and a Reviewer who found a bug
+in "mechanical" code could not point at it. Expansion is now what the sentence above always said.
+Each Acknowledgement is a stop in the Step's pane; expanding one puts its code inline, as a
+unified diff, into the same cursor, windowing and selection as narrated code. A selection there
+can become an Anchor or a Change Request, and that Anchor names the Acknowledgement — a point
+raised in acknowledged code disputes the claim that it was mechanical, not just the line.
+
+Expansion stays viewing, not review state: it lives in the TUI, not the daemon, and the Coverage
+Ledger is satisfied by the Acknowledgement whether or not it is expanded.

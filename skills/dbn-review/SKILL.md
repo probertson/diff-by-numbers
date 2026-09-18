@@ -62,7 +62,8 @@ binary asset. An Acknowledgement is `{repository, files, reason}` and stands in
 for Excerpts on those files. It is the **only** way to cover an Opaque Change — a
 binary file, a mode change, a pure rename — which has no lines to excerpt. Use
 one when the change is truly mechanical; do not use it to hide real code, because
-the reviewer sees the manifest and can expand it into the actual diff.
+the reviewer sees the manifest and can expand it into the actual diff — and raise
+Change Requests against it.
 
 **Coverage is enforced.** dbn derives the changed lines from git and refuses a
 Walkthrough that leaves any of them shown by neither an Excerpt nor an
@@ -94,6 +95,13 @@ you were handed, each `addressed` or `declined` (a decline needs a one-line
 re-derives everything and pre-marks as already-seen every line whose content is
 unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
 plan Steps and coverage for the moved lines the same way.
+
+A Change Request whose anchor says the code was `acknowledged in Step "…"`
+disputes that Acknowledgement as well as the line: the reviewer read code you
+called mechanical and found something to say. When you resolve it, say in the
+Revision Round's Brief whether the "mechanical" claim still holds. Do not
+acknowledge the same kind of change again in a later Walkthrough without saying
+why it is mechanical this time.
 
 Repeat until the reviewer hands off having raised nothing — `fetch_results` will
 say the review is complete.

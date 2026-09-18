@@ -100,7 +100,8 @@ _Avoid_: binary change, non-text change
 The Authoring Agent's declaration that a set of changes is mechanical and need not be
 read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of
 an Excerpt and renders as a manifest of files and counts. A claim, not a dismissal: the
-Reviewer may expand it into real Excerpts at any time.
+Reviewer may expand it into real Excerpts at any time — inline in the Step, as a unified diff
+they can navigate, anchor and raise Change Requests against like any other code.
 _Avoid_: skip, noise, ignore, suppress
 
 **Anchor**:
@@ -110,7 +111,9 @@ design, so it survives being pasted into a chat whose context has since been com
 exists because the expensive part of raising a point during review is the pointing, not the
 saying. Its extent may cross from the before-side to the after-side, because a new-side
 Excerpt renders as a unified diff and a point is often about the removal and its replacement
-together; it may not cross an Excerpt, which is one file's range.
+together; it may not cross an Excerpt, which is one file's range. An Anchor into an expanded
+Acknowledgement names that Acknowledgement and its reason, because a point raised there
+disputes the claim that the change was mechanical, not just the line.
 _Avoid_: reference, citation, pointer, location
 
 **Change Request**:
