@@ -14,8 +14,10 @@ import (
 
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/selfupdate"
 	"github.com/probertson/diff-by-numbers/internal/shim"
 	"github.com/probertson/diff-by-numbers/internal/tui"
+	"github.com/probertson/diff-by-numbers/internal/updatecheck"
 )
 
 func main() {
@@ -46,6 +48,7 @@ func run(args []string, out io.Writer) error {
 		// A build stamp so a Reviewer can tell which dbn a daemon is running,
 		// which matters once several people share the review workflow.
 		fmt.Fprintln(out, "dbn "+buildinfo.Version())
+		reportUpdate(out)
 		return nil
 	case "serve":
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -97,6 +100,20 @@ func run(args []string, out io.Writer) error {
 
 	default:
 		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon|version> [flags]", args[0])
+	}
+}
+
+// reportUpdate adds what the update check found under the version line. Unlike
+// the TUI, `dbn version` says when the check itself failed: someone asking a
+// binary what it is deserves to know the answer is incomplete, and this is where
+// an opted-out or offline machine finds out why it hears nothing elsewhere.
+func reportUpdate(out io.Writer) {
+	result, err := updatecheck.Check(context.Background(), updatecheck.DefaultConfig())
+	switch {
+	case err != nil:
+		fmt.Fprintf(out, "(couldn't check for updates: %v)\n", err)
+	case result.Available:
+		fmt.Fprintln(out, selfupdate.Notice(result.Latest))
 	}
 }
 

@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/selfupdate"
+	"github.com/probertson/diff-by-numbers/internal/updatecheck"
 )
 
 // Run attaches to the daemon and blocks until the Reviewer quits. It refuses to
@@ -110,13 +113,21 @@ type statusMsg struct {
 	err    error
 }
 
+// updateMsg carries the update check's answer: the notice to show, or nothing at
+// all — which is equally what a failed, disabled or up-to-date check returns.
+type updateMsg struct{ notice string }
+
 type model struct {
 	client client
 	view   *daemon.ViewWire
 	// daemonVersion is the build the daemon reported, kept in its own field
 	// because the notice it drives is persistent — m.status is a transient line
 	// that many keys clear.
-	daemonVersion    string
+	daemonVersion string
+	// updateNotice is set once the background update check finds a newer release.
+	// Persistent for the same reason daemonVersion is: it is a standing fact about
+	// this install, not a response to a keypress.
+	updateNotice     string
 	lostErr          error
 	viewport         viewport.Model
 	cursor           stepCursor
@@ -174,7 +185,21 @@ func (m *model) syncCursor() {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.readStatus())
+	return tea.Batch(tick(), m.readStatus(), checkForUpdate())
+}
+
+// checkForUpdate asks — in the background, so it costs the Reviewer no startup
+// delay — whether a newer dbn has been released. A check that fails is silent
+// here: the Reviewer came to read code, and `dbn version` is where someone who
+// wants to know why gets told.
+func checkForUpdate() tea.Cmd {
+	return func() tea.Msg {
+		result, err := updatecheck.Check(context.Background(), updatecheck.DefaultConfig())
+		if err != nil || !result.Available {
+			return updateMsg{}
+		}
+		return updateMsg{notice: selfupdate.Notice(result.Latest)}
+	}
 }
 
 // readStatus asks the daemon which build it is running, in the background.
@@ -297,6 +322,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.daemonVersion = msg.status.Version
 			m.resizeViewport()
 		}
+		return m, nil
+
+	case updateMsg:
+		m.updateNotice = msg.notice
+		m.resizeViewport()
 		return m, nil
 
 	case refreshMsg:
@@ -1302,11 +1332,16 @@ func commentKey(file, side string, line int) string {
 // the body measures from here, so a notice appearing takes a row from the body
 // rather than pushing the keybar off the bottom.
 func (m model) headerHeight() int {
-	if m.notice() != "" {
-		return 3
+	notice := m.notice()
+	if notice == "" {
+		return 2
 	}
-	return 2
+	return 1 + lipgloss.Height(m.wrappedNotice(notice)) + 1
 }
+
+// wrappedNotice keeps a notice inside the frame. The reinstall wording carries a
+// whole curl command, which is longer than most terminals are wide.
+func (m model) wrappedNotice(notice string) string { return wrapTo(notice, m.width) }
 
 func (m model) viewportHeight() int {
 	return max(1, m.height-m.headerHeight()-2)
@@ -1330,10 +1365,14 @@ func (m model) bodyHeight() int {
 
 // notice is the persistent line under the header: a condition the Reviewer
 // should know about for as long as it holds, unlike m.status, which is a
-// transient response to a keypress. A daemon running a different build outranks
-// anything else here — it is about the review in front of them.
+// transient response to a keypress. There is one slot, and a daemon running a
+// different build outranks an available release — it is about the review in
+// front of them, and is usually the consequence of acting on the other one.
 func (m model) notice() string {
-	return m.daemonMismatchNotice()
+	if mismatch := m.daemonMismatchNotice(); mismatch != "" {
+		return mismatch
+	}
+	return m.updateNotice
 }
 
 // daemonMismatchNotice warns when the daemon is a different build from this TUI,
@@ -1351,7 +1390,7 @@ func (m model) daemonMismatchNotice() string {
 
 func (m model) header() string {
 	if notice := m.notice(); notice != "" {
-		return m.headerLine() + "\n" + warnSt.Render(notice)
+		return m.headerLine() + "\n" + warnSt.Render(m.wrappedNotice(notice))
 	}
 	return m.headerLine()
 }

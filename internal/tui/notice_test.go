@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/selfupdate"
 )
 
 // noticeModel is a walking-a-Step model sized like a real terminal, so a test can
@@ -100,6 +101,52 @@ func TestANoticeCostsTheBodyARowRatherThanTheKeybar(t *testing.T) {
 	if warned.viewportHeight() != quiet.viewportHeight()-1 {
 		t.Errorf("the viewport gets %d rows with a notice and %d without; want one fewer",
 			warned.viewportHeight(), quiet.viewportHeight())
+	}
+}
+
+func TestAnAvailableReleaseShowsAsANotice(t *testing.T) {
+	m := noticeModel(buildinfo.Version())
+
+	updated, _ := m.Update(updateMsg{notice: "dbn 0.2.0 available — run dbn update"})
+	after := updated.(model)
+
+	if !strings.Contains(after.notice(), "0.2.0 available") {
+		t.Errorf("the update notice is not showing: %q", after.notice())
+	}
+	if !strings.Contains(after.View(), "dbn update") {
+		t.Error("the update notice is not on the screen")
+	}
+}
+
+// One slot, and the daemon mismatch wins it: that notice is about the review in
+// front of the Reviewer, and is usually what acting on the other one caused.
+func TestTheDaemonMismatchOutranksTheUpdateNotice(t *testing.T) {
+	m := noticeModel("0.1.0")
+	m.updateNotice = "dbn 0.2.0 available — run dbn update"
+
+	notice := m.notice()
+
+	if !strings.Contains(notice, "daemon is running") {
+		t.Errorf("the update notice took the slot from the daemon mismatch: %q", notice)
+	}
+}
+
+// The reinstall wording carries a whole curl command, longer than any terminal
+// is wide. It must wrap inside the frame rather than run off the edge.
+func TestALongNoticeWrapsRatherThanOverflowing(t *testing.T) {
+	m := noticeModel(buildinfo.Version())
+	m.updateNotice = "dbn 0.2.0 available — /opt/dbn/bin is not writable; reinstall with: " + selfupdate.ReinstallCommand
+
+	view := m.View()
+
+	if m.headerHeight() < 4 {
+		t.Fatalf("precondition: the notice did not wrap at %d cells", m.width)
+	}
+	if widest := widestLine(view); widest > m.width {
+		t.Errorf("the screen is %d cells wide, want no more than %d", widest, m.width)
+	}
+	if got, want := lipgloss.Height(view), lipgloss.Height(noticeModel(buildinfo.Version()).View()); got != want {
+		t.Errorf("a wrapped notice made the screen %d rows tall, want %d", got, want)
 	}
 }
 
