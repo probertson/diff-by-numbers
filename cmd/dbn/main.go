@@ -82,6 +82,20 @@ func run(args []string, out io.Writer) error {
 			LogPath:    filepath.Join(os.TempDir(), "dbn-daemon.log"),
 		})
 
+	case "update":
+		flags := flag.NewFlagSet("update", flag.ContinueOnError)
+		port := flags.Int("port", defaultPort(), "port a running daemon is listening on")
+		force := flags.Bool("force", false, "restart the daemon even if a review is in progress, losing it")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		cfg, err := selfupdate.DefaultConfig(fmt.Sprintf("http://127.0.0.1:%d", *port))
+		if err != nil {
+			return err
+		}
+		cfg.Force = *force
+		return selfupdate.Update(context.Background(), cfg, out)
+
 	case "dump":
 		flags := flag.NewFlagSet("dump", flag.ContinueOnError)
 		port := flags.Int("port", defaultPort(), "port the daemon is listening on")
@@ -99,7 +113,7 @@ func run(args []string, out io.Writer) error {
 		return abandon(*port, out)
 
 	default:
-		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon|version> [flags]", args[0])
+		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon|update|version> [flags]", args[0])
 	}
 }
 

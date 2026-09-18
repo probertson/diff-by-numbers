@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
@@ -41,6 +42,10 @@ type Result struct {
 	// Latest is the newest published release, empty when the check did not run or
 	// could not reach GitHub.
 	Latest string
+	// Tag is the git tag that release was cut from — the same version, but in the
+	// form its download URLs are built from. Carried rather than reconstructed so
+	// nothing here has to assume how a tag is spelled.
+	Tag string
 	// Available reports that Latest is strictly newer than the running build.
 	Available bool
 }
@@ -110,20 +115,21 @@ func Check(ctx context.Context, cfg Config) (Result, error) {
 			// and not once a screen.
 			return Result{}, errors.New(remembered.Error)
 		}
-		return cfg.result(remembered.Latest), nil
+		return cfg.result(remembered.Latest, remembered.Tag), nil
 	}
 
-	latest, err := fetchLatest(ctx, cfg)
+	tag, err := fetchLatest(ctx, cfg)
 	if err != nil {
 		writeCache(cfg.CachePath, cached{CheckedAt: cfg.Now(), Error: err.Error()})
 		return Result{}, err
 	}
-	writeCache(cfg.CachePath, cached{CheckedAt: cfg.Now(), Latest: latest})
-	return cfg.result(latest), nil
+	latest := buildinfo.Normalize(tag)
+	writeCache(cfg.CachePath, cached{CheckedAt: cfg.Now(), Latest: latest, Tag: tag})
+	return cfg.result(latest, tag), nil
 }
 
-func (c Config) result(latest string) Result {
-	return Result{Latest: latest, Available: buildinfo.Newer(latest, c.Current)}
+func (c Config) result(latest, tag string) Result {
+	return Result{Latest: latest, Tag: tag, Available: buildinfo.Newer(latest, c.Current)}
 }
 
 func withDefaults(cfg Config) Config {
@@ -142,8 +148,7 @@ func withDefaults(cfg Config) Config {
 	return cfg
 }
 
-// fetchLatest reads the release GitHub calls latest, as its bare version: the
-// API reports the tag (v0.2.0) and dbn speaks of versions (0.2.0).
+// fetchLatest reads the tag of the release GitHub calls latest.
 func fetchLatest(ctx context.Context, cfg Config) (string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Endpoint, nil)
 	if err != nil {
@@ -166,11 +171,11 @@ func fetchLatest(ctx context.Context, cfg Config) (string, error) {
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return "", fmt.Errorf("could not read the release: %w", err)
 	}
-	latest := buildinfo.Normalize(payload.TagName)
-	if latest == "" {
+	tag := strings.TrimSpace(payload.TagName)
+	if tag == "" {
 		return "", errors.New("the latest release has no version tag")
 	}
-	return latest, nil
+	return tag, nil
 }
 
 // cached is the remembered answer: when dbn last asked, what it heard, and — if
@@ -178,6 +183,7 @@ func fetchLatest(ctx context.Context, cfg Config) (string, error) {
 type cached struct {
 	CheckedAt time.Time `json:"checked_at"`
 	Latest    string    `json:"latest,omitempty"`
+	Tag       string    `json:"tag,omitempty"`
 	Error     string    `json:"error,omitempty"`
 }
 
