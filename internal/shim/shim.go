@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,11 +54,11 @@ func Run(ctx context.Context, cfg Config) error {
 		cfg.StartTimeout = 5 * time.Second
 	}
 
-	daemonSession, err := connectDaemon(ctx, cfg)
-	if err != nil {
+	daemon := &link{cfg: cfg}
+	if err := daemon.connect(ctx); err != nil {
 		return err
 	}
-	defer daemonSession.Close()
+	defer daemon.close()
 
 	// Hold the daemon open for as long as this session lives. The daemon's own
 	// idle clock is what lets an auto-started daemon exit once nothing needs it,
@@ -69,27 +70,105 @@ func Run(ctx context.Context, cfg Config) error {
 
 	// Mirror the daemon's tools onto a stdio server, each handler forwarding to the
 	// daemon. The shim carries no knowledge of any individual tool, so it never
-	// drifts from the daemon's contract as tools change.
+	// drifts from the daemon's contract as tools change. The list is read once,
+	// here: if the daemon is later replaced by a newer build, its calls still
+	// forward, but a tool that release added appears only once the agent restarts
+	// this MCP server — which it does when the session restarts.
 	server := mcp.NewServer(&mcp.Implementation{Name: "dbn", Version: buildinfo.Version()}, nil)
-	tools, err := daemonSession.ListTools(ctx, nil)
+	tools, err := daemon.session().ListTools(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("could not list the daemon's tools: %w", err)
 	}
 	for _, tool := range tools.Tools {
-		server.AddTool(tool, forward(daemonSession, tool.Name))
+		server.AddTool(tool, forward(daemon, tool.Name))
 	}
 
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
 // forward relays one tool call to the daemon and returns its result verbatim.
-func forward(session *mcp.ClientSession, name string) mcp.ToolHandler {
+func forward(daemon *link, name string) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return session.CallTool(ctx, &mcp.CallToolParams{
+		return daemon.callTool(ctx, &mcp.CallToolParams{
 			Name:      name,
 			Arguments: req.Params.Arguments,
 		})
 	}
+}
+
+// link is the shim's connection to the daemon, which it can rebuild. The daemon
+// is a separate process that may be replaced while an agent session is alive —
+// `dbn update` restarting it, a crash, an idle self-exit the keepalive lost a
+// race with — and the replacement knows nothing of this shim's MCP session. With
+// a single connection made at startup, every tool call would fail for the rest of
+// the agent's session; with this, the first failure reconnects.
+type link struct {
+	cfg Config
+
+	mu      sync.Mutex
+	current *mcp.ClientSession
+}
+
+func (l *link) session() *mcp.ClientSession {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.current
+}
+
+func (l *link) connect(ctx context.Context) error {
+	session, err := connectDaemon(ctx, l.cfg)
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.current = session
+	return nil
+}
+
+func (l *link) close() {
+	if session := l.session(); session != nil {
+		session.Close()
+	}
+}
+
+// callTool forwards one call, reconnecting and retrying once if the connection
+// itself failed. An error here is transport- or session-level: a tool that
+// refuses or fails reports that inside the result, not as an error, so a retry
+// never repeats work the daemon has already done.
+func (l *link) callTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+	attempted := l.session()
+	result, err := attempted.CallTool(ctx, params)
+	if err == nil {
+		return result, nil
+	}
+
+	fresh, reconnectErr := l.reconnect(ctx, attempted)
+	if reconnectErr != nil {
+		// Report what the call actually failed with; the daemon being unreachable
+		// is the same story the original error already tells.
+		return nil, err
+	}
+	return fresh.CallTool(ctx, params)
+}
+
+// reconnect replaces a session that has failed, unless another call got there
+// first — two tool calls in flight when a daemon dies must not start two
+// daemons, nor leave one of them holding a session nobody closed.
+func (l *link) reconnect(ctx context.Context, failed *mcp.ClientSession) (*mcp.ClientSession, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.current != failed {
+		return l.current, nil
+	}
+
+	session, err := connectDaemon(ctx, l.cfg)
+	if err != nil {
+		return nil, err
+	}
+	failed.Close()
+	l.current = session
+	return session, nil
 }
 
 func addr(port int) string { return fmt.Sprintf("127.0.0.1:%d", port) }

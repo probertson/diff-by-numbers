@@ -204,7 +204,8 @@ func connectHTTP(t *testing.T, ctx context.Context, port int) *mcp.ClientSession
 }
 
 // startServe launches a hand-run daemon (no self-exit) and reaps it at test end.
-func startServe(t *testing.T, bin string, env []string, port int) {
+// It returns the process so a test can end it on its own terms.
+func startServe(t *testing.T, bin string, env []string, port int) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(bin, "serve", "--port", strconv.Itoa(port))
 	cmd.Env = env
@@ -218,6 +219,7 @@ func startServe(t *testing.T, bin string, env []string, port int) {
 	if err := waitForDaemon(port, 5*time.Second); err != nil {
 		t.Fatalf("daemon did not come up: %v", err)
 	}
+	return cmd
 }
 
 // concludeAndWait ends a review so its self-exiting daemon can let go, then waits
