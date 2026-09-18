@@ -59,6 +59,10 @@ type Anchor struct {
 	// point raised there disputes the Acknowledgement's "mechanical" claim as well
 	// as the line, so the Anchor carries the claim it disputes.
 	AcknowledgementReason string
+	// Acknowledgement is the index, within its Step, of the Acknowledgement the
+	// Anchor lies in, or nil for the Step's own code — so a surface can tell which
+	// Acknowledgement a Change Request was raised in.
+	Acknowledgement *int
 }
 
 // Anchor composes an Anchor for a selection within the Step in view. The run
@@ -76,6 +80,13 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	excerpt, reason, err := s.anchoredExcerpt(step, target)
 	if err != nil {
 		return Anchor{}, err
+	}
+	// Acknowledged files are not part of the Step's staleness, which refuses to
+	// render the Step's own code, so a changed one is refused here: the expansion
+	// the Reviewer selected from was read before the change.
+	if target.Acknowledgement != nil && s.fileChanged(excerpt.Repository, excerpt.File) {
+		return Anchor{}, reject(RejectedStaleContent,
+			"%s changed since the Walkthrough was accepted; ask the agent to re-plan before anchoring it", excerpt.File)
 	}
 
 	for _, file := range s.staleFiles(step) {
@@ -105,6 +116,12 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		start, end = end, start
 	}
 
+	var ackIndex *int
+	if target.Acknowledgement != nil {
+		index := *target.Acknowledgement
+		ackIndex = &index
+	}
+
 	lines := append([]Line(nil), view.Lines[start:end+1]...)
 	// A stand-in row for code that could not be read is honest on screen but would
 	// be a fabrication in an Anchor, which is quoted as source and acted on.
@@ -121,6 +138,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		Lines:      lines,
 
 		AcknowledgementReason: reason,
+		Acknowledgement:       ackIndex,
 	}, nil
 }
 

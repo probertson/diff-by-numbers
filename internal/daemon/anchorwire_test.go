@@ -199,6 +199,9 @@ func TestAChangeRequestCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	if cr.Location != "fetch.ts — before 2 — after 2" {
 		t.Errorf("unexpected location %q", cr.Location)
 	}
+	if cr.Acknowledgement == nil || *cr.Acknowledgement != 0 {
+		t.Errorf("expected the Change Request to name Acknowledgement 0, got %v", cr.Acknowledgement)
+	}
 	if !strings.Contains(cr.Anchor, `acknowledged in Step "Mechanical" (renamed by the IDE)`) {
 		t.Errorf("expected the Anchor to name the Acknowledgement it disputes:\n%s", cr.Anchor)
 	}

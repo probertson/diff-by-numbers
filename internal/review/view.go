@@ -104,7 +104,10 @@ type ViewModel struct {
 	Posted bool
 	// Posting identifies the Walkthrough on screen among those this Session has
 	// accepted: it changes exactly when a new one, or a Revision Round, replaces it.
-	Posting      int
+	Posting int
+	// ReviewID is the review on screen, which a restarted daemon mints afresh —
+	// so together with Posting it tells one Walkthrough from any other.
+	ReviewID     string
 	Brief        Brief
 	StepNames    []string
 	StepCount    int
@@ -142,6 +145,7 @@ func (s *Session) View() ViewModel {
 	view := ViewModel{
 		Posted:       true,
 		Posting:      s.postings,
+		ReviewID:     s.id,
 		Brief:        w.Brief,
 		StepNames:    names,
 		StepCount:    len(w.Steps),

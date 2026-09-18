@@ -94,6 +94,21 @@ func TestANewWalkthroughForgetsHowStepsWereLeft(t *testing.T) {
 	}
 }
 
+func TestARestartedDaemonsWalkthroughForgetsHowStepsWereLeft(t *testing.T) {
+	// A fresh daemon counts its postings from the start again, so the same posting
+	// number under a different review id is still a different Walkthrough.
+	step := ackStep()
+	m := press(press(memoryModel(t, step), "down"), "x")
+	m = arrive(m, 1, 2, otherStep())
+	view := &daemon.ViewWire{Posted: true, Posting: 1, ReviewID: "restarted", Position: 1, StepCount: 2, Step: step}
+
+	after, _ := m.Update(refreshMsg{view: view})
+
+	if after.(model).cursor.isExpanded(0) {
+		t.Error("expected Step 1 fresh under the restarted daemon's review")
+	}
+}
+
 func TestResizingKeepsTheCursorWhereItIs(t *testing.T) {
 	m := memoryModel(t, tallStep())
 	m = press(press(m, "down"), "down")

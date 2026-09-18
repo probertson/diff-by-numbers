@@ -185,17 +185,18 @@ func TestACollapsedAcknowledgementCountsItsChangeRequests(t *testing.T) {
 	}
 }
 
-func TestAckChangeRequestsMatchesTheAcknowledgementsFiles(t *testing.T) {
+func TestAckChangeRequestsCountsThoseRaisedInEachAcknowledgement(t *testing.T) {
+	first := 0
 	m := model{view: &daemon.ViewWire{Posted: true, Position: 1, Step: ackStep(), ChangeRequests: []daemon.ChangeRequestWire{
-		{Step: 1, File: "gen.go"},
-		{Step: 1, File: "a.go"},
-		{Step: 2, File: "gen.go"},
+		{Step: 1, File: "gen.go", Acknowledgement: &first},
+		{Step: 1, File: "gen.go"}, // the same file, but in the Step's own code
+		{Step: 2, File: "gen.go", Acknowledgement: &first},
 	}}}
 
 	counts := m.ackChangeRequests()
 
 	if len(counts) != 1 || counts[0] != 1 {
-		t.Errorf("expected one Change Request on the Acknowledgement's files in this Step, got %v", counts)
+		t.Errorf("expected one Change Request raised in this Step's Acknowledgement, got %v", counts)
 	}
 }
 

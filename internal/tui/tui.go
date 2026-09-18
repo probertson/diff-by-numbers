@@ -452,7 +452,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// How the Reviewer left each Step belongs to one Walkthrough: a new
 			// review, a Revision Round or a restarted daemon starts every Step fresh.
-			if msg.view != nil && (m.view == nil || !msg.view.Posted || msg.view.Posting != m.view.Posting) {
+			// A restarted daemon counts its postings from the start again, so the
+			// review id it mints is what tells its Walkthrough from the last one.
+			if msg.view != nil && (m.view == nil || !msg.view.Posted ||
+				msg.view.Posting != m.view.Posting || msg.view.ReviewID != m.view.ReviewID) {
 				newWalkthrough = true
 			}
 			if positionChanged && !newWalkthrough {
@@ -1417,24 +1420,19 @@ func (m model) commentedLines() map[string]bool {
 }
 
 // ackChangeRequests counts, for each of this Step's Acknowledgements, the Change
-// Requests raised in the files it claims — so a collapsed Acknowledgement still
+// Requests raised in its expanded code — so a collapsed Acknowledgement still
 // shows that a point was made inside it.
 func (m model) ackChangeRequests() []int {
 	if !m.inStep() {
 		return nil
 	}
 	counts := make([]int, len(m.view.Step.Acknowledgements))
-	for k, ack := range m.view.Step.Acknowledgements {
-		for _, cr := range m.view.ChangeRequests {
-			if cr.Step != m.view.Position {
-				continue
-			}
-			for _, entry := range ack.Entries {
-				if entry.File == cr.File {
-					counts[k]++
-					break
-				}
-			}
+	for _, cr := range m.view.ChangeRequests {
+		if cr.Step != m.view.Position || cr.Acknowledgement == nil {
+			continue
+		}
+		if k := *cr.Acknowledgement; k >= 0 && k < len(counts) {
+			counts[k]++
 		}
 	}
 	return counts

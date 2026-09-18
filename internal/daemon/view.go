@@ -80,6 +80,7 @@ type DispositionWire struct {
 type ViewWire struct {
 	Posted         bool                `json:"posted"`
 	Posting        int                 `json:"posting"`
+	ReviewID       string              `json:"review_id,omitempty"`
 	Brief          BriefWire           `json:"brief"`
 	StepNames      []string            `json:"step_names"`
 	StepCount      int                 `json:"step_count"`
@@ -111,6 +112,9 @@ type ChangeRequestWire struct {
 	Location string        `json:"location"`
 	Anchor   string        `json:"anchor"`
 	Note     string        `json:"note"`
+	// Acknowledgement is the index, within its Step, of the Acknowledgement the
+	// Change Request was raised in, absent for the Step's own code.
+	Acknowledgement *int `json:"acknowledgement,omitempty"`
 }
 
 // Covers reports whether the Change Request is anchored over a row of the
@@ -140,8 +144,9 @@ func toSegmentWires(segments []review.AnchorSegment) []SegmentWire {
 
 func toViewWire(v review.ViewModel) ViewWire {
 	wire := ViewWire{
-		Posted:  v.Posted,
-		Posting: v.Posting,
+		Posted:   v.Posted,
+		Posting:  v.Posting,
+		ReviewID: v.ReviewID,
 		Brief: BriefWire{
 			Ask:                v.Brief.Ask,
 			Approach:           v.Brief.Approach,
@@ -167,6 +172,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Location: cr.Anchor.Location(),
 			Anchor:   cr.Anchor.Render(),
 			Note:     cr.Note,
+
+			Acknowledgement: cr.Anchor.Acknowledgement,
 		})
 	}
 	for _, repository := range v.Repositories {
