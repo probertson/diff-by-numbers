@@ -85,18 +85,6 @@ func (l ledger) modificationsShownBy(e Excerpt) []Correspondence {
 	return out
 }
 
-// beforeRangeShown reports whether [first, last] lies within the removed range of
-// some edit whose before-side the given new-side Excerpt renders — the check that
-// a before-side selection anchors code the Excerpt actually showed.
-func (l ledger) beforeRangeShown(e Excerpt, first, last int) bool {
-	for _, c := range l.modificationsShownBy(e) {
-		if first >= c.OldFirst && last <= c.OldLast {
-			return true
-		}
-	}
-	return false
-}
-
 func sortByNewFirst(cs []Correspondence) {
 	for i := 1; i < len(cs); i++ {
 		for j := i; j > 0 && cs[j].NewFirst < cs[j-1].NewFirst; j-- {

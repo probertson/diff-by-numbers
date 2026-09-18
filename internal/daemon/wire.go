@@ -4,8 +4,6 @@
 package daemon
 
 import (
-	"fmt"
-
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -85,7 +83,7 @@ type concludeResult struct {
 type changeRequestWire struct {
 	ID       int    `json:"id"`
 	Step     int    `json:"step" jsonschema:"The Step number this Change Request was raised on"`
-	Location string `json:"location" jsonschema:"Where in the code it points: file, line range, and side"`
+	Location string `json:"location" jsonschema:"Where in the code it points: the file, and the before-side and after-side lines it covers"`
 	Anchor   string `json:"anchor" jsonschema:"The full anchored context, ready to act on: the code and where it lives"`
 	Note     string `json:"note" jsonschema:"What the Reviewer asked for"`
 }
@@ -178,7 +176,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 		out.ChangeRequests = append(out.ChangeRequests, changeRequestWire{
 			ID:       cr.ID,
 			Step:     cr.Step,
-			Location: fmt.Sprintf("%s:%d-%d (%s)", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine, cr.Anchor.Side),
+			Location: cr.Anchor.Location(),
 			Anchor:   cr.Anchor.Render(),
 			Note:     cr.Note,
 		})

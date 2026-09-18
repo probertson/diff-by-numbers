@@ -26,7 +26,12 @@ func httpPost(t *testing.T, url string) {
 
 func raiseChangeRequest(t *testing.T, baseURL string, excerpt, first, last int, note string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]any{"excerpt_index": excerpt, "first_line": first, "last_line": last, "note": note})
+	body, _ := json.Marshal(map[string]any{
+		"excerpt_index": excerpt,
+		"start":         map[string]any{"line": first},
+		"end":           map[string]any{"line": last},
+		"note":          note,
+	})
 	response, err := http.Post(baseURL+"/changerequest", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("raise change request: %v", err)

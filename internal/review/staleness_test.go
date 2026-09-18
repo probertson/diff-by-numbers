@@ -100,7 +100,7 @@ func TestAnchoringAStaleStepIsRefused(t *testing.T) {
 
 	resolver.hashes["/repos/argus-portal|src/fetch.ts"] = "v2"
 
-	_, err := session.Anchor(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 20, LastLine: 22})
+	_, err := session.Anchor(span(0, 20, 22))
 
 	assertRejected(t, err, review.RejectedStaleContent)
 }

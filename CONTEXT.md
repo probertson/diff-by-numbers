@@ -104,10 +104,13 @@ Reviewer may expand it into real Excerpts at any time.
 _Avoid_: skip, noise, ignore, suppress
 
 **Anchor**:
-dbn's composed reference to a Reviewer-selected line range — repository, file, line numbers,
-Step name, and the code itself. Self-contained by design, so it survives being pasted into a
-chat whose context has since been compacted. It exists because the expensive part of raising
-a point during review is the pointing, not the saying.
+dbn's composed reference to a contiguous run of lines the Reviewer selected out of a Step's
+rendering — repository, file, line numbers, Step name, and the code itself. Self-contained by
+design, so it survives being pasted into a chat whose context has since been compacted. It
+exists because the expensive part of raising a point during review is the pointing, not the
+saying. Its extent may cross from the before-side to the after-side, because a new-side
+Excerpt renders as a unified diff and a point is often about the removal and its replacement
+together; it may not cross an Excerpt, which is one file's range.
 _Avoid_: reference, citation, pointer, location
 
 **Change Request**:

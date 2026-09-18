@@ -139,7 +139,9 @@ func TestAChangeRequestAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.
 	m := model{
 		view: &daemon.ViewWire{
 			Posted: true, Position: 1, Step: step,
-			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1, Step: 1, File: "guard.go", Side: "old", FirstLine: 2, LastLine: 2}},
+			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1, Step: 1, File: "guard.go", Segments: []daemon.SegmentWire{
+				{Side: "old", FirstLine: 2, LastLine: 2},
+			}}},
 		},
 		cursor: newStepCursor(step),
 	}
@@ -323,12 +325,13 @@ func TestExtendAnchorsThenGrowsTheSelection(t *testing.T) {
 	cur.extend(1)
 	cur.extend(1)
 
-	_, first, last, _, ok := cur.selection()
+	run, ok := cur.selection()
+
 	if !ok {
 		t.Fatal("expected a valid selection after extending")
 	}
-	if first != 1 || last != 3 {
-		t.Errorf("expected the selection to span lines 1-3, got %d-%d", first, last)
+	if run.start.line != 1 || run.end.line != 3 || run.rows != 3 {
+		t.Errorf("expected the selection to span lines 1-3, got %d-%d over %d rows", run.start.line, run.end.line, run.rows)
 	}
 }
 
@@ -347,12 +350,153 @@ func TestExtendKeepsTheAnchorWhenReversingDirection(t *testing.T) {
 
 	cur.extend(-1) // anchor at line 3, move up to line 2
 
-	_, first, last, _, ok := cur.selection()
+	run, ok := cur.selection()
+
 	if !ok {
 		t.Fatal("expected a valid selection after extending up")
 	}
-	if first != 2 || last != 3 {
-		t.Errorf("expected the selection to span lines 2-3, got %d-%d", first, last)
+	if run.start.line != 2 || run.end.line != 3 {
+		t.Errorf("expected the selection to span lines 2-3, got %d-%d", run.start.line, run.end.line)
+	}
+}
+
+// twoExcerptStep is a Step whose code lines run across an Excerpt boundary, so a
+// test can push a selection at it.
+func twoExcerptStep() *daemon.StepWire {
+	return &daemon.StepWire{
+		Name: "Two files", Explanation: "x",
+		Excerpts: []daemon.ExcerptWire{
+			{File: "a.go", Side: "new", FirstLine: 1, LastLine: 2, Lines: []daemon.LineWire{
+				{Number: 1, Text: "one", Side: "new", Changed: true},
+				{Number: 2, Text: "two", Side: "new", Changed: true},
+			}},
+			{File: "b.go", Side: "new", FirstLine: 1, LastLine: 2, Lines: []daemon.LineWire{
+				{Number: 1, Text: "three", Side: "new", Changed: true},
+				{Number: 2, Text: "four", Side: "new", Changed: true},
+			}},
+		},
+	}
+}
+
+func TestASelectionCannotGrowPastTheExcerptItAnchoredIn(t *testing.T) {
+	// A Change Request anchors inside one Excerpt, so the movement that would carry
+	// the selection out of it is refused rather than allowed and rejected later (#57).
+	cur := newStepCursor(twoExcerptStep())
+
+	cur.extend(1)            // anchor on a.go:1, move to a.go:2 — the last row of the Excerpt
+	blocked := cur.extend(1) // would cross into b.go
+
+	if !blocked {
+		t.Error("expected the extend across the Excerpt boundary to be refused")
+	}
+	run, ok := cur.selection()
+	if !ok {
+		t.Fatal("expected the selection to survive the refused movement")
+	}
+	if run.excerpt != 0 || run.rows != 2 {
+		t.Errorf("expected the selection to stay at 2 rows of Excerpt 0, got %+v", run)
+	}
+}
+
+func TestARefusedExtendLeavesNoSelectionBehind(t *testing.T) {
+	// shift+arrow drops its anchor before it knows whether it may move. When the
+	// move is refused, the Reviewer must not be left holding a selection they never
+	// made — which would silently clamp their plain arrows too.
+	cur := newStepCursor(twoExcerptStep())
+	cur.cursor = 1 // the last row of the first Excerpt, nothing selected
+
+	blocked := cur.extend(1)
+
+	if !blocked {
+		t.Fatal("expected the extend across the Excerpt boundary to be refused")
+	}
+	if cur.sel >= 0 {
+		t.Error("expected a refused extend to leave the Reviewer unselected")
+	}
+}
+
+func TestPlainMovementIsClampedTooWhileASelectionIsAlive(t *testing.T) {
+	// Selection is modal here: plain arrows grow it just as shift+arrow does, so
+	// they meet the same boundary.
+	cur := newStepCursor(twoExcerptStep())
+	cur.toggleSelect() // anchor on a.go:1
+	cur.move(1)        // to a.go:2
+
+	blocked := cur.move(1)
+
+	if !blocked {
+		t.Error("expected the plain movement across the boundary to be refused")
+	}
+	if cur.cursor != 1 {
+		t.Errorf("expected the cursor to stay on the last row of the Excerpt, got row %d", cur.cursor)
+	}
+}
+
+func TestTheBoundaryMessageIsTakenBackOnceMovementSucceeds(t *testing.T) {
+	// It describes the keypress that was refused, not a standing condition, so it
+	// must not still be explaining a cursor the Reviewer can see moving.
+	m := model{}
+
+	m.noteBoundary(true)
+	if m.status != oneExcerptStatus {
+		t.Errorf("expected the refusal to be reported, got %q", m.status)
+	}
+
+	m.noteBoundary(false)
+	if m.status != "" {
+		t.Errorf("expected a successful movement to take the message back, got %q", m.status)
+	}
+
+	m.status = "comment added"
+	m.noteBoundary(false)
+	if m.status != "comment added" {
+		t.Errorf("an unrelated status has nothing to do with moving the cursor, got %q", m.status)
+	}
+}
+
+func TestTheCursorCrossesExcerptsFreelyWithNoSelection(t *testing.T) {
+	// The clamp belongs to a live selection, not to the key: reading is unrestricted.
+	cur := newStepCursor(twoExcerptStep())
+	cur.move(1)
+
+	blocked := cur.move(1)
+
+	if blocked {
+		t.Error("expected an unselected cursor to cross the Excerpt boundary")
+	}
+	if cur.lines[cur.cursor].excerpt != 1 {
+		t.Errorf("expected the cursor to reach the second Excerpt, got Excerpt %d", cur.lines[cur.cursor].excerpt)
+	}
+}
+
+func TestASelectionMayCrossFromTheBeforeSideToTheAfterSide(t *testing.T) {
+	// The Reviewer reads one interleaved block, so a point about a removal and its
+	// replacement is one selection, not two (#57).
+	step := &daemon.StepWire{
+		Name: "Edit", Explanation: "two became TWO",
+		Excerpts: []daemon.ExcerptWire{{File: "guard.go", Side: "new", FirstLine: 1, LastLine: 3, Lines: []daemon.LineWire{
+			{Number: 1, Text: "reference one", Side: "new"},
+			{Number: 2, Text: "the old guard", Side: "old", Changed: true},
+			{Number: 2, Text: "the new guard", Side: "new", Changed: true},
+			{Number: 3, Text: "and its helper", Side: "new", Changed: true},
+		}}},
+	}
+	cur := newStepCursor(step)
+	cur.cursor = 1 // the removed row
+
+	cur.extend(1)
+	cur.extend(1)
+
+	run, ok := cur.selection()
+
+	if !ok {
+		t.Fatal("expected a selection crossing the sides to be anchorable")
+	}
+	if run.start != (rowRef{side: "old", line: 2}) || run.end != (rowRef{side: "new", line: 3}) {
+		t.Errorf("expected the run to reach from the removed row to the last added row, got %+v", run)
+	}
+	if run.rows != 3 {
+		t.Errorf("expected the run to span 3 rows, got %d", run.rows)
 	}
 }
 

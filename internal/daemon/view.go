@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"fmt"
-
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -96,16 +94,47 @@ type ViewWire struct {
 	Dispositions   []DispositionWire   `json:"dispositions,omitempty"`
 }
 
-type ChangeRequestWire struct {
-	ID        int    `json:"id"`
-	Step      int    `json:"step"`
-	File      string `json:"file"`
+// SegmentWire is one side-qualified range of an Anchor's extent. An Anchor taken
+// from a unified diff crosses sides, so its extent travels as a list.
+type SegmentWire struct {
 	Side      string `json:"side"`
 	FirstLine int    `json:"first_line"`
 	LastLine  int    `json:"last_line"`
-	Location  string `json:"location"`
-	Anchor    string `json:"anchor"`
-	Note      string `json:"note"`
+}
+
+type ChangeRequestWire struct {
+	ID       int           `json:"id"`
+	Step     int           `json:"step"`
+	File     string        `json:"file"`
+	Segments []SegmentWire `json:"segments"`
+	Location string        `json:"location"`
+	Anchor   string        `json:"anchor"`
+	Note     string        `json:"note"`
+}
+
+// Covers reports whether the Change Request is anchored over a row of the
+// rendering. It tests every segment, so a Change Request spanning a removal and
+// its replacement is found from either side.
+func (cr ChangeRequestWire) Covers(file, side string, line int) bool {
+	if cr.File != file {
+		return false
+	}
+	for _, segment := range cr.Segments {
+		if segment.Side == side && line >= segment.FirstLine && line <= segment.LastLine {
+			return true
+		}
+	}
+	return false
+}
+
+func toSegmentWires(segments []review.AnchorSegment) []SegmentWire {
+	out := make([]SegmentWire, 0, len(segments))
+	for _, segment := range segments {
+		out = append(out, SegmentWire{
+			Side: string(segment.Side), FirstLine: segment.FirstLine, LastLine: segment.LastLine,
+		})
+	}
+	return out
 }
 
 func toViewWire(v review.ViewModel) ViewWire {
@@ -131,8 +160,9 @@ func toViewWire(v review.ViewModel) ViewWire {
 	for _, cr := range v.ChangeRequests {
 		wire.ChangeRequests = append(wire.ChangeRequests, ChangeRequestWire{
 			ID: cr.ID, Step: cr.Step,
-			File: cr.Anchor.File, Side: string(cr.Anchor.Side), FirstLine: cr.Anchor.FirstLine, LastLine: cr.Anchor.LastLine,
-			Location: fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
+			File:     cr.Anchor.File,
+			Segments: toSegmentWires(cr.Anchor.Segments),
+			Location: cr.Anchor.Location(),
 			Anchor:   cr.Anchor.Render(),
 			Note:     cr.Note,
 		})
@@ -147,7 +177,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Status:          string(disposition.Status),
 			Reasoning:       disposition.Reasoning,
 			Note:            cr.Note,
-			Location:        fmt.Sprintf("%s:%d-%d", cr.Anchor.File, cr.Anchor.FirstLine, cr.Anchor.LastLine),
+			Location:        cr.Anchor.Location(),
 		})
 	}
 	if v.Step != nil {

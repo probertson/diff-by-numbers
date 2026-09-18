@@ -147,7 +147,7 @@ func finishRound1WithCR(t *testing.T) (*review.Session, *roundDeriver) {
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 2, LastLine: 2}, "please fix line 2"); err != nil {
+	if _, err := session.RaiseChangeRequest(span(0, 2, 2), "please fix line 2"); err != nil {
 		t.Fatalf("expected to raise a Change Request, got %v", err)
 	}
 	if err := session.Finish(); err != nil {

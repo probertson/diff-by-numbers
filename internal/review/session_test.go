@@ -64,6 +64,29 @@ func TestASecondWalkthroughIsRejectedWhileOneIsActive(t *testing.T) {
 	assertRejected(t, err, review.RejectedWalkthroughActive)
 }
 
+// span is the everyday Reviewer selection: a run on the Excerpt's own side, from
+// one of its lines to another. sideSpan names the side explicitly, for a run in a
+// unified diff where a before-row and an after-row can share a line number.
+func span(excerpt, first, last int) review.AnchorTarget {
+	return review.AnchorTarget{
+		ExcerptIndex: excerpt,
+		Start:        review.AnchorEndpoint{Line: first},
+		End:          review.AnchorEndpoint{Line: last},
+	}
+}
+
+func sideSpan(excerpt int, start review.AnchorEndpoint, end review.AnchorEndpoint) review.AnchorTarget {
+	return review.AnchorTarget{ExcerptIndex: excerpt, Start: start, End: end}
+}
+
+func oldRow(line int) review.AnchorEndpoint {
+	return review.AnchorEndpoint{Side: review.OldSide, Line: line}
+}
+
+func newRow(line int) review.AnchorEndpoint {
+	return review.AnchorEndpoint{Side: review.NewSide, Line: line}
+}
+
 func mustPost(t *testing.T, session *review.Session, w review.Walkthrough) {
 	t.Helper()
 	if err := session.Post(w); err != nil {

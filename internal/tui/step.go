@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,30 +63,52 @@ func lineSide(line daemon.LineWire, excerpt daemon.ExcerptWire) string {
 	return excerpt.Side
 }
 
-func (c *stepCursor) move(delta int) {
+// move steps the cursor, clamped to the code lines — and, while a selection is
+// alive, to the Excerpt that selection anchored in. A Change Request anchors
+// inside one Excerpt, so rather than let the selection grow somewhere it cannot
+// be raised and reject it later, the movement itself is refused (#57). It reports
+// whether the boundary blocked it, so the caller can say why nothing moved.
+//
+// The clamp is conditioned on a live selection rather than on the keypress, so a
+// key that first clears the selection and then moves is unaffected by it.
+func (c *stepCursor) move(delta int) (blocked bool) {
 	if len(c.lines) == 0 {
-		return
+		return false
 	}
-	c.cursor += delta
-	if c.cursor < 0 {
-		c.cursor = 0
+	target := c.cursor + delta
+	if target < 0 {
+		target = 0
 	}
-	if c.cursor >= len(c.lines) {
-		c.cursor = len(c.lines) - 1
+	if target >= len(c.lines) {
+		target = len(c.lines) - 1
 	}
+	if c.sel >= 0 && c.lines[target].excerpt != c.lines[c.sel].excerpt {
+		return true
+	}
+	c.cursor = target
+	return false
 }
 
 // extend grows the selection by moving the cursor, dropping an anchor at the
 // current line first if none is set. It backs shift+arrow, the editor-conventional
 // way to select a range without first pressing a select key.
-func (c *stepCursor) extend(delta int) {
+//
+// A refused movement leaves no trace: the anchor it would have dropped is taken
+// back, so a shift+arrow at an Excerpt boundary does not leave the Reviewer in a
+// selection they never made and did not see begin.
+func (c *stepCursor) extend(delta int) (blocked bool) {
 	if len(c.lines) == 0 {
-		return
+		return false
 	}
+	was := c.sel
 	if c.sel < 0 {
 		c.sel = c.cursor
 	}
-	c.move(delta)
+	if c.move(delta) {
+		c.sel = was
+		return true
+	}
+	return false
 }
 
 func (c *stepCursor) toggleSelect() {
@@ -96,13 +119,32 @@ func (c *stepCursor) toggleSelect() {
 	c.sel = c.cursor
 }
 
-// selection returns the excerpt index, line range, and side currently selected,
-// and whether the selection is valid: non-empty, within one Excerpt, and on one
-// side (a unified diff mixes before- and after-side rows, and an Anchor is to one
-// side).
-func (c stepCursor) selection() (excerpt, first, last int, side string, ok bool) {
+// rowRef names one rendered row by the side it belongs to and its line number on
+// that side — what the daemon needs to find it again among the Excerpt's rows.
+type rowRef struct {
+	side string
+	line int
+}
+
+// selectedRun is the run of rendered rows the Reviewer has selected: the Excerpt
+// it lies in, the row at each end, and how many rows it spans. The rows between
+// the ends are deliberately not named here — the daemon owns the order they are
+// in, and re-deriving it client-side would be a second copy of that knowledge.
+type selectedRun struct {
+	excerpt    int
+	start, end rowRef
+	rows       int
+}
+
+// selection returns the run currently selected, and whether it can be anchored.
+// It may cross from the before-side to the after-side of a unified diff: the
+// Reviewer reads one interleaved block, and a point is often about the removal
+// and its replacement together (#57). It may not straddle two Excerpts — the
+// clamp in move keeps a live selection inside one, so this asserts rather than
+// assumes it.
+func (c stepCursor) selection() (selectedRun, bool) {
 	if len(c.lines) == 0 {
-		return 0, 0, 0, "", false
+		return selectedRun{}, false
 	}
 	start := c.cursor
 	if c.sel >= 0 {
@@ -113,12 +155,14 @@ func (c stepCursor) selection() (excerpt, first, last int, side string, ok bool)
 		start, end = end, start
 	}
 	if c.lines[start].excerpt != c.lines[end].excerpt {
-		return 0, 0, 0, "", false // a selection may not straddle two Excerpts
+		return selectedRun{}, false
 	}
-	if c.lines[start].side != c.lines[end].side {
-		return 0, 0, 0, "", false // nor two sides of a unified diff
-	}
-	return c.lines[start].excerpt, c.lines[start].number, c.lines[end].number, c.lines[start].side, true
+	return selectedRun{
+		excerpt: c.lines[start].excerpt,
+		start:   rowRef{side: c.lines[start].side, line: c.lines[start].number},
+		end:     rowRef{side: c.lines[end].side, line: c.lines[end].number},
+		rows:    end - start + 1,
+	}, true
 }
 
 func (c stepCursor) inSelection(i int) bool {
@@ -630,9 +674,12 @@ func parenthetical(s, fallback string) string {
 }
 
 // composeAnchor asks the daemon for the paste-ready Anchor text of a selection.
-func (c client) composeAnchor(excerpt, first, last int, side string) (string, bool) {
-	body := fmt.Sprintf(`{"excerpt_index":%d,"first_line":%d,"last_line":%d,"side":%q}`, excerpt, first, last, side)
-	response, err := http.Post(c.base+"/anchor", "application/json", bytes.NewReader([]byte(body)))
+func (c client) composeAnchor(run selectedRun) (string, bool) {
+	body, err := json.Marshal(anchorBody(run))
+	if err != nil {
+		return "", false
+	}
+	response, err := http.Post(c.base+"/anchor", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", false
 	}

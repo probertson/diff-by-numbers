@@ -8,7 +8,7 @@ import (
 
 func raise(t *testing.T, s *review.Session, first, last int, note string) review.ChangeRequest {
 	t.Helper()
-	cr, err := s.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: first, LastLine: last}, note)
+	cr, err := s.RaiseChangeRequest(span(0, first, last), note)
 	if err != nil {
 		t.Fatalf("expected to raise a Change Request, got %v", err)
 	}
@@ -25,8 +25,8 @@ func TestARaisedChangeRequestCarriesItsAnchorAndNote(t *testing.T) {
 	if cr.Note != "cap this retry at 3 attempts" {
 		t.Errorf("unexpected note %q", cr.Note)
 	}
-	if cr.Anchor.File != "src/fetch.ts" || cr.Anchor.FirstLine != 20 {
-		t.Errorf("unexpected anchor %s:%d", cr.Anchor.File, cr.Anchor.FirstLine)
+	if cr.Anchor.Location() != "src/fetch.ts — after 20-22" {
+		t.Errorf("unexpected anchor %q", cr.Anchor.Location())
 	}
 	if cr.Step != 1 {
 		t.Errorf("expected the Change Request to record Step 1, got %d", cr.Step)
@@ -78,7 +78,7 @@ func TestAStepWithAChangeRequestIsFlaggedOtherwiseSeen(t *testing.T) {
 	mustAdvance(t, session)        // visit Step 1 (seen)
 	mustAdvance(t, session)        // visit Step 2
 	// Flag Step 2.
-	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 1, LastLine: 1}, "fix"); err != nil {
+	if _, err := session.RaiseChangeRequest(span(0, 1, 1), "fix"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,7 +97,7 @@ func TestAStepWithAChangeRequestIsFlaggedOtherwiseSeen(t *testing.T) {
 func TestWithdrawingTheLastChangeRequestReturnsAStepToSeen(t *testing.T) {
 	session := threeStepSession(t)
 	mustAdvance(t, session) // Step 1 seen
-	cr, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 1, LastLine: 1}, "fix")
+	cr, err := session.RaiseChangeRequest(span(0, 1, 1), "fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,14 +175,14 @@ func TestAFinishedWalkthroughCanBeReopenedToAddMore(t *testing.T) {
 	}
 
 	// Adding is refused while finished.
-	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 20, LastLine: 20}, "late"); err == nil {
+	if _, err := session.RaiseChangeRequest(span(0, 20, 20), "late"); err == nil {
 		t.Fatal("expected adding to be refused while finished")
 	}
 
 	if err := session.Reopen(); err != nil {
 		t.Fatalf("expected to reopen, got %v", err)
 	}
-	if _, err := session.RaiseChangeRequest(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 20, LastLine: 20}, "late"); err != nil {
+	if _, err := session.RaiseChangeRequest(span(0, 20, 20), "late"); err != nil {
 		t.Fatalf("expected to add after reopening, got %v", err)
 	}
 	if session.View().Finished {

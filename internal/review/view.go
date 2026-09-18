@@ -12,6 +12,10 @@ type Line struct {
 	Text    string
 	Side    Side
 	Changed bool
+	// Unreadable marks a row that stands in for code dbn could not read, rather
+	// than code itself. It is drawn — a line that rode along must not vanish
+	// silently — but it is not content, so nothing may quote it as if it were.
+	Unreadable bool
 }
 
 // Resolver turns an Excerpt into the lines it names. The core performs no I/O:
@@ -215,6 +219,11 @@ func (s *Session) resolveExcerpt(excerpt Excerpt) ExcerptView {
 // lines it removed are read and placed immediately above their replacement, so the
 // Reviewer reads "these lines became these" as one thought. Reference lines stay
 // unmarked; a before-side that cannot be read is left out rather than faked.
+//
+// The order this produces is load-bearing beyond display: Session.Anchor resolves
+// a Reviewer's selection against these rows, so it is what decides which lines sit
+// between two selected endpoints (#57). Changing the interleaving changes what a
+// selection spanning a removal and its replacement contains.
 func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
 	afterText := map[int]string{}
 	for _, line := range after {
@@ -242,7 +251,7 @@ func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
 		if err != nil {
 			// The before-side rode along, so it is accounted for — it must not vanish
 			// silently, or a covered line would go unshown. Mark the gap instead.
-			out = append(out, Line{Number: c.OldFirst, Side: OldSide,
+			out = append(out, Line{Number: c.OldFirst, Side: OldSide, Unreadable: true,
 				Text: fmt.Sprintf("(the before-side could not be read: %v)", err)})
 		}
 		for _, line := range before {

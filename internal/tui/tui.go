@@ -116,15 +116,15 @@ type model struct {
 	status           string
 	mode             mode
 	note             textarea.Model
-	crCursor         int              // selected row in the change-request list
-	pendingSel       pendingSelection // the selection awaiting a note
-	pendingCode      string           // the code being commented on, shown above the note input
-	editingID        int              // >0 when editing an existing Change Request rather than adding
-	confirmingDelete bool             // an inline y/n delete confirm is armed (edit screen or List)
-	confirmingQuit   bool             // a second-q quit heads-up is armed on an unfinished review
-	crFilter         crFilter         // when active, the List shows only comments on one line
-	reraiseCursor    int              // selected row among declined dispositions
-	expandedAck      bool             // showing the code behind this Step's Acknowledgements
+	crCursor         int         // selected row in the change-request list
+	pendingSel       selectedRun // the selection awaiting a note
+	pendingCode      string      // the code being commented on, shown above the note input
+	editingID        int         // >0 when editing an existing Change Request rather than adding
+	confirmingDelete bool        // an inline y/n delete confirm is armed (edit screen or List)
+	confirmingQuit   bool        // a second-q quit heads-up is armed on an unfinished review
+	crFilter         crFilter    // when active, the List shows only comments on one line
+	reraiseCursor    int         // selected row among declined dispositions
+	expandedAck      bool        // showing the code behind this Step's Acknowledgements
 	expanded         []daemon.ExcerptWire
 	width            int
 	height           int
@@ -196,16 +196,20 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// pendingSelection is a selection captured while the Reviewer types its note.
-type pendingSelection struct {
-	excerpt, first, last int
-	side                 string
+// anchorBody is a selected run as the daemon's /anchor and /changerequest
+// endpoints take it: the Excerpt and the row at each end, never a range.
+func anchorBody(run selectedRun) map[string]any {
+	return map[string]any{
+		"excerpt_index": run.excerpt,
+		"start":         map[string]any{"side": run.start.side, "line": run.start.line},
+		"end":           map[string]any{"side": run.end.side, "line": run.end.line},
+	}
 }
 
-func (c client) raiseChangeRequest(excerpt, first, last int, side, note string) bool {
-	body, _ := json.Marshal(map[string]any{
-		"excerpt_index": excerpt, "first_line": first, "last_line": last, "side": side, "note": note,
-	})
+func (c client) raiseChangeRequest(run selectedRun, note string) bool {
+	payload := anchorBody(run)
+	payload["note"] = note
+	body, _ := json.Marshal(payload)
 	response, err := http.Post(c.base+"/changerequest", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
@@ -233,19 +237,38 @@ func (c client) withdraw(id int) {
 	}
 }
 
+// oneExcerptStatus is what the Reviewer is told when a movement is refused
+// because it would grow the selection out of the Excerpt it anchored in.
+const oneExcerptStatus = "Selection can only apply to lines in one Excerpt"
+
+// noteBoundary reports a movement refused at an Excerpt boundary, and takes the
+// message back once a movement succeeds: it describes the keypress that was
+// refused, not a standing condition, so leaving it up would have it explain a
+// cursor that is plainly moving. Only its own message is cleared — an unrelated
+// status is nothing to do with moving the cursor.
+func (m *model) noteBoundary(blocked bool) {
+	if blocked {
+		m.status = oneExcerptStatus
+		return
+	}
+	if m.status == oneExcerptStatus {
+		m.status = ""
+	}
+}
+
 func (m *model) copyAnchor() tea.Cmd {
-	excerpt, first, last, side, ok := m.cursor.selection()
+	run, ok := m.cursor.selection()
 	if !ok {
-		m.status = "selection spans two Excerpts or two sides — narrow it to one"
+		m.status = oneExcerptStatus
 		return nil
 	}
-	text, ok := m.client.composeAnchor(excerpt, first, last, side)
+	text, ok := m.client.composeAnchor(run)
 	if !ok {
 		m.status = "could not compose the Anchor"
 		return nil
 	}
 	if copyToClipboard(text) {
-		m.status = fmt.Sprintf("copied Anchor for lines %d-%d — paste it into your agent chat", first, last)
+		m.status = fmt.Sprintf("copied Anchor for %s — paste it into your agent chat", pluralize(run.rows, "line"))
 	} else {
 		m.status = "no clipboard tool found; the Anchor could not be copied"
 	}
@@ -457,24 +480,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key {
 			case "up", "k":
 				if interactive {
-					m.cursor.move(-1)
+					m.noteBoundary(m.cursor.move(-1))
 				}
 				return m, nil
 			case "down", "j":
 				if interactive {
-					m.cursor.move(1)
+					m.noteBoundary(m.cursor.move(1))
 				}
 				return m, nil
 			case "shift+up":
 				if interactive {
-					m.cursor.extend(-1)
 					m.status = ""
+					m.noteBoundary(m.cursor.extend(-1))
 				}
 				return m, nil
 			case "shift+down":
 				if interactive {
-					m.cursor.extend(1)
 					m.status = ""
+					m.noteBoundary(m.cursor.extend(1))
 				}
 				return m, nil
 			case "v", " ":
@@ -569,17 +592,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "review is handed off — press r to resume before commenting"
 					return m, nil
 				}
-				excerpt, first, last, side, ok := m.cursor.selection()
+				run, ok := m.cursor.selection()
 				if !ok {
-					m.status = "selection spans two Excerpts or two sides — narrow it to one"
+					m.status = oneExcerptStatus
 					return m, nil
 				}
 				m.editingID = 0 // c always adds a fresh comment, never edits
 				m.mode = modeNote
 				m.note.SetValue("")
 				m.note.Focus()
-				m.pendingSel = pendingSelection{excerpt, first, last, side}
-				if code, ok := m.client.composeAnchor(excerpt, first, last, side); ok {
+				m.pendingSel = run
+				if code, ok := m.client.composeAnchor(run); ok {
 					m.pendingCode = code
 				} else {
 					m.pendingCode = ""
@@ -642,7 +665,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.status = "could not update the Change Request"
 					}
-				} else if m.client.raiseChangeRequest(m.pendingSel.excerpt, m.pendingSel.first, m.pendingSel.last, m.pendingSel.side, note) {
+				} else if m.client.raiseChangeRequest(m.pendingSel, note) {
 					m.status = "comment added"
 				} else {
 					m.status = "could not add the comment"
@@ -1100,7 +1123,7 @@ func (m *model) setNoteHeight() {
 func (m model) noteView() string {
 	code := m.pendingCode
 	if code == "" {
-		code = dimSt.Render(fmt.Sprintf("lines %d-%d", m.pendingSel.first, m.pendingSel.last))
+		code = dimSt.Render(pluralize(m.pendingSel.rows, "line"))
 	} else {
 		code = wrapTo(code, m.width) // the anchor's "Re: …" header is one long line
 	}
@@ -1252,7 +1275,7 @@ func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
 	line := m.cursor.lines[m.cursor.cursor]
 	file := m.view.Step.Excerpts[line.excerpt].File
 	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.File == file && cr.Side == line.side && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
 			return cr, true
 		}
 	}
@@ -1269,7 +1292,7 @@ func (m model) filteredCRs() []daemon.ChangeRequestWire {
 	}
 	var out []daemon.ChangeRequestWire
 	for _, cr := range all {
-		if cr.File == m.crFilter.file && cr.Side == m.crFilter.side && m.crFilter.line >= cr.FirstLine && m.crFilter.line <= cr.LastLine {
+		if cr.Covers(m.crFilter.file, m.crFilter.side, m.crFilter.line) {
 			out = append(out, cr)
 		}
 	}
@@ -1285,7 +1308,7 @@ func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
 	file := m.view.Step.Excerpts[line.excerpt].File
 	var out []daemon.ChangeRequestWire
 	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.File == file && cr.Side == line.side && line.number >= cr.FirstLine && line.number <= cr.LastLine {
+		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
 			out = append(out, cr)
 		}
 	}
@@ -1294,7 +1317,9 @@ func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
 
 // commentedLines is the set of "file:side:line" in the current Step that carry a
 // Change Request, so the diff can mark them — keyed by side so a comment on a
-// before-side row does not mark the after-side row that shares its number.
+// before-side row does not mark the after-side row that shares its number. A
+// Change Request spanning a removal and its replacement marks rows on both sides,
+// which is why this walks the Anchor's segments rather than one range.
 func (m model) commentedLines() map[string]bool {
 	out := map[string]bool{}
 	if m.view == nil {
@@ -1304,8 +1329,10 @@ func (m model) commentedLines() map[string]bool {
 		if cr.Step != m.view.Position {
 			continue
 		}
-		for n := cr.FirstLine; n <= cr.LastLine; n++ {
-			out[commentKey(cr.File, cr.Side, n)] = true
+		for _, segment := range cr.Segments {
+			for n := segment.FirstLine; n <= segment.LastLine; n++ {
+				out[commentKey(cr.File, segment.Side, n)] = true
+			}
 		}
 	}
 	return out

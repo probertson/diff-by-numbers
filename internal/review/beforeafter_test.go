@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -214,23 +215,160 @@ func TestAnchoringABeforeSideRowReadsTheBeforeNotTheAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	before, err := session.Anchor(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 2, LastLine: 2, Side: review.OldSide})
+	before, err := session.Anchor(sideSpan(0, oldRow(2), oldRow(2)))
 	if err != nil {
 		t.Fatalf("expected to anchor the before-side row, got %v", err)
 	}
-	if before.Side != review.OldSide {
-		t.Errorf("expected the Anchor to record the before-side, got %q", before.Side)
+	if len(before.Segments) != 1 || before.Segments[0].Side != review.OldSide {
+		t.Errorf("expected the Anchor to record the before-side, got %+v", before.Segments)
 	}
 	if len(before.Lines) != 1 || !strings.Contains(before.Lines[0].Text, "before") {
 		t.Errorf("expected the before-side content, got %+v", before.Lines)
 	}
 
-	after, err := session.Anchor(review.AnchorTarget{ExcerptIndex: 0, FirstLine: 2, LastLine: 2, Side: review.NewSide})
+	after, err := session.Anchor(sideSpan(0, newRow(2), newRow(2)))
 	if err != nil {
 		t.Fatalf("expected to anchor the after-side row, got %v", err)
 	}
 	if len(after.Lines) != 1 || !strings.Contains(after.Lines[0].Text, "after") {
 		t.Errorf("expected the after-side content for the same line number, got %+v", after.Lines)
+	}
+}
+
+func TestAnAnchorMaySpanARemovalAndItsReplacement(t *testing.T) {
+	// The Reviewer's point is about the edit, not about one half of it: selecting
+	// from the removed line through the lines that replaced it must anchor both (#57).
+	deriver := pairingDeriver{
+		lines: []review.ChangedLine{
+			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 3},
+		},
+		correspondences: []review.Correspondence{
+			{File: "src/fetch.ts", OldFirst: 2, OldLast: 2, NewFirst: 2, NewLast: 3},
+		},
+	}
+	session := review.NewSession(sideResolver{}, deriver)
+	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	if err := session.GoTo(1); err != nil {
+		t.Fatal(err)
+	}
+
+	anchor, err := session.Anchor(sideSpan(0, oldRow(2), newRow(3)))
+
+	if err != nil {
+		t.Fatalf("expected a selection crossing the sides to anchor, got %v", err)
+	}
+	want := []review.AnchorSegment{
+		{Side: review.OldSide, FirstLine: 2, LastLine: 2},
+		{Side: review.NewSide, FirstLine: 2, LastLine: 3},
+	}
+	if len(anchor.Segments) != len(want) {
+		t.Fatalf("expected %d segments, got %+v", len(want), anchor.Segments)
+	}
+	for i := range want {
+		if anchor.Segments[i] != want[i] {
+			t.Errorf("segment %d: expected %+v, got %+v", i, want[i], anchor.Segments[i])
+		}
+	}
+	if got := anchor.Location(); got != "src/fetch.ts — before 2 — after 2-3" {
+		t.Errorf("expected the location to name both sides, got %q", got)
+	}
+	// Markers come per line, so the removal reads as a removal beside its replacement.
+	rendered := anchor.Render()
+	for _, want := range []string{"-     2 | before src/fetch.ts:2", "+     2 | after src/fetch.ts:2", "+     3 | after src/fetch.ts:3"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expected the rendered Anchor to contain %q\n---\n%s", want, rendered)
+		}
+	}
+}
+
+// unreadableBeforeResolver reads the after-side but cannot reach the before-side,
+// as a shallow checkout or a base commit missing the file would leave it.
+type unreadableBeforeResolver struct{ sideResolver }
+
+func (r unreadableBeforeResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+	if e.Side == review.OldSide {
+		return nil, errors.New("no such blob")
+	}
+	return r.sideResolver.Resolve(e)
+}
+
+func TestAnAnchorRefusesToQuoteCodeThatCouldNotBeRead(t *testing.T) {
+	// An unreadable before-side still draws a row saying so, because a line that
+	// rode along must not vanish. Selecting over it must not turn that notice into
+	// quoted source in the text an agent will act on.
+	deriver := pairingDeriver{
+		lines: []review.ChangedLine{
+			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 3},
+		},
+		correspondences: []review.Correspondence{
+			{File: "src/fetch.ts", OldFirst: 2, OldLast: 2, NewFirst: 2, NewLast: 3},
+		},
+	}
+	session := review.NewSession(unreadableBeforeResolver{}, deriver)
+	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	if err := session.GoTo(1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := session.Anchor(sideSpan(0, oldRow(2), newRow(3)))
+
+	if err == nil {
+		t.Fatal("expected anchoring over an unreadable before-side to be refused")
+	}
+	if !strings.Contains(err.Error(), "could not read") {
+		t.Errorf("expected the refusal to say the code could not be read, got %v", err)
+	}
+}
+
+func TestAnAnchorSpanningTwoEditsKeepsEachRemovedRunApart(t *testing.T) {
+	// Two edits in one Excerpt: old 2 became new 2, old 5 became new 5. A selection
+	// running from the first removal to the second replacement covers two separate
+	// before-side runs, which a single before-range could not express.
+	deriver := pairingDeriver{
+		lines: []review.ChangedLine{
+			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 2},
+			{File: "src/fetch.ts", Side: review.OldSide, Line: 5},
+			{File: "src/fetch.ts", Side: review.NewSide, Line: 5},
+		},
+		correspondences: []review.Correspondence{
+			{File: "src/fetch.ts", OldFirst: 2, OldLast: 2, NewFirst: 2, NewLast: 2},
+			{File: "src/fetch.ts", OldFirst: 5, OldLast: 5, NewFirst: 5, NewLast: 5},
+		},
+	}
+	session := review.NewSession(sideResolver{}, deriver)
+	mustPost(t, session, beforeAfterWalkthrough(1, 6))
+	if err := session.GoTo(1); err != nil {
+		t.Fatal(err)
+	}
+
+	anchor, err := session.Anchor(sideSpan(0, oldRow(2), newRow(5)))
+
+	if err != nil {
+		t.Fatalf("expected a selection across two edits to anchor, got %v", err)
+	}
+	want := []review.AnchorSegment{
+		{Side: review.OldSide, FirstLine: 2, LastLine: 2},
+		{Side: review.NewSide, FirstLine: 2, LastLine: 4},
+		{Side: review.OldSide, FirstLine: 5, LastLine: 5},
+		{Side: review.NewSide, FirstLine: 5, LastLine: 5},
+	}
+	if len(anchor.Segments) != len(want) {
+		t.Fatalf("expected %d segments, got %+v", len(want), anchor.Segments)
+	}
+	for i := range want {
+		if anchor.Segments[i] != want[i] {
+			t.Errorf("segment %d: expected %+v, got %+v", i, want[i], anchor.Segments[i])
+		}
+	}
+	// The two removed lines are not a range, so the location lists them apart while
+	// the after-side rows either side of them read as the one run they are.
+	if got := anchor.Location(); got != "src/fetch.ts — before 2, 5 — after 2-5" {
+		t.Errorf("unexpected location: %q", got)
 	}
 }
 

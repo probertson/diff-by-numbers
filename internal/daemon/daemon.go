@@ -233,6 +233,28 @@ func watchForQuitKey(onQuit func()) (func(), error) {
 	return restore, nil
 }
 
+// anchorRequest is a Reviewer's selection as it arrives from the TUI: the Excerpt
+// it lies in and the row at each end of it. The rows between them are the core's
+// to derive, so the client never states a range (#57).
+type anchorRequest struct {
+	ExcerptIndex int          `json:"excerpt_index"`
+	Start        endpointWire `json:"start"`
+	End          endpointWire `json:"end"`
+}
+
+type endpointWire struct {
+	Side string `json:"side"`
+	Line int    `json:"line"`
+}
+
+func (r anchorRequest) target() review.AnchorTarget {
+	return review.AnchorTarget{
+		ExcerptIndex: r.ExcerptIndex,
+		Start:        review.AnchorEndpoint{Side: review.Side(r.Start.Side), Line: r.Start.Line},
+		End:          review.AnchorEndpoint{Side: review.Side(r.End.Side), Line: r.End.Line},
+	}
+}
+
 // Handler is the daemon's HTTP surface: MCP at /mcp, plus the Reviewer's own
 // endpoints. Exported so it can be exercised over a real connection.
 func (d *Daemon) Handler() http.Handler {
@@ -294,20 +316,15 @@ func (d *Daemon) Handler() http.Handler {
 
 	mux.HandleFunc("POST /changerequest", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			ExcerptIndex int    `json:"excerpt_index"`
-			FirstLine    int    `json:"first_line"`
-			LastLine     int    `json:"last_line"`
-			Side         string `json:"side"`
-			Note         string `json:"note"`
+			anchorRequest
+			Note string `json:"note"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad change-request", http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
-		_, err := d.session.RaiseChangeRequest(review.AnchorTarget{
-			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine, Side: review.Side(req.Side),
-		}, req.Note)
+		_, err := d.session.RaiseChangeRequest(req.target(), req.Note)
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -375,20 +392,13 @@ func (d *Daemon) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ExcerptIndex int    `json:"excerpt_index"`
-			FirstLine    int    `json:"first_line"`
-			LastLine     int    `json:"last_line"`
-			Side         string `json:"side"`
-		}
+		var req anchorRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad anchor request", http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
-		anchor, err := d.session.Anchor(review.AnchorTarget{
-			ExcerptIndex: req.ExcerptIndex, FirstLine: req.FirstLine, LastLine: req.LastLine, Side: review.Side(req.Side),
-		})
+		anchor, err := d.session.Anchor(req.target())
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
