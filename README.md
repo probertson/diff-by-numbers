@@ -99,7 +99,16 @@ go build -o /usr/local/bin/dbn ./cmd/dbn
 
 Register dbn once. Your agent launches it per session, and it starts the shared
 dbn daemon on demand — so the review tools are always present, with nothing to
-start by hand first. For Claude Code:
+start by hand first. For Claude Code, register it for every project:
+
+```sh
+claude mcp add -s user dbn -- dbn mcp
+```
+
+Without `-s user`, `claude mcp add` uses its default scope, `local`: dbn is
+registered only for the project you ran the command in, so it is missing
+everywhere else. To register it for just one project, run this from that
+project's directory:
 
 ```sh
 claude mcp add dbn -- dbn mcp
