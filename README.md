@@ -57,6 +57,34 @@ Note the variables go on the `sh` side of the pipe, since that is the process th
 Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
 Linux build). `dbn version` confirms the install.
 
+### Updating
+
+dbn checks once a day whether a newer release has been published, and says so in
+the TUI header and under `dbn version`. To update:
+
+```sh
+dbn update
+```
+
+It downloads the release for your platform, verifies it against the published
+SHA-256 checksums, and replaces the binary in place. Nothing is downloaded or
+replaced unless you run it.
+
+A few things worth knowing:
+
+- **The daemon.** If one is running and no review is in progress, `dbn update`
+  stops it so it comes back on the new build (launchd/systemd restart it; an
+  on-demand one starts next time your agent needs it). If a review *is* in
+  progress the daemon is left alone — its Walkthrough lives in memory — and dbn
+  tells you to run the update again once you are done. `dbn update --force`
+  restarts it anyway, losing the review. Agent sessions reconnect on their own.
+- **If the binary's directory is not writable** (say you installed to
+  `/usr/local/bin`), dbn will not use sudo for you. It points you at reinstalling
+  somewhere you own with the installer above, or at `sudo dbn update`.
+- **Turning the check off.** `DBN_NO_UPDATE_CHECK=1` disables it entirely — no
+  network call is made. `dbn update` still works when you ask for it.
+- Builds you compiled yourself never check, and never update themselves.
+
 ### ... or build from source
 
 ```sh
@@ -106,7 +134,12 @@ so the first review of a session has nothing to start — run it on login/startu
 This is purely a pre-warm; the shim simply finds and shares a daemon that is
 already running.
 
-**NOTE:** `dbn` needs to be on your PATH for these.
+**NOTE:** `dbn` needs to be on your PATH for these. Both commands below write
+the absolute path of your dbn (`$(command -v dbn)` — normally
+`~/.local/bin/dbn`, where the installer puts it) into the service definition,
+because neither launchd nor systemd expands `~`. `dbn update` replaces that
+binary in place, so the path stays good across updates; if you move dbn
+elsewhere, rewrite the definition.
 
 #### macOS
 ```sh
@@ -193,7 +226,8 @@ tell your agent. It will then retrieve your change requests. Handing off is not 
 the viewer at any time without losing anything, and `dbn` reopens to the same review.
 
 Other subcommands: `dbn dump` prints the posted Walkthrough as text, `dbn
-abandon` discards it, `dbn version` reports the build.
+abandon` discards it, `dbn version` reports the build, `dbn update` installs a
+newer one (see [Updating](#updating)).
 
 ## Development
 
