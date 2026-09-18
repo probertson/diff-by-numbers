@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 	"github.com/probertson/diff-by-numbers/internal/shim"
 	"github.com/probertson/diff-by-numbers/internal/tui"
@@ -23,10 +24,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-// version is the build stamp. It is a var, not a const, so a release build can
-// override it with -ldflags "-X main.version=...".
-var version = "0.1.0-dev"
 
 // defaultPort is the port dbn listens on and the TUI attaches to, overridable
 // with DBN_PORT so several daemons can run side by side (tests, or two repos).
@@ -48,7 +45,7 @@ func run(args []string, out io.Writer) error {
 	case "version", "--version", "-v":
 		// A build stamp so a Reviewer can tell which dbn a daemon is running,
 		// which matters once several people share the review workflow.
-		fmt.Fprintln(out, "dbn "+version)
+		fmt.Fprintln(out, "dbn "+buildinfo.Version())
 		return nil
 	case "serve":
 		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -99,7 +96,7 @@ func run(args []string, out io.Writer) error {
 		return abandon(*port, out)
 
 	default:
-		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon> [flags]", args[0])
+		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon|version> [flags]", args[0])
 	}
 }
 

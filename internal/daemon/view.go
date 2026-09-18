@@ -10,6 +10,17 @@ import (
 // one process owns the review, the other only draws it. Exported because the
 // TUI imports them; still internal to the module.
 
+// StatusWire is what /status answers: who the daemon is and whether it is in the
+// middle of something. Not part of the view — nothing here is drawn during a
+// Walkthrough — but it shares the wire types' audience, the TUI and the CLI.
+type StatusWire struct {
+	Version string `json:"version"`
+	// Executable is the binary this daemon is running, so `dbn update` can tell
+	// "the copy I just replaced" from "a different dbn someone's launchd starts".
+	Executable   string `json:"executable,omitempty"`
+	ActiveReview bool   `json:"active_review"`
+}
+
 type LineWire struct {
 	Number int    `json:"number"`
 	Text   string `json:"text"`

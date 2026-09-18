@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/git"
 	"github.com/probertson/diff-by-numbers/internal/review"
 	"github.com/probertson/diff-by-numbers/internal/workingtree"
@@ -40,6 +41,11 @@ type Daemon struct {
 	// call, the shim's keepalive, or a TUI poll — the clock the idle grace is
 	// measured against. While anyone is here, something keeps it fresh.
 	lastActive atomic.Int64
+	// quit is closed once, by Shutdown, to stop serving. It belongs to the Daemon
+	// rather than to Serve so a request handler — /shutdown, which `dbn update`
+	// calls — can take the same way out as a signal.
+	quit     chan struct{}
+	quitOnce sync.Once
 }
 
 // Option configures a Daemon at construction.
@@ -52,7 +58,10 @@ func WithSelfExit() Option {
 }
 
 func New(opts ...Option) *Daemon {
-	d := &Daemon{session: review.NewSession(workingtree.NewResolver(), git.NewDeriver())}
+	d := &Daemon{
+		session: review.NewSession(workingtree.NewResolver(), git.NewDeriver()),
+		quit:    make(chan struct{}),
+	}
 	d.touch()
 	for _, opt := range opts {
 		opt(d)
@@ -79,15 +88,11 @@ func (d *Daemon) Serve(port int) error {
 
 	server := &http.Server{Handler: d.Handler()}
 
-	quit := make(chan struct{})
-	var once sync.Once
-	signalQuit := func() { once.Do(func() { close(quit) }) }
-
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-signals
-		signalQuit()
+		d.Shutdown()
 	}()
 
 	// An auto-started daemon watches for the moment nothing needs it any more and
@@ -95,7 +100,7 @@ func (d *Daemon) Serve(port int) error {
 	// when serving began, not from construction.
 	if d.selfExit {
 		d.touch()
-		go d.monitorForExit(signalQuit, quit)
+		go d.monitorForExit()
 	}
 
 	// With a terminal attached, offer a single-key q. Raw mode disables the
@@ -107,7 +112,7 @@ func (d *Daemon) Serve(port int) error {
 		// this branch only runs with a terminal attached.
 		const bold, reset = "\033[1m", "\033[0m"
 		fmt.Printf("press %sq%s to quit\n", bold, reset)
-		if restore, err := watchForQuitKey(signalQuit); err == nil {
+		if restore, err := watchForQuitKey(d.Shutdown); err == nil {
 			defer restore()
 		}
 	}
@@ -122,7 +127,7 @@ func (d *Daemon) Serve(port int) error {
 	select {
 	case err := <-serveErr:
 		return err
-	case <-quit:
+	case <-d.quit:
 	}
 
 	fmt.Print("\rdbn shutting down\n")
@@ -136,6 +141,12 @@ func (d *Daemon) Serve(port int) error {
 	}
 	return nil
 }
+
+// Shutdown stops a serving daemon, the same way an interrupt does: the listener
+// closes and Serve returns once in-flight requests have had their grace. It is
+// safe to call more than once, and harmless before Serve — the next Serve on
+// this Daemon would simply return at once, which no caller does.
+func (d *Daemon) Shutdown() { d.quitOnce.Do(func() { close(d.quit) }) }
 
 // maxCheckInterval caps how often the self-exit decision is polled.
 const maxCheckInterval = 5 * time.Second
@@ -167,7 +178,7 @@ func shouldExit(activeReview bool, idle, grace time.Duration) bool {
 // monitorForExit polls the self-exit decision and signals a quit the first time
 // it is satisfied. The poll interval tracks the grace so a short (test) grace is
 // noticed promptly and a long (real) one is not polled needlessly often.
-func (d *Daemon) monitorForExit(signalQuit func(), quit <-chan struct{}) {
+func (d *Daemon) monitorForExit() {
 	grace := exitGraceDuration()
 	interval := grace / 4
 	if interval < 50*time.Millisecond {
@@ -181,14 +192,11 @@ func (d *Daemon) monitorForExit(signalQuit func(), quit <-chan struct{}) {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-quit:
+		case <-d.quit:
 			return
 		case <-ticker.C:
-			d.mu.Lock()
-			active := d.session.Active()
-			d.mu.Unlock()
-			if shouldExit(active, d.idleFor(), grace) {
-				signalQuit()
+			if shouldExit(d.activeReview(), d.idleFor(), grace) {
+				d.Shutdown()
 				return
 			}
 		}
@@ -241,6 +249,41 @@ func (d *Daemon) Handler() http.Handler {
 	// session. It carries no state.
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
+	})
+
+	// /status is how anything outside the daemon learns what it is: which build it
+	// runs, which binary that build came from, and whether interrupting it would
+	// cost someone a review in progress. `dbn update` asks all three; the TUI asks
+	// the version so it can warn when it no longer matches its own.
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, _ *http.Request) {
+		executable, err := os.Executable()
+		if err != nil {
+			// Not worth failing the request over: a caller that cannot learn the path
+			// falls back to saying nothing about it, which is what an empty string says.
+			executable = ""
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(StatusWire{
+			Version:      buildinfo.Version(),
+			Executable:   executable,
+			ActiveReview: d.activeReview(),
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	// /shutdown is the graceful stop `dbn update` uses so a replaced binary is the
+	// one the next daemon runs. It is the same path as SIGTERM: under launchd or
+	// systemd the manager starts a fresh daemon, and a shim-started one comes back
+	// the next time an agent needs it. Loopback-only, like every endpoint here.
+	mux.HandleFunc("POST /shutdown", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "shutting down")
+		// Answer first, then quit: the caller wants to know the daemon accepted,
+		// and Shutdown closes the listener out from under this response otherwise.
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		d.Shutdown()
 	})
 
 	mux.HandleFunc("GET /dump", func(w http.ResponseWriter, _ *http.Request) {
@@ -420,6 +463,13 @@ func (d *Daemon) Handler() http.Handler {
 	return d.withActivity(mux)
 }
 
+// activeReview reports whether a review is still live, under the lock.
+func (d *Daemon) activeReview() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.session.Active()
+}
+
 // withActivity resets the idle clock on every request, so a Reviewer's TUI poll,
 // the shim's keepalive, and an agent's call all count equally as the daemon being
 // needed. This one signal — plus whether a review is still active — is the whole
@@ -448,7 +498,7 @@ func (d *Daemon) navHandler(intent func() error) http.HandlerFunc {
 func (d *Daemon) mcpServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "dbn",
-		Version: "0.1.0",
+		Version: buildinfo.Version(),
 	}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 )
 
 // keepaliveInterval is how often the shim pings the daemon while the agent
@@ -69,7 +70,7 @@ func Run(ctx context.Context, cfg Config) error {
 	// Mirror the daemon's tools onto a stdio server, each handler forwarding to the
 	// daemon. The shim carries no knowledge of any individual tool, so it never
 	// drifts from the daemon's contract as tools change.
-	server := mcp.NewServer(&mcp.Implementation{Name: "dbn", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "dbn", Version: buildinfo.Version()}, nil)
 	tools, err := daemonSession.ListTools(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("could not list the daemon's tools: %w", err)
@@ -99,7 +100,7 @@ func addr(port int) string { return fmt.Sprintf("127.0.0.1:%d", port) }
 // leave the agent's dbn tools unavailable for the session.
 func connectDaemon(ctx context.Context, cfg Config) (*mcp.ClientSession, error) {
 	endpoint := fmt.Sprintf("http://%s/mcp", addr(cfg.Port))
-	client := mcp.NewClient(&mcp.Implementation{Name: "dbn-shim", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "dbn-shim", Version: buildinfo.Version()}, nil)
 
 	var lastErr error
 	for attempt := 0; attempt < daemonConnectAttempts; attempt++ {
