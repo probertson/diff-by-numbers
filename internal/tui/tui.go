@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
@@ -54,6 +55,25 @@ func (c client) view() (*daemon.ViewWire, error) {
 	return &view, nil
 }
 
+// status asks the daemon who it is. The TUI cares about one field — the version,
+// which it compares with its own — but reads the whole status so the endpoint has
+// one shape for every caller.
+func (c client) status() (*daemon.StatusWire, error) {
+	response, err := http.Get(c.base + "/status")
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the server answered %s — is that dbn?", response.Status)
+	}
+	var status daemon.StatusWire
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
 func (c client) intent(path string) {
 	response, err := http.Post(c.base+path, "text/plain", nil)
 	if err != nil {
@@ -82,9 +102,21 @@ type refreshMsg struct {
 
 type tickMsg struct{}
 
+// statusMsg carries what the daemon says about itself. Only a successful read
+// changes anything: a failed one means the daemon is unreachable, which the
+// header already says far better than a stale version notice would.
+type statusMsg struct {
+	status *daemon.StatusWire
+	err    error
+}
+
 type model struct {
-	client           client
-	view             *daemon.ViewWire
+	client client
+	view   *daemon.ViewWire
+	// daemonVersion is the build the daemon reported, kept in its own field
+	// because the notice it drives is persistent — m.status is a transient line
+	// that many keys clear.
+	daemonVersion    string
 	lostErr          error
 	viewport         viewport.Model
 	cursor           stepCursor
@@ -142,7 +174,15 @@ func (m *model) syncCursor() {
 }
 
 func (m model) Init() tea.Cmd {
-	return tick()
+	return tea.Batch(tick(), m.readStatus())
+}
+
+// readStatus asks the daemon which build it is running, in the background.
+func (m model) readStatus() tea.Cmd {
+	return func() tea.Msg {
+		status, err := m.client.status()
+		return statusMsg{status: status, err: err}
+	}
 }
 
 func tick() tea.Cmd {
@@ -234,8 +274,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		headerHeight, footerHeight := 2, 2
-		m.viewport = viewport.New(msg.Width, max(1, msg.Height-headerHeight-footerHeight))
+		m.viewport = viewport.New(msg.Width, m.viewportHeight())
 		if m.note.Value() == "" && !m.note.Focused() {
 			ta := textarea.New()
 			ta.Placeholder = "what should change here?"
@@ -253,14 +292,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(m.refresh(), tick())
 
+	case statusMsg:
+		if msg.err == nil && msg.status != nil {
+			m.daemonVersion = msg.status.Version
+			m.resizeViewport()
+		}
+		return m, nil
+
 	case refreshMsg:
 		positionChanged := false
+		reconnected := false
 		if msg.err != nil {
 			m.lostErr = msg.err
 		} else {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true
 			}
+			// Coming back after losing the daemon, the daemon on the other end may
+			// not be the one we left — a restart is exactly how it gets replaced by
+			// a different build — so ask again who it is.
+			reconnected = m.lostErr != nil
 			m.lostErr = nil
 			m.view = msg.view
 		}
@@ -283,6 +334,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.ready {
 			m.viewport.SetContent(m.content())
+		}
+		if reconnected {
+			return m, m.readStatus()
 		}
 		return m, nil
 
@@ -1243,15 +1297,66 @@ func commentKey(file, side string, line int) string {
 	return fmt.Sprintf("%s:%s:%d", file, side, line)
 }
 
+// headerHeight is how many rows the header occupies, including the blank line
+// under it: two normally, three while a notice is showing. Everything that sizes
+// the body measures from here, so a notice appearing takes a row from the body
+// rather than pushing the keybar off the bottom.
+func (m model) headerHeight() int {
+	if m.notice() != "" {
+		return 3
+	}
+	return 2
+}
+
+func (m model) viewportHeight() int {
+	return max(1, m.height-m.headerHeight()-2)
+}
+
+// resizeViewport keeps the scrolling body in step with a notice appearing or
+// going away, which happens long after the terminal was sized.
+func (m *model) resizeViewport() {
+	if m.ready {
+		m.viewport.Height = m.viewportHeight()
+	}
+}
+
 func (m model) bodyHeight() int {
-	h := m.height - 5
+	h := m.height - 3 - m.headerHeight()
 	if h < 4 {
 		return 4
 	}
 	return h
 }
 
+// notice is the persistent line under the header: a condition the Reviewer
+// should know about for as long as it holds, unlike m.status, which is a
+// transient response to a keypress. A daemon running a different build outranks
+// anything else here — it is about the review in front of them.
+func (m model) notice() string {
+	return m.daemonMismatchNotice()
+}
+
+// daemonMismatchNotice warns when the daemon is a different build from this TUI,
+// which is what `dbn update` leaves behind when it cannot restart a daemon
+// mid-review. There is no compatibility contract between the two, so the fix is
+// to restart the daemon — but only once this review is done, which is why this
+// warns and never refuses: the review in progress lives in that daemon.
+func (m model) daemonMismatchNotice() string {
+	if m.daemonVersion == "" || m.daemonVersion == buildinfo.Version() {
+		return ""
+	}
+	return fmt.Sprintf("daemon is running %s (this is %s) — restart it after this review",
+		m.daemonVersion, buildinfo.Version())
+}
+
 func (m model) header() string {
+	if notice := m.notice(); notice != "" {
+		return m.headerLine() + "\n" + warnSt.Render(notice)
+	}
+	return m.headerLine()
+}
+
+func (m model) headerLine() string {
 	switch {
 	case m.lostErr != nil:
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
