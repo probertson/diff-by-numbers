@@ -38,6 +38,10 @@ func defaultPort() int {
 	return daemon.DefaultPort
 }
 
+// daemonURL is where a daemon on this port answers. Loopback, always: the daemon
+// listens nowhere else.
+func daemonURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
+
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return tui.Run(defaultPort())
@@ -89,7 +93,7 @@ func run(args []string, out io.Writer) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		cfg, err := selfupdate.DefaultConfig(fmt.Sprintf("http://127.0.0.1:%d", *port))
+		cfg, err := selfupdate.DefaultConfig(daemonURL(*port))
 		if err != nil {
 			return err
 		}
@@ -132,7 +136,7 @@ func reportUpdate(out io.Writer) {
 }
 
 func dump(port int, out io.Writer) error {
-	response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/dump", port))
+	response, err := http.Get(daemonURL(port) + "/dump")
 	if err != nil {
 		return fmt.Errorf("no dbn daemon on port %d — start one with `dbn serve`: %w", port, err)
 	}
@@ -148,7 +152,7 @@ func dump(port int, out io.Writer) error {
 }
 
 func abandon(port int, out io.Writer) error {
-	response, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d/abandon", port), "text/plain", nil)
+	response, err := http.Post(daemonURL(port)+"/abandon", "text/plain", nil)
 	if err != nil {
 		return fmt.Errorf("no dbn daemon on port %d — start one with `dbn serve`: %w", port, err)
 	}

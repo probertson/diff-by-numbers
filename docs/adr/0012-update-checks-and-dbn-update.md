@@ -72,6 +72,11 @@ The TUI can find itself talking to a daemon of a different version, which no pro
 negotiation covers. It warns — persistently, in the header — and never refuses to connect:
 locking the Reviewer out of a review in progress is the worse failure of the two.
 
+The daemon anyone updating for the first time is running predates `/status` and answers it
+with a 404. That is treated as an answer, not as an absence — it proves the daemon is older
+than the binary asking — so both the TUI notice and `dbn update` say something about it
+rather than silently skipping the one case they were written for.
+
 The shim now reconnects when a forwarded call fails, so an agent session survives the daemon
 being replaced under it. The tool list it mirrored at startup does not refresh, so tools added
 by a newer release appear only when the agent restarts its MCP server.

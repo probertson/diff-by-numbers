@@ -362,25 +362,51 @@ func TestNoDaemonMeansNothingToSay(t *testing.T) {
 
 func TestThePlanForARunningDaemon(t *testing.T) {
 	const ours, theirs = "/usr/local/bin/dbn", "/opt/other/dbn"
+	answering := func(status daemon.StatusWire) probe { return probe{listening: true, status: &status} }
 	cases := []struct {
-		name   string
-		status *daemon.StatusWire
-		force  bool
-		want   daemonPlan
+		name  string
+		found probe
+		force bool
+		want  daemonPlan
 	}{
-		{"nothing listening", nil, false, daemonAbsent},
-		{"idle and ours", &daemon.StatusWire{Executable: ours}, false, daemonRestart},
-		{"mid-review", &daemon.StatusWire{Executable: ours, ActiveReview: true}, false, daemonBusy},
-		{"mid-review, forced", &daemon.StatusWire{Executable: ours, ActiveReview: true}, true, daemonRestart},
-		{"someone else's binary", &daemon.StatusWire{Executable: theirs}, false, daemonElsewhere},
-		{"someone else's binary, mid-review, forced", &daemon.StatusWire{Executable: theirs, ActiveReview: true}, true, daemonElsewhere},
-		{"a daemon that cannot name itself", &daemon.StatusWire{}, false, daemonRestart},
+		{"nothing listening", probe{}, false, daemonAbsent},
+		{"listening, but too old to say what it is", probe{listening: true}, false, daemonUnreadable},
+		{"idle and ours", answering(daemon.StatusWire{Executable: ours}), false, daemonRestart},
+		{"mid-review", answering(daemon.StatusWire{Executable: ours, ActiveReview: true}), false, daemonBusy},
+		{"mid-review, forced", answering(daemon.StatusWire{Executable: ours, ActiveReview: true}), true, daemonRestart},
+		{"someone else's binary", answering(daemon.StatusWire{Executable: theirs}), false, daemonElsewhere},
+		{"someone else's binary, mid-review, forced", answering(daemon.StatusWire{Executable: theirs, ActiveReview: true}), true, daemonElsewhere},
+		{"a daemon that cannot name itself", answering(daemon.StatusWire{}), false, daemonRestart},
 	}
 
 	for _, c := range cases {
-		if got := planFor(c.status, ours, c.force); got != c.want {
+		if got := planFor(c.found, ours, c.force); got != c.want {
 			t.Errorf("%s: planned %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// The daemon a first update actually meets: one from a release that predates the
+// status endpoint. It answers the port, so treating it as "no daemon" would leave
+// the Reviewer running the old build with nothing said about it.
+func TestADaemonTooOldToReportItselfIsNamedRatherThanIgnored(t *testing.T) {
+	rel := newRelease(t, "v0.2.0")
+	executable := installed(t, "the old binary")
+	old := httptest.NewServer(http.NotFoundHandler())
+	defer old.Close()
+	cfg := testUpdateConfig(t, rel, executable, "0.1.0")
+	cfg.DaemonURL = old.URL
+
+	out, err := run(t, cfg)
+
+	if err != nil {
+		t.Fatalf("the update failed: %v", err)
+	}
+	if !strings.Contains(out, "restart it") {
+		t.Errorf("the update said nothing about the daemon it could not read: %q", out)
+	}
+	if got := contents(t, executable); got != newBinary {
+		t.Error("the binary was not replaced, though only the daemon was in question")
 	}
 }
 

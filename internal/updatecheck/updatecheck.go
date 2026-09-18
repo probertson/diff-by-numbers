@@ -75,14 +75,12 @@ type Config struct {
 // DefaultConfig is the real check: the published endpoint, the user's cache
 // directory, and off for anything but a release build that has not opted out.
 func DefaultConfig() Config {
-	return Config{
-		Current:   buildinfo.Version(),
-		Endpoint:  Endpoint,
+	// Only the two fields withDefaults cannot supply: where the answer is kept,
+	// and whether to ask at all.
+	return withDefaults(Config{
 		CachePath: defaultCachePath(),
 		Disabled:  !buildinfo.IsRelease() || OptedOut(),
-		Client:    &http.Client{Timeout: requestTimeout},
-		Now:       time.Now,
-	}
+	})
 }
 
 // OptedOut reports whether the Reviewer has turned the check off. Any value but

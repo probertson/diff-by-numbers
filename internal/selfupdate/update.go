@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -54,8 +53,15 @@ type Config struct {
 	Force bool
 
 	OS, Arch string
-	Client   *http.Client
+	// Client downloads the release. The daemon is asked and stopped over its own
+	// short-timeout connections: waiting minutes on loopback would mean something
+	// other than a daemon is there.
+	Client *http.Client
 }
+
+// downloadTimeout bounds fetching a release. Generous, because it covers a whole
+// archive over whatever connection the Reviewer has.
+const downloadTimeout = 5 * time.Minute
 
 // DefaultConfig is a real update of this binary against the published releases.
 func DefaultConfig(daemonURL string) (Config, error) {
@@ -63,10 +69,7 @@ func DefaultConfig(daemonURL string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("could not find the dbn executable to replace: %w", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		// Replace the bytes, not a link to them.
-		executable = resolved
-	}
+	executable = resolve(executable) // replace the bytes, not a link to them
 
 	check := updatecheck.DefaultConfig()
 	check.Force = true
@@ -84,7 +87,7 @@ func DefaultConfig(daemonURL string) (Config, error) {
 		DaemonURL:   daemonURL,
 		OS:          runtime.GOOS,
 		Arch:        runtime.GOARCH,
-		Client:      &http.Client{Timeout: 5 * time.Minute},
+		Client:      &http.Client{Timeout: downloadTimeout},
 	}, nil
 }
 
@@ -93,7 +96,7 @@ func DefaultConfig(daemonURL string) (Config, error) {
 // Reviewer ran this: there is no background update.
 func Update(ctx context.Context, cfg Config, out io.Writer) error {
 	if cfg.Client == nil {
-		cfg.Client = &http.Client{Timeout: 5 * time.Minute}
+		cfg.Client = &http.Client{Timeout: downloadTimeout}
 	}
 	if cfg.Dev {
 		return errors.New("this is a development build; update it by rebuilding from source")
@@ -237,26 +240,39 @@ func replaceExecutable(executable string, binary []byte) error {
 	return nil
 }
 
+// probe is what answered on the daemon port: whether anything is there, and what
+// it said about itself if it could. The two are separate because a daemon from
+// before the status endpoint answers the port but not the question — and that is
+// precisely the daemon someone updating for the first time is running.
+type probe struct {
+	listening bool
+	status    *daemon.StatusWire
+}
+
 // daemonPlan is what to do about a daemon that is still running the binary just
 // replaced — or a different one.
 type daemonPlan int
 
 const (
-	daemonAbsent    daemonPlan = iota // nothing is listening; the next start is the new build
-	daemonElsewhere                   // a daemon, but not this copy of dbn
-	daemonBusy                        // a review is in progress; it would be lost
-	daemonRestart                     // idle and ours: stop it, and let it come back new
+	daemonAbsent     daemonPlan = iota // nothing is listening; the next start is the new build
+	daemonUnreadable                   // something answers, but cannot say what it is
+	daemonElsewhere                    // a daemon, but not this copy of dbn
+	daemonBusy                         // a review is in progress; it would be lost
+	daemonRestart                      // idle and ours: stop it, and let it come back new
 )
 
 // planFor is the whole of the decision, kept pure. Order matters: a daemon that
-// is not this binary is not ours to stop, whatever it is in the middle of.
-func planFor(status *daemon.StatusWire, executable string, force bool) daemonPlan {
+// cannot be asked cannot be judged, and one that is not this binary is not ours
+// to stop, whatever either is in the middle of.
+func planFor(found probe, executable string, force bool) daemonPlan {
 	switch {
-	case status == nil:
+	case !found.listening:
 		return daemonAbsent
-	case !sameBinary(status.Executable, executable):
+	case found.status == nil:
+		return daemonUnreadable
+	case !sameBinary(found.status.Executable, executable):
 		return daemonElsewhere
-	case status.ActiveReview && !force:
+	case found.status.ActiveReview && !force:
 		return daemonBusy
 	default:
 		return daemonRestart
@@ -284,22 +300,27 @@ func resolve(path string) string {
 // restartDaemon deals with whatever daemon is running now that the binary on
 // disk is newer than the one it started from.
 func restartDaemon(ctx context.Context, cfg Config, out io.Writer) error {
-	status := daemonStatus(ctx, cfg)
+	found := probeDaemon(ctx, cfg)
 
-	switch planFor(status, cfg.Executable, cfg.Force) {
+	switch planFor(found, cfg.Executable, cfg.Force) {
 	case daemonAbsent:
+		return nil
+
+	case daemonUnreadable:
+		fmt.Fprintf(out, "Something is listening on %s but could not say which build it is — "+
+			"if that is an older dbn daemon, restart it yourself to pick up the new one.\n", cfg.DaemonURL)
 		return nil
 
 	case daemonElsewhere:
 		fmt.Fprintf(out, "The daemon runs %s, not this copy (%s), so it was left alone; "+
 			"point your launchd/systemd config here to have it run the new build.\n",
-			status.Executable, cfg.Executable)
+			found.status.Executable, cfg.Executable)
 		return nil
 
 	case daemonBusy:
 		fmt.Fprintf(out, "The daemon is still running %s because a review is in progress. "+
-			"Finish or abandon it, then run dbn update again (or restart the daemon yourself).\n",
-			status.Version)
+			"Hand it off or abandon it, then run dbn update again (or restart the daemon yourself).\n",
+			found.status.Version)
 		return nil
 
 	default:
@@ -313,31 +334,22 @@ func restartDaemon(ctx context.Context, cfg Config, out io.Writer) error {
 	}
 }
 
-// daemonStatus asks the daemon who it is, or reports nothing when none answers.
-// Anything unreachable or unreadable counts as no daemon: this runs after the
-// binary is already replaced, and a failure here must not read as one.
-func daemonStatus(ctx context.Context, cfg Config) *daemon.StatusWire {
+// probeDaemon asks whatever is on the daemon port who it is. Only a daemon that
+// cannot be reached at all counts as absent: one that answers without a status
+// is an older dbn, and being told to restart it beats being told nothing.
+func probeDaemon(ctx context.Context, cfg Config) probe {
 	if cfg.DaemonURL == "" {
-		return nil
+		return probe{}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.DaemonURL+"/status", nil)
-	if err != nil {
-		return nil
+	status, err := daemon.FetchStatus(ctx, cfg.DaemonURL)
+	switch {
+	case err == nil:
+		return probe{listening: true, status: status}
+	case errors.Is(err, daemon.ErrNoStatus):
+		return probe{listening: true}
+	default:
+		return probe{}
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return nil
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil
-	}
-	var status daemon.StatusWire
-	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
-		return nil
-	}
-	return &status
 }
 
 func shutdownDaemon(ctx context.Context, cfg Config) error {

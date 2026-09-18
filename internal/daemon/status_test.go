@@ -1,7 +1,11 @@
 package daemon_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -16,6 +20,43 @@ func status(t *testing.T, baseURL string) daemon.StatusWire {
 		t.Fatalf("could not decode the status: %v", err)
 	}
 	return out
+}
+
+// Telling "no daemon" from "a daemon too old to answer" is the whole reason
+// FetchStatus has an error of its own: the second is what someone updating from
+// a release before the endpoint existed is running, and it deserves to be said.
+func TestFetchStatusTellsAnOldDaemonFromNoDaemon(t *testing.T) {
+	ctx := context.Background()
+
+	live := httptest.NewServer(daemon.New().Handler())
+	defer live.Close()
+	if _, err := daemon.FetchStatus(ctx, live.URL); err != nil {
+		t.Errorf("a current daemon could not be read: %v", err)
+	}
+
+	old := httptest.NewServer(http.NotFoundHandler())
+	defer old.Close()
+	if _, err := daemon.FetchStatus(ctx, old.URL); !errors.Is(err, daemon.ErrNoStatus) {
+		t.Errorf("a daemon with no status endpoint reported %v, want ErrNoStatus", err)
+	}
+
+	gibberish := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "not json")
+	}))
+	defer gibberish.Close()
+	if _, err := daemon.FetchStatus(ctx, gibberish.URL); !errors.Is(err, daemon.ErrNoStatus) {
+		t.Errorf("an unreadable answer reported %v, want ErrNoStatus", err)
+	}
+
+	nothing := httptest.NewServer(nil)
+	nothing.Close() // closed: nothing is listening on that port any more
+	_, err := daemon.FetchStatus(ctx, nothing.URL)
+	if err == nil {
+		t.Fatal("a port with nothing on it reported a status")
+	}
+	if errors.Is(err, daemon.ErrNoStatus) {
+		t.Error("nothing listening was reported as a daemon that could not answer")
+	}
 }
 
 func TestStatusReportsNoActiveReviewOnAFreshDaemon(t *testing.T) {

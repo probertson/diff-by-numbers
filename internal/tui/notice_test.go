@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -157,6 +158,23 @@ func TestTheStatusReadRecordsTheDaemonsVersion(t *testing.T) {
 
 	if got := updated.(model).daemonVersion; got != "0.1.0" {
 		t.Errorf("the model recorded daemon version %q, want 0.1.0", got)
+	}
+}
+
+// The daemon this notice exists for is often one from before the status endpoint
+// shipped: it answers, but not there. That answer is enough to know it is older.
+func TestADaemonTooOldToReportItselfStillRaisesTheNotice(t *testing.T) {
+	m := noticeModel("")
+
+	updated, _ := m.Update(statusMsg{err: fmt.Errorf("asking: %w", daemon.ErrNoStatus)})
+	after := updated.(model)
+
+	notice := after.notice()
+	if notice == "" {
+		t.Fatal("a daemon too old to report its version raised no notice")
+	}
+	if !strings.Contains(notice, olderDaemon) || !strings.Contains(notice, buildinfo.Version()) {
+		t.Errorf("the notice does not say which two builds are in play: %q", notice)
 	}
 }
 

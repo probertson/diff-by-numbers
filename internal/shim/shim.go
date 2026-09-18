@@ -132,10 +132,12 @@ func (l *link) close() {
 	}
 }
 
-// callTool forwards one call, reconnecting and retrying once if the connection
-// itself failed. An error here is transport- or session-level: a tool that
-// refuses or fails reports that inside the result, not as an error, so a retry
-// never repeats work the daemon has already done.
+// callTool forwards one call, reconnecting and retrying once when it fails. A
+// tool that ran and refused or failed reports that inside its result, never as
+// an error here, so a retry repeats no work the daemon has already done. What
+// does arrive as an error is the connection failing or the daemon rejecting the
+// request outright — and the SDK exports no way to tell those two apart, which
+// costs at most one wasted reconnect on a call the daemon never acted on.
 func (l *link) callTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
 	attempted := l.session()
 	result, err := attempted.CallTool(ctx, params)

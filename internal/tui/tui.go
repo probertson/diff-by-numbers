@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -58,25 +59,6 @@ func (c client) view() (*daemon.ViewWire, error) {
 	return &view, nil
 }
 
-// status asks the daemon who it is. The TUI cares about one field — the version,
-// which it compares with its own — but reads the whole status so the endpoint has
-// one shape for every caller.
-func (c client) status() (*daemon.StatusWire, error) {
-	response, err := http.Get(c.base + "/status")
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("the server answered %s — is that dbn?", response.Status)
-	}
-	var status daemon.StatusWire
-	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
-		return nil, err
-	}
-	return &status, nil
-}
-
 func (c client) intent(path string) {
 	response, err := http.Post(c.base+path, "text/plain", nil)
 	if err != nil {
@@ -105,9 +87,9 @@ type refreshMsg struct {
 
 type tickMsg struct{}
 
-// statusMsg carries what the daemon says about itself. Only a successful read
-// changes anything: a failed one means the daemon is unreachable, which the
-// header already says far better than a stale version notice would.
+// statusMsg carries what the daemon says about itself — including its refusing
+// to say, which is itself an answer. Only a daemon that cannot be reached at all
+// changes nothing here: the header says that far better than any notice could.
 type statusMsg struct {
 	status *daemon.StatusWire
 	err    error
@@ -205,7 +187,7 @@ func checkForUpdate() tea.Cmd {
 // readStatus asks the daemon which build it is running, in the background.
 func (m model) readStatus() tea.Cmd {
 	return func() tea.Msg {
-		status, err := m.client.status()
+		status, err := daemon.FetchStatus(context.Background(), m.client.base)
 		return statusMsg{status: status, err: err}
 	}
 }
@@ -318,10 +300,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refresh(), tick())
 
 	case statusMsg:
-		if msg.err == nil && msg.status != nil {
+		switch {
+		case msg.err == nil && msg.status != nil:
 			m.daemonVersion = msg.status.Version
-			m.resizeViewport()
+		case errors.Is(msg.err, daemon.ErrNoStatus):
+			// It answered, just not there — a daemon from before the status
+			// endpoint existed, which makes it older than this build by
+			// definition. That is worth the same notice as any other mismatch.
+			m.daemonVersion = olderDaemon
+		default:
+			return m, nil // unreachable: the header already says the daemon is gone
 		}
+		m.resizeViewport()
 		return m, nil
 
 	case updateMsg:
@@ -1343,8 +1333,12 @@ func (m model) headerHeight() int {
 // whole curl command, which is longer than most terminals are wide.
 func (m model) wrappedNotice(notice string) string { return wrapTo(notice, m.width) }
 
+// footerHeight is the two rows frame() pins to the bottom: the stateful line and
+// the keybar under it.
+const footerHeight = 2
+
 func (m model) viewportHeight() int {
-	return max(1, m.height-m.headerHeight()-2)
+	return max(1, m.height-m.headerHeight()-footerHeight)
 }
 
 // resizeViewport keeps the scrolling body in step with a notice appearing or
@@ -1355,8 +1349,10 @@ func (m *model) resizeViewport() {
 	}
 }
 
+// bodyHeight is what a cursor-driven Step gets to draw in: the same rows the
+// viewport gets, less one for the gap frame() always keeps above the footer.
 func (m model) bodyHeight() int {
-	h := m.height - 3 - m.headerHeight()
+	h := m.viewportHeight() - 1
 	if h < 4 {
 		return 4
 	}
@@ -1374,6 +1370,10 @@ func (m model) notice() string {
 	}
 	return m.updateNotice
 }
+
+// olderDaemon stands in for the version of a daemon too old to have a status
+// endpoint. It reads as the notice's subject, because that is all it is for.
+const olderDaemon = "an older build"
 
 // daemonMismatchNotice warns when the daemon is a different build from this TUI,
 // which is what `dbn update` leaves behind when it cannot restart a daemon

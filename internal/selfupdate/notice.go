@@ -38,11 +38,7 @@ func ExecutableDir() (string, error) {
 	}
 	// Follow symlinks: a link in ~/bin pointing at the real binary elsewhere must
 	// be updated where the bytes are, not where the link is.
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		resolved = executable
-	}
-	return filepath.Dir(resolved), nil
+	return filepath.Dir(resolve(executable)), nil
 }
 
 // Writable reports whether dbn can put a new file in dir — the permission an
