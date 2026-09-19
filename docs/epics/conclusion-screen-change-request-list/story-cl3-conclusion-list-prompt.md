@@ -34,7 +34,7 @@ None at story-write time — all known decisions are resolved or captured in Acc
   their order: the count line (#74), then the declines hint (#75/#80, only with declines), then
   this story's line (only with Comments), then the hand-off line. Whichever lands later
   fits into that order. This story's line always goes directly above the hand-off line.
-- **The count comes from the refreshed view** (`len(m.view.ChangeRequests)`) [1], so after the
+- **The count comes from the refreshed view** (`len(m.view.Comments)`) [1], so after the
   Reviewer withdraws the last Comment from the list and returns, the line is already gone.
   No extra refresh is needed.
 - `pluralize(n, noun)` [3] adds an `s` for any count other than 1, but it also prints the number.

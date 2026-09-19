@@ -6,34 +6,34 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-func raise(t *testing.T, s *review.Session, first, last int, note string) review.ChangeRequest {
+func raise(t *testing.T, s *review.Session, first, last int, note string) review.Comment {
 	t.Helper()
-	cr, err := s.RaiseChangeRequest(span(0, first, last), note)
+	comment, err := s.RaiseComment(span(0, first, last), note)
 	if err != nil {
-		t.Fatalf("expected to raise a Change Request, got %v", err)
+		t.Fatalf("expected to raise a Comment, got %v", err)
 	}
-	return cr
+	return comment
 }
 
-func TestARaisedChangeRequestCarriesItsAnchorAndNote(t *testing.T) {
+func TestARaisedCommentCarriesItsAnchorAndNote(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 	mustAdvance(t, session)
 
-	cr := raise(t, session, 20, 22, "cap this retry at 3 attempts")
+	comment := raise(t, session, 20, 22, "cap this retry at 3 attempts")
 
-	if cr.Note != "cap this retry at 3 attempts" {
-		t.Errorf("unexpected note %q", cr.Note)
+	if comment.Note != "cap this retry at 3 attempts" {
+		t.Errorf("unexpected note %q", comment.Note)
 	}
-	if cr.Anchor.Location() != "src/fetch.ts — after 20-22" {
-		t.Errorf("unexpected anchor %q", cr.Anchor.Location())
+	if comment.Anchor.Location() != "src/fetch.ts — after 20-22" {
+		t.Errorf("unexpected anchor %q", comment.Anchor.Location())
 	}
-	if cr.Step != 1 {
-		t.Errorf("expected the Change Request to record Step 1, got %d", cr.Step)
+	if comment.Step != 1 {
+		t.Errorf("expected the Comment to record Step 1, got %d", comment.Step)
 	}
 }
 
-func TestSeveralChangeRequestsCanBeRaisedOnOneStepAndListed(t *testing.T) {
+func TestSeveralCommentsCanBeRaisedOnOneStepAndListed(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 	mustAdvance(t, session)
@@ -41,44 +41,44 @@ func TestSeveralChangeRequestsCanBeRaisedOnOneStepAndListed(t *testing.T) {
 	raise(t, session, 20, 20, "first")
 	raise(t, session, 25, 25, "second")
 
-	list := session.ChangeRequests()
+	list := session.Comments()
 	if len(list) != 2 {
-		t.Fatalf("expected 2 Change Requests, got %d", len(list))
+		t.Fatalf("expected 2 Comments, got %d", len(list))
 	}
 	if list[0].ID == list[1].ID {
 		t.Error("expected distinct IDs")
 	}
 }
 
-func TestAChangeRequestCanBeWithdrawn(t *testing.T) {
+func TestACommentCanBeWithdrawn(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 	mustAdvance(t, session)
-	cr := raise(t, session, 20, 22, "reconsidered")
+	comment := raise(t, session, 20, 22, "reconsidered")
 
-	if err := session.WithdrawChangeRequest(cr.ID); err != nil {
+	if err := session.WithdrawComment(comment.ID); err != nil {
 		t.Fatalf("expected to withdraw, got %v", err)
 	}
-	if len(session.ChangeRequests()) != 0 {
-		t.Error("expected the Change Request to be gone")
+	if len(session.Comments()) != 0 {
+		t.Error("expected the Comment to be gone")
 	}
 }
 
-func TestWithdrawingAnUnknownChangeRequestIsRejected(t *testing.T) {
+func TestWithdrawingAnUnknownCommentIsRejected(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
-	err := session.WithdrawChangeRequest(999)
+	err := session.WithdrawComment(999)
 
-	assertRejected(t, err, review.RejectedNoSuchChangeRequest)
+	assertRejected(t, err, review.RejectedNoSuchComment)
 }
 
-func TestAStepWithAChangeRequestIsFlaggedOtherwiseSeen(t *testing.T) {
+func TestAStepWithACommentIsFlaggedOtherwiseSeen(t *testing.T) {
 	session := threeStepSession(t) // three steps, empty diff
 	mustAdvance(t, session)        // visit Step 1 (seen)
 	mustAdvance(t, session)        // visit Step 2
 	// Flag Step 2.
-	if _, err := session.RaiseChangeRequest(span(0, 1, 1), "fix"); err != nil {
+	if _, err := session.RaiseComment(span(0, 1, 1), "fix"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,10 +94,10 @@ func TestAStepWithAChangeRequestIsFlaggedOtherwiseSeen(t *testing.T) {
 	}
 }
 
-func TestWithdrawingTheLastChangeRequestReturnsAStepToSeen(t *testing.T) {
+func TestWithdrawingTheLastCommentReturnsAStepToSeen(t *testing.T) {
 	session := threeStepSession(t)
 	mustAdvance(t, session) // Step 1 seen
-	cr, err := session.RaiseChangeRequest(span(0, 1, 1), "fix")
+	comment, err := session.RaiseComment(span(0, 1, 1), "fix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +105,12 @@ func TestWithdrawingTheLastChangeRequestReturnsAStepToSeen(t *testing.T) {
 		t.Fatal("expected Step 1 flagged after raising")
 	}
 
-	if err := session.WithdrawChangeRequest(cr.ID); err != nil {
+	if err := session.WithdrawComment(comment.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	if session.View().StepStatuses[0] != review.StepSeen {
-		t.Error("expected Step 1 to return to seen after the last Change Request was withdrawn")
+		t.Error("expected Step 1 to return to seen after the last Comment was withdrawn")
 	}
 }
 
@@ -130,8 +130,8 @@ func TestFinishReportsEverythingTheAgentNeedsToReground(t *testing.T) {
 	if !results.Finished {
 		t.Error("expected the Walkthrough to report finished")
 	}
-	if len(results.ChangeRequests) != 1 || results.ChangeRequests[0].Note != "narrow this" {
-		t.Errorf("expected the Change Request in the results, got %+v", results.ChangeRequests)
+	if len(results.Comments) != 1 || results.Comments[0].Note != "narrow this" {
+		t.Errorf("expected the Comment in the results, got %+v", results.Comments)
 	}
 	if results.Brief.Ask == "" {
 		t.Error("expected the Brief in the results so the agent can re-ground itself")
@@ -141,29 +141,29 @@ func TestFinishReportsEverythingTheAgentNeedsToReground(t *testing.T) {
 	}
 }
 
-func TestAChangeRequestNoteCanBeEdited(t *testing.T) {
+func TestACommentNoteCanBeEdited(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 	mustAdvance(t, session)
-	cr := raise(t, session, 20, 22, "original")
+	comment := raise(t, session, 20, 22, "original")
 
-	if err := session.EditChangeRequest(cr.ID, "refined"); err != nil {
+	if err := session.EditComment(comment.ID, "refined"); err != nil {
 		t.Fatalf("expected to edit, got %v", err)
 	}
 
-	list := session.ChangeRequests()
+	list := session.Comments()
 	if list[0].Note != "refined" {
 		t.Errorf("expected the note to be updated, got %q", list[0].Note)
 	}
 }
 
-func TestEditingAnUnknownChangeRequestIsRejected(t *testing.T) {
+func TestEditingAnUnknownCommentIsRejected(t *testing.T) {
 	session := newSession()
 	mustPost(t, session, validWalkthrough())
 
-	err := session.EditChangeRequest(999, "x")
+	err := session.EditComment(999, "x")
 
-	assertRejected(t, err, review.RejectedNoSuchChangeRequest)
+	assertRejected(t, err, review.RejectedNoSuchComment)
 }
 
 func TestAFinishedWalkthroughCanBeReopenedToAddMore(t *testing.T) {
@@ -175,14 +175,14 @@ func TestAFinishedWalkthroughCanBeReopenedToAddMore(t *testing.T) {
 	}
 
 	// Adding is refused while finished.
-	if _, err := session.RaiseChangeRequest(span(0, 20, 20), "late"); err == nil {
+	if _, err := session.RaiseComment(span(0, 20, 20), "late"); err == nil {
 		t.Fatal("expected adding to be refused while finished")
 	}
 
 	if err := session.Reopen(); err != nil {
 		t.Fatalf("expected to reopen, got %v", err)
 	}
-	if _, err := session.RaiseChangeRequest(span(0, 20, 20), "late"); err != nil {
+	if _, err := session.RaiseComment(span(0, 20, 20), "late"); err != nil {
 		t.Fatalf("expected to add after reopening, got %v", err)
 	}
 	if session.View().Finished {

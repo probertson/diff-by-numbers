@@ -65,7 +65,7 @@ func TestBriefWrapsTheSourceCitation(t *testing.T) {
 }
 
 func TestNoteViewWrapsTheAnchorHeader(t *testing.T) {
-	// The anchor's "Re: …" header is one long line; in the New Change Request modal
+	// The anchor's "Re: …" header is one long line; in the New Comment modal
 	// it used to run off the edge instead of wrapping.
 	const width = 50
 	m := model{
@@ -107,26 +107,26 @@ func TestNoteViewShowsACharacterCounter(t *testing.T) {
 	}
 }
 
-func TestListViewTitlePluralizesChangeRequests(t *testing.T) {
+func TestListViewTitlePluralizesComments(t *testing.T) {
 	m := model{
 		width: 80,
-		view:  &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1, Step: 1, Note: "n"}}},
+		view:  &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 1, Step: 1, Note: "n"}}},
 	}
 
 	out := m.listView()
 
-	if !strings.Contains(out, "1 Change Request") || strings.Contains(out, "Request(s)") {
-		t.Errorf("one Change Request should read '1 Change Request', got:\n%s", out)
+	if !strings.Contains(out, "1 Comment") || strings.Contains(out, "Request(s)") {
+		t.Errorf("one Comment should read '1 Comment', got:\n%s", out)
 	}
 }
 
 func TestDoneViewPluralizesItsCounts(t *testing.T) {
-	// Finished with a Change Request outstanding is the waiting face (State 1).
+	// Finished with a Comment outstanding is the waiting face (State 1).
 	m := model{
 		view: &daemon.ViewWire{
-			Finished:       true,
-			StepStatuses:   []string{"seen"},
-			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}},
+			Finished:     true,
+			StepStatuses: []string{"seen"},
+			Comments:     []daemon.CommentWire{{ID: 1}},
 		},
 	}
 
@@ -138,8 +138,8 @@ func TestDoneViewPluralizesItsCounts(t *testing.T) {
 	if !strings.Contains(out, "1 Step seen") {
 		t.Errorf("expected '1 Step seen', got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 Change Request raised") {
-		t.Errorf("expected '1 Change Request raised', got:\n%s", out)
+	if !strings.Contains(out, "1 Comment raised") {
+		t.Errorf("expected '1 Comment raised', got:\n%s", out)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestCtrlDArmsDeleteOnlyWhenEditingAnExistingRequest(t *testing.T) {
 	armed, _ := editing.updateNote(tea.KeyMsg{Type: tea.KeyCtrlD})
 
 	if !armed.(model).confirmingDelete {
-		t.Error("ctrl+d while editing an existing Change Request should arm the delete confirm")
+		t.Error("ctrl+d while editing an existing Comment should arm the delete confirm")
 	}
 
 	composing := model{mode: modeNote, editingID: 0, note: newNote(80)}
@@ -157,7 +157,7 @@ func TestCtrlDArmsDeleteOnlyWhenEditingAnExistingRequest(t *testing.T) {
 	still, _ := composing.updateNote(tea.KeyMsg{Type: tea.KeyCtrlD})
 
 	if still.(model).confirmingDelete {
-		t.Error("ctrl+d while composing a new Change Request has nothing to delete and must not arm")
+		t.Error("ctrl+d while composing a new Comment has nothing to delete and must not arm")
 	}
 }
 
@@ -192,7 +192,7 @@ func TestArmedDeleteConfirmedReturnsToTheStep(t *testing.T) {
 		t.Error("deleting from the editor should return to the Step, matching esc")
 	}
 	if dm.editingID != 0 {
-		t.Error("editingID should clear after the Change Request is deleted")
+		t.Error("editingID should clear after the Comment is deleted")
 	}
 }
 
@@ -214,7 +214,7 @@ func TestArmedDeleteSwallowsStrayKeys(t *testing.T) {
 func TestListDeleteArmsBeforeWithdrawing(t *testing.T) {
 	m := model{
 		mode: modeList,
-		view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+		view: &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 3, Step: 1, Note: "n"}}},
 	}
 
 	armed, _ := m.updateList("d")
@@ -228,7 +228,7 @@ func TestArmedListDeleteEscCancelsRatherThanLeavingTheList(t *testing.T) {
 	m := model{
 		mode:             modeList,
 		confirmingDelete: true,
-		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+		view:             &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 3, Step: 1, Note: "n"}}},
 	}
 
 	cancelled, _ := m.updateList("esc")
@@ -246,8 +246,8 @@ func TestArmedListDeleteConfirmedWithdrawsAndStaysInList(t *testing.T) {
 	m := model{
 		mode:             modeList,
 		confirmingDelete: true,
-		crCursor:         0,
-		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+		commentCursor:    0,
+		view:             &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 3, Step: 1, Note: "n"}}},
 	}
 
 	confirmed, _ := m.updateList("y")
@@ -265,8 +265,8 @@ func TestArmedListDeleteSwallowsStrayKeys(t *testing.T) {
 	m := model{
 		mode:             modeList,
 		confirmingDelete: true,
-		crCursor:         0,
-		view:             &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 3, Step: 1, Note: "n"}}},
+		commentCursor:    0,
+		view:             &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 3, Step: 1, Note: "n"}}},
 	}
 
 	after, _ := m.updateList("e")
@@ -278,20 +278,20 @@ func TestArmedListDeleteSwallowsStrayKeys(t *testing.T) {
 	if am.mode != modeList {
 		t.Error("a stray key while armed must not act on the List (e would otherwise open the editor)")
 	}
-	if am.crCursor != 0 {
-		t.Errorf("a stray key while armed must not move the List cursor, got %d", am.crCursor)
+	if am.commentCursor != 0 {
+		t.Errorf("a stray key while armed must not move the List cursor, got %d", am.commentCursor)
 	}
 }
 
 func TestEditKeybarOffersDeleteOnlyWhenEditing(t *testing.T) {
 	editing := model{editingID: 7}
 	if !strings.Contains(editing.noteKeys(), "ctrl+d") {
-		t.Error("editing an existing Change Request should advertise ctrl+d delete")
+		t.Error("editing an existing Comment should advertise ctrl+d delete")
 	}
 
 	composing := model{editingID: 0}
 	if strings.Contains(composing.noteKeys(), "ctrl+d") {
-		t.Error("composing a new Change Request has nothing to delete, so must not advertise ctrl+d")
+		t.Error("composing a new Comment has nothing to delete, so must not advertise ctrl+d")
 	}
 	if strings.Contains(composing.noteKeys(), "newline") {
 		t.Error("the unreliable shift+enter newline hint should be gone from the editor keybar")
@@ -318,7 +318,7 @@ func TestArmedDeleteShowsPromptAsAToastAboveTheKeybar(t *testing.T) {
 	if !strings.Contains(out, "ctrl+d") {
 		t.Error("the shortcut row should stay visible while the confirm is armed, not be replaced")
 	}
-	if strings.Index(out, "Delete this Change Request") > strings.LastIndex(out, "ctrl+d") {
+	if strings.Index(out, "Delete this Comment") > strings.LastIndex(out, "ctrl+d") {
 		t.Error("the confirm prompt should sit above the shortcut row, not below it")
 	}
 }
@@ -505,32 +505,32 @@ func TestShouldGuardQuitOnlyWhenPostedAndUnfinished(t *testing.T) {
 	}
 }
 
-func TestQuitGuardMessageNamesPendingChangeRequests(t *testing.T) {
-	many := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}}}}
-	if !strings.Contains(many.quitGuardMessage(), "Your 2 Change Requests will not be lost") {
-		t.Errorf("the heads-up should name the pending Change Requests, got:\n%s", many.quitGuardMessage())
+func TestQuitGuardMessageNamesPendingComments(t *testing.T) {
+	many := model{view: &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 1}, {ID: 2}}}}
+	if !strings.Contains(many.quitGuardMessage(), "Your 2 Comments will not be lost") {
+		t.Errorf("the heads-up should name the pending Comments, got:\n%s", many.quitGuardMessage())
 	}
 
-	one := model{view: &daemon.ViewWire{ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}}}}
-	if !strings.Contains(one.quitGuardMessage(), "Your 1 Change Request will not be lost") {
-		t.Errorf("a single Change Request should read in the singular, got:\n%s", one.quitGuardMessage())
+	one := model{view: &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 1}}}}
+	if !strings.Contains(one.quitGuardMessage(), "Your 1 Comment will not be lost") {
+		t.Errorf("a single Comment should read in the singular, got:\n%s", one.quitGuardMessage())
 	}
 
 	without := model{view: &daemon.ViewWire{}}
 	if !strings.Contains(without.quitGuardMessage(), "Nothing will be lost") {
-		t.Errorf("with no Change Requests the heads-up should reassure plainly, got:\n%s", without.quitGuardMessage())
+		t.Errorf("with no Comments the heads-up should reassure plainly, got:\n%s", without.quitGuardMessage())
 	}
 }
 
 func TestConclusionViewShowsTheSummaryAndHandOffCTA(t *testing.T) {
 	m := model{view: &daemon.ViewWire{
-		StepCount:      3,
-		ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}, {ID: 2}},
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}, {ID: 2}},
 	}}
 
 	out := m.conclusionView()
 
-	if !strings.Contains(out, "2 Change Requests across 3 Steps") {
+	if !strings.Contains(out, "2 Comments across 3 Steps") {
 		t.Errorf("expected the light summary, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Press h to hand off") {
@@ -592,7 +592,7 @@ func TestFNoLongerHandsOff(t *testing.T) {
 func TestTheHandedOffScreenSaysHandedOff(t *testing.T) {
 	m := model{view: &daemon.ViewWire{
 		Posted: true, Finished: true,
-		ChangeRequests: []daemon.ChangeRequestWire{{ID: 1}},
+		Comments: []daemon.CommentWire{{ID: 1}},
 	}}
 
 	out := m.doneView()
@@ -666,9 +666,9 @@ func TestDoneViewRevisionBoxSummarizesDispositions(t *testing.T) {
 	m := model{view: &daemon.ViewWire{
 		Finished: false,
 		Dispositions: []daemon.DispositionWire{
-			{ChangeRequestID: 1, Status: "addressed"},
-			{ChangeRequestID: 2, Status: "addressed"},
-			{ChangeRequestID: 3, Status: "declined"},
+			{CommentID: 1, Status: "addressed"},
+			{CommentID: 2, Status: "addressed"},
+			{CommentID: 3, Status: "declined"},
 		},
 	}}
 
@@ -682,6 +682,51 @@ func TestDoneViewRevisionBoxSummarizesDispositions(t *testing.T) {
 	}
 	if !strings.Contains(out, "Press enter to review it") {
 		t.Errorf("expected the review call to action, got:\n%s", out)
+	}
+}
+
+func TestDoneViewRevisionBoxCountsAnsweredComments(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		Dispositions: []daemon.DispositionWire{
+			{CommentID: 1, Status: "addressed"},
+			{CommentID: 2, Status: "answered", Response: "it guards the retry"},
+			{CommentID: 3, Status: "declined", Response: "intended"},
+		},
+	}}
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "The agent addressed 1, answered 1 and declined 1 of your Comments.") {
+		t.Errorf("expected the summary to count the answered Comment, got:\n%s", out)
+	}
+}
+
+func TestOverviewShowsAnsweredCommentsWithTheirResponse(t *testing.T) {
+	m := model{
+		width:    80,
+		viewport: viewport.New(80, 40),
+		view: &daemon.ViewWire{
+			Posted: true,
+			Brief:  daemon.BriefWire{Ask: "ask", Approach: "approach", ProvenanceKind: "stated", ProvenanceCitation: "chat"},
+			Dispositions: []daemon.DispositionWire{
+				{CommentID: 1, Status: "addressed", Note: "cap the retry", Response: "capped at 3"},
+				{CommentID: 2, Status: "answered", Note: "why this timeout?", Response: "the upstream SLA is 5s"},
+			},
+			Repositories: []daemon.RepositoryWire{{Root: "repo", Range: "main"}},
+			StepNames:    []string{"one"},
+			Seen:         []bool{false},
+		},
+	}
+
+	out := m.brief()
+
+	if !strings.Contains(out, "answered") || strings.Count(out, "addressed") != 1 {
+		t.Errorf("expected one addressed and one answered item, got:\n%s", out)
+	}
+	for _, response := range []string{"the upstream SLA is 5s", "capped at 3"} {
+		if !strings.Contains(out, response) {
+			t.Errorf("expected the agent's response %q, got:\n%s", response, out)
+		}
 	}
 }
 
@@ -740,12 +785,12 @@ func TestFinishedScreenResumeFromTheWaitingFace(t *testing.T) {
 }
 
 func TestListViewWrapsLongNotes(t *testing.T) {
-	// A long Change Request note used to print raw, running off the right edge.
+	// A long Comment note used to print raw, running off the right edge.
 	const width = 50
 	m := model{
 		width: width,
 		view: &daemon.ViewWire{
-			ChangeRequests: []daemon.ChangeRequestWire{{
+			Comments: []daemon.CommentWire{{
 				ID: 1, Step: 1, Location: "a.go:1-2 (new)", Anchor: "+ 1 | x",
 				Note: "This name reads as a boolean but returns the count; rename it so a caller is not misled into an if-check that is always true.",
 			}},
@@ -755,6 +800,6 @@ func TestListViewWrapsLongNotes(t *testing.T) {
 	out := m.listView()
 
 	if over := widestLine(out); over > width {
-		t.Errorf("a Change Request note is %d cells wide, over the %d list — it did not wrap:\n%s", over, width, out)
+		t.Errorf("a Comment note is %d cells wide, over the %d list — it did not wrap:\n%s", over, width, out)
 	}
 }

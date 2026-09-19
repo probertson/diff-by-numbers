@@ -1,6 +1,6 @@
 ---
 name: dbn-review
-description: Post a walkthrough of your own code changes to diff-by-numbers (dbn) for a human to review. Use this when you have finished a body of work and want it reviewed — instead of handing over a raw diff, plan a narrated, semantically-ordered walkthrough and post it over the dbn MCP server. Also use it to collect the reviewer's Change Requests and post a Revision Round.
+description: Post a walkthrough of your own code changes to diff-by-numbers (dbn) for a human to review. Use this when you have finished a body of work and want it reviewed — instead of handing over a raw diff, plan a narrated, semantically-ordered walkthrough and post it over the dbn MCP server. Also use it to collect the reviewer's Comments and post a Revision Round.
 ---
 
 # Reviewing your changes with dbn
@@ -8,7 +8,8 @@ description: Post a walkthrough of your own code changes to diff-by-numbers (dbn
 dbn is a channel for you to walk a human through the code you just wrote, in an
 order that makes sense for review rather than the order git happens to print.
 You post one complete **Walkthrough**; the reviewer navigates it themselves in a
-side terminal and raises **Change Requests**; you collect those and post a
+side terminal and raises **Comments** (requests for a change, or questions); you
+collect those and post a
 **Revision Round**. You never block waiting — you post, end your turn, and pick
 the results up later.
 
@@ -63,7 +64,7 @@ for Excerpts on those files. It is the **only** way to cover an Opaque Change �
 binary file, a mode change, a pure rename — which has no lines to excerpt. Use
 one when the change is truly mechanical; do not use it to hide real code, because
 the reviewer sees the manifest and can expand it into the actual diff — and raise
-Change Requests against it.
+Comments against it.
 
 **Coverage is enforced.** dbn derives the changed lines from git and refuses a
 Walkthrough that leaves any of them shown by neither an Excerpt nor an
@@ -85,18 +86,31 @@ not poll.
 ## Collecting feedback and revising
 
 When the human says they have handed the review off, call `fetch_results`. It returns
-immediately (it never waits) with the reviewer's Change Requests, each carrying
-an anchored reference to the exact code it concerns. Work them.
+immediately (it never waits) with the reviewer's Comments, each carrying an
+anchored reference to the exact code it concerns. Respond to each: a Comment may
+ask for a change or ask a question.
 
 Then post a **Revision Round**: another `post_walkthrough`, over the full change
-set again, but this time include `dispositions` — one entry per Change Request
-you were handed, each `addressed` or `declined` (a decline needs a one-line
-`reasoning` the reviewer will see before any code, and may re-raise). dbn
+set again, but this time include `dispositions` — one entry per Comment you were
+handed, with a `status` you choose and a `response` the reviewer sees before any
+code:
+
+- `addressed` — you made a change. A `response` is optional but welcome, e.g. to
+  say how you fixed it or that you fixed a twin elsewhere too.
+- `answered` — you responded without changing anything, as to a question. The
+  `response` is required: it is the answer.
+- `declined` — you won't make the change asked for. The `response` is required:
+  a reason, in a line or two, that the reviewer can weigh (and may re-raise).
+
+Use `answered` for a question, even one you could read as a request; use
+`declined` only when you are turning down a change. If answering the question
+led you to change the code, that is `addressed`, with the answer as its
+`response`. dbn
 re-derives everything and pre-marks as already-seen every line whose content is
 unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
 plan Steps and coverage for the moved lines the same way.
 
-A Change Request whose anchor says the code was `acknowledged in Step "…"`
+A Comment whose anchor says the code was `acknowledged in Step "…"`
 disputes that Acknowledgement as well as the line: the reviewer read code you
 called mechanical and found something to say. When you resolve it, say in the
 Revision Round's Brief whether the "mechanical" claim still holds. Do not

@@ -118,14 +118,14 @@ type ViewModel struct {
 	// Seen[i] reports whether Step i+1 has been visited.
 	Seen []bool
 	// StepStatuses[i] is the derived disposition of Step i+1.
-	StepStatuses   []StepStatus
-	ChangeRequests []ChangeRequest
-	Finished       bool
+	StepStatuses []StepStatus
+	Comments     []Comment
+	Finished     bool
 	// Concluded reports whether the review loop is over — finished having raised
 	// nothing, or ended explicitly. It lets the finished screen tell "a Revision
 	// Round is coming" from "the review is complete".
 	Concluded bool
-	// Dispositions accounts for the previous round's Change Requests in a Revision
+	// Dispositions accounts for the previous round's Comments in a Revision
 	// Round — shown before any code, so a decline is seen before the fix.
 	Dispositions []ResolvedDisposition
 }
@@ -155,12 +155,12 @@ func (s *Session) View() ViewModel {
 			Seen:  s.ledger.seenBy(w.Steps, s.position, s.preShown),
 			Total: s.ledger.total(),
 		},
-		Seen:           s.seenFlags(),
-		StepStatuses:   s.stepStatuses(),
-		ChangeRequests: s.ChangeRequests(),
-		Finished:       s.finished,
-		Concluded:      s.isConcluded(),
-		Dispositions:   s.Dispositions(),
+		Seen:         s.seenFlags(),
+		StepStatuses: s.stepStatuses(),
+		Comments:     s.Comments(),
+		Finished:     s.finished,
+		Concluded:    s.isConcluded(),
+		Dispositions: s.Dispositions(),
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)

@@ -36,7 +36,7 @@ func TestFetchResultsSpeaksOfHandingOff(t *testing.T) {
 	}
 
 	httpPost(t, server.URL+"/goto/1")
-	raiseChangeRequest(t, server.URL, 0, 4, 4, "please rename this")
+	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
 	httpPost(t, server.URL+"/finish")
 
 	handed := fetchResults(t, server.URL)

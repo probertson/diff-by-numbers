@@ -50,8 +50,8 @@ func TestAPostedWalkthroughIsAcceptedAndAwaitsTheReviewer(t *testing.T) {
 	if results.Finished {
 		t.Error("expected the Walkthrough not to be finished")
 	}
-	if len(results.ChangeRequests) != 0 {
-		t.Errorf("expected no Change Requests, got %d", len(results.ChangeRequests))
+	if len(results.Comments) != 0 {
+		t.Errorf("expected no Comments, got %d", len(results.Comments))
 	}
 }
 

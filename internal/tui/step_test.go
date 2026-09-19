@@ -126,8 +126,8 @@ func TestRenderStepInterleavesBeforeAndAfterAsAUnifiedDiff(t *testing.T) {
 	}
 }
 
-func TestAChangeRequestAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.T) {
-	// A before-row and an after-row both numbered 2; a Change Request on the
+func TestACommentAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.T) {
+	// A before-row and an after-row both numbered 2; a Comment on the
 	// before-side must attribute to the before-row alone.
 	step := &daemon.StepWire{
 		Number: 1, Name: "Edit", Explanation: "two became TWO",
@@ -139,7 +139,7 @@ func TestAChangeRequestAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.
 	m := model{
 		view: &daemon.ViewWire{
 			Posted: true, Position: 1, Step: step,
-			ChangeRequests: []daemon.ChangeRequestWire{{ID: 1, Step: 1, File: "guard.go", Segments: []daemon.SegmentWire{
+			Comments: []daemon.CommentWire{{ID: 1, Step: 1, File: "guard.go", Segments: []daemon.SegmentWire{
 				{Side: "old", FirstLine: 2, LastLine: 2},
 			}}},
 		},
@@ -157,11 +157,11 @@ func TestAChangeRequestAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.
 
 	m.cursor.cursor = 0 // the before-side row
 	if _, ok := m.commentAtCursor(); !ok {
-		t.Error("expected the Change Request to be found on the before-side row")
+		t.Error("expected the Comment to be found on the before-side row")
 	}
 	m.cursor.cursor = 1 // the after-side row
 	if _, ok := m.commentAtCursor(); ok {
-		t.Error("the after-side row must not resolve to the before-side's Change Request")
+		t.Error("the after-side row must not resolve to the before-side's Comment")
 	}
 }
 
@@ -211,11 +211,11 @@ func TestRenderStepKeepsTheOversizeJustificationWithinWidth(t *testing.T) {
 }
 
 func TestRowStyleComposesCommentCursorAndReferenceDim(t *testing.T) {
-	// Colour carries "has a Change Request", weight carries "is the cursor line",
+	// Colour carries "has a Comment", weight carries "is the cursor line",
 	// and a dim colour carries "unchanged reference context". Comment colour and
 	// cursor weight compose (a commented cursor line is yellow AND bold). The dim
 	// is the lowest-priority layer: a reference row is dimmed only when it is
-	// neither commented nor the cursor, so context never hides a Change Request or
+	// neither commented nor the cursor, so context never hides a Comment or
 	// the cursor.
 	cases := []struct {
 		name                         string
@@ -384,7 +384,7 @@ func twoExcerptStep() *daemon.StepWire {
 }
 
 func TestASelectionCannotGrowPastTheExcerptItAnchoredIn(t *testing.T) {
-	// A Change Request anchors inside one Excerpt, so the movement that would carry
+	// A Comment anchors inside one Excerpt, so the movement that would carry
 	// the selection out of it is refused rather than allowed and rejected later (#57).
 	cur := newStepCursor(twoExcerptStep(), nil)
 

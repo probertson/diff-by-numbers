@@ -9,7 +9,7 @@ const (
 	StepUnseen StepStatus = "unseen"
 	// StepSeen means the Reviewer visited it and raised nothing.
 	StepSeen StepStatus = "seen"
-	// StepFlagged means the Reviewer raised at least one Change Request on it.
+	// StepFlagged means the Reviewer raised at least one Comment on it.
 	StepFlagged StepStatus = "flagged"
 )
 
@@ -22,7 +22,7 @@ type StepReport struct {
 }
 
 func (s *Session) stepStatus(step int) StepStatus {
-	if s.changeRequestsForStep(step) > 0 {
+	if s.commentsForStep(step) > 0 {
 		return StepFlagged
 	}
 	if s.seen[step] {
@@ -85,10 +85,10 @@ func (s *Session) Conclude(id string) error {
 }
 
 // isConcluded reports whether the review has reached a terminal disposition:
-// declared so explicitly, or inferred from a round finished with no Change
-// Request raised — the natural end of the review loop.
+// declared so explicitly, or inferred from a round finished with no Comment
+// raised — the natural end of the review loop.
 func (s *Session) isConcluded() bool {
-	return s.concluded || (s.finished && len(s.changeRequests) == 0)
+	return s.concluded || (s.finished && len(s.comments) == 0)
 }
 
 // Concluded reports whether the posted review is over. It is false when nothing

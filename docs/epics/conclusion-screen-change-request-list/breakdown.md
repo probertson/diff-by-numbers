@@ -1,10 +1,10 @@
 ---
-title: "Breakdown: [TUI] List Change Requests from the conclusion screen"
+title: "Breakdown: [TUI] List Comments from the conclusion screen"
 requirements: requirements.md
 ---
-# Breakdown: [TUI] List Change Requests from the conclusion screen
+# Breakdown: [TUI] List Comments from the conclusion screen
 
-Breaks down [[TUI] List Change Requests from the conclusion screen](requirements.md) (GitHub
+Breaks down [[TUI] List Comments from the conclusion screen](requirements.md) (GitHub
 issue #65). Read the requirements first: their Background, Requirements and Decisions are not
 repeated here.
 

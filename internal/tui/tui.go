@@ -116,14 +116,14 @@ type model struct {
 	status           string
 	mode             mode
 	note             textarea.Model
-	crCursor         int         // selected row in the change-request list
-	pendingSel       selectedRun // the selection awaiting a note
-	pendingCode      string      // the code being commented on, shown above the note input
-	editingID        int         // >0 when editing an existing Change Request rather than adding
-	confirmingDelete bool        // an inline y/n delete confirm is armed (edit screen or List)
-	confirmingQuit   bool        // a second-q quit heads-up is armed on an unfinished review
-	crFilter         crFilter    // when active, the List shows only comments on one line
-	reraiseCursor    int         // selected row among declined dispositions
+	commentCursor    int           // selected row in the Comment list
+	pendingSel       selectedRun   // the selection awaiting a note
+	pendingCode      string        // the code being commented on, shown above the note input
+	editingID        int           // >0 when editing an existing Comment rather than adding
+	confirmingDelete bool          // an inline y/n delete confirm is armed (edit screen or List)
+	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
+	commentFilter    commentFilter // when active, the List shows only the Comments on one line
+	reraiseCursor    int           // selected row among declined dispositions
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -147,7 +147,7 @@ type leftStep struct {
 	expanded map[int][]daemon.ExcerptWire
 }
 
-type crFilter struct {
+type commentFilter struct {
 	active bool
 	file   string
 	side   string
@@ -158,10 +158,10 @@ type mode int
 
 const (
 	modeReview     mode = iota // walking Steps
-	modeNote                   // typing a Change Request note
-	modeList                   // the Change Request list
+	modeNote                   // typing a Comment note
+	modeList                   // the Comment list
 	modeDone                   // the hand-off summary
-	modeReraise                // choosing a declined request to re-raise
+	modeReraise                // choosing a declined Comment to re-raise
 	modeConclusion             // reached by advancing past the last Step: the pre-hand-off on-ramp
 )
 
@@ -284,7 +284,7 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// anchorBody is a selected run as the daemon's /anchor and /changerequest
+// anchorBody is a selected run as the daemon's /anchor and /comment
 // endpoints take it: the Excerpt and the row at each end, never a range.
 func anchorBody(run selectedRun) map[string]any {
 	body := map[string]any{
@@ -300,11 +300,11 @@ func anchorBody(run selectedRun) map[string]any {
 	return body
 }
 
-func (c client) raiseChangeRequest(run selectedRun, note string) bool {
+func (c client) raiseComment(run selectedRun, note string) bool {
 	payload := anchorBody(run)
 	payload["note"] = note
 	body, _ := json.Marshal(payload)
-	response, err := http.Post(c.base+"/changerequest", "application/json", bytes.NewReader(body))
+	response, err := http.Post(c.base+"/comment", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
@@ -312,9 +312,9 @@ func (c client) raiseChangeRequest(run selectedRun, note string) bool {
 	return response.StatusCode == http.StatusOK
 }
 
-func (c client) editChangeRequest(id int, note string) bool {
+func (c client) editComment(id int, note string) bool {
 	body, _ := json.Marshal(map[string]any{"note": note})
-	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/changerequest/%d", c.base, id), bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/comment/%d", c.base, id), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -325,7 +325,7 @@ func (c client) editChangeRequest(id int, note string) bool {
 }
 
 func (c client) withdraw(id int) {
-	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/changerequest/%d", c.base, id), nil)
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/comment/%d", c.base, id), nil)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()
 	}
@@ -564,13 +564,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.refresh()
 			}
 		case "l", "L":
-			m.crFilter = crFilter{}
+			m.commentFilter = commentFilter{}
 			m.mode = modeList
-			m.crCursor = 0
+			m.commentCursor = 0
 			return m, nil
 		case "R":
 			if len(m.declinedDispositions()) == 0 {
-				m.status = "no declined requests to re-raise"
+				m.status = "no declined Comments to re-raise"
 				return m, nil
 			}
 			m.reraiseCursor = 0
@@ -658,8 +658,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
-					m.crFilter = crFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
-					m.crCursor = 0
+					m.commentFilter = commentFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
+					m.commentCursor = 0
 					m.mode = modeList
 				}
 				return m, nil
@@ -716,7 +716,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeReview // matches esc — origin (Step or List) is not tracked
 				m.note.Blur()
 				m.client.withdraw(id)
-				m.status = "Change Request deleted"
+				m.status = "Comment deleted"
 				return m, m.refresh()
 			case confirmCancel:
 				m.confirmingDelete = false // cancel back into editing, note intact
@@ -730,7 +730,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.note.Blur()
 			return m, nil
 		case "ctrl+d":
-			// Delete only makes sense against an existing Change Request; while
+			// Delete only makes sense against an existing Comment; while
 			// composing a new one there is nothing yet to delete.
 			if m.editingID > 0 {
 				m.confirmingDelete = true
@@ -740,12 +740,12 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			note := m.note.Value()
 			if note != "" {
 				if m.editingID > 0 {
-					if m.client.editChangeRequest(m.editingID, note) {
-						m.status = "Change Request updated"
+					if m.client.editComment(m.editingID, note) {
+						m.status = "Comment updated"
 					} else {
-						m.status = "could not update the Change Request"
+						m.status = "could not update the Comment"
 					}
-				} else if m.client.raiseChangeRequest(m.pendingSel, note) {
+				} else if m.client.raiseComment(m.pendingSel, note) {
 					m.status = "comment added"
 				} else {
 					m.status = "could not add the comment"
@@ -767,16 +767,16 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateList(key string) (tea.Model, tea.Cmd) {
-	list := m.filteredCRs()
+	list := m.filteredComments()
 	if m.confirmingDelete {
 		// The armed confirm intercepts esc too, so it cancels the delete rather
 		// than falling through to the List's esc-exits-to-review.
 		switch readConfirm(key) {
 		case confirmProceed:
-			if m.crCursor < len(list) {
-				m.client.withdraw(list[m.crCursor].ID)
-				if m.crCursor > 0 {
-					m.crCursor--
+			if m.commentCursor < len(list) {
+				m.client.withdraw(list[m.commentCursor].ID)
+				if m.commentCursor > 0 {
+					m.commentCursor--
 				}
 			}
 			m.confirmingDelete = false
@@ -788,30 +788,30 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc", "L", "q":
-		m.crFilter = crFilter{}
+		m.commentFilter = commentFilter{}
 		m.mode = modeReview
 		return m, nil
 	case "up", "k":
-		if m.crCursor > 0 {
-			m.crCursor--
+		if m.commentCursor > 0 {
+			m.commentCursor--
 		}
 		return m, nil
 	case "down", "j":
-		if m.crCursor < len(list)-1 {
-			m.crCursor++
+		if m.commentCursor < len(list)-1 {
+			m.commentCursor++
 		}
 		return m, nil
 	case "d", "x":
-		if m.crCursor < len(list) {
+		if m.commentCursor < len(list) {
 			m.confirmingDelete = true
 		}
 		return m, nil
 	case "e", "enter":
-		if m.crCursor < len(list) {
-			cr := list[m.crCursor]
-			m.editingID = cr.ID
-			m.pendingCode = cr.Anchor
-			m.note.SetValue(cr.Note)
+		if m.commentCursor < len(list) {
+			comment := list[m.commentCursor]
+			m.editingID = comment.ID
+			m.pendingCode = comment.Anchor
+			m.note.SetValue(comment.Note)
 			m.note.Focus()
 			m.setNoteHeight()
 			m.mode = modeNote
@@ -841,10 +841,10 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.reraiseCursor < len(declined) {
 			disposition := declined[m.reraiseCursor]
-			if m.client.reraise(disposition.ChangeRequestID) {
-				m.status = fmt.Sprintf("re-raised request #%d — it stands again this round", disposition.ChangeRequestID)
+			if m.client.reraise(disposition.CommentID) {
+				m.status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", disposition.CommentID)
 			} else {
-				m.status = "could not re-raise the request"
+				m.status = "could not re-raise the Comment"
 			}
 			m.mode = modeReview
 			return m, m.refresh()
@@ -946,21 +946,21 @@ func (m model) updateDone(key string) (tea.Model, tea.Cmd) {
 }
 
 // quitGuardMessage reassures that nothing is lost, names the real consequence,
-// then offers all three ways out. It counts the pending Change Requests when
+// then offers all three ways out. It counts the pending Comments when
 // there are some, so the reassurance is about the reviewer's actual work.
 func (m model) quitGuardMessage() string {
 	k := 0
 	if m.view != nil {
-		k = len(m.view.ChangeRequests)
+		k = len(m.view.Comments)
 	}
 	safe := "Nothing will be lost"
 	if k > 0 {
-		safe = "Your " + pluralize(k, "Change Request") + " will not be lost"
+		safe = "Your " + pluralize(k, "Comment") + " will not be lost"
 	}
 	return fmt.Sprintf("Confirm exit? %s, but your agent will not be able to continue the review. Press <esc> to go back, h to hand off the review, or q again to exit anyway.", safe)
 }
 
-// declinedDispositions is the subset of the previous round's Change Requests the
+// declinedDispositions is the subset of the previous round's Comments the
 // agent declined — the ones the Reviewer may re-raise.
 func (m model) declinedDispositions() []daemon.DispositionWire {
 	if m.view == nil {
@@ -1030,7 +1030,7 @@ func (m model) View() string {
 		}
 	default:
 		if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackChangeRequests(), m.width, m.bodyHeight(), m.multiRepo())
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo())
 		} else {
 			body = m.viewport.View()
 		}
@@ -1124,7 +1124,7 @@ func (m model) modeKeys() string {
 
 // deleteConfirmPrompt is the inline y/n guard the edit screen and the List both
 // show as an accent toast above the keybar while a delete is armed.
-const deleteConfirmPrompt = "Delete this Change Request? (y/n)"
+const deleteConfirmPrompt = "Delete this Comment? (y/n)"
 
 // confirmChoice is how a keystroke lands while an inline delete confirm is armed.
 type confirmChoice int
@@ -1150,7 +1150,7 @@ func readConfirm(key string) confirmChoice {
 }
 
 // noteKeys is the edit screen's keybar. It is context-aware: editing an existing
-// Change Request offers delete, while composing a new one has nothing to delete
+// Comment offers delete, while composing a new one has nothing to delete
 // yet. The armed confirm shows as a toast above this row, not in place of it.
 func (m model) noteKeys() string {
 	if m.editingID > 0 {
@@ -1177,7 +1177,7 @@ func (m model) noInteractionHint() string {
 	return "no readable code on this Step"
 }
 
-// noteMaxHeight caps how tall the Change Request input grows: it fills the space
+// noteMaxHeight caps how tall the Comment input grows: it fills the space
 // the modal has up to this, and shrinks below it on a short terminal.
 const noteMaxHeight = 10
 
@@ -1208,9 +1208,9 @@ func (m model) noteView() string {
 	} else {
 		code = wrapTo(code, m.width) // the anchor's "Re: …" header is one long line
 	}
-	title := "New Change Request"
+	title := "New Comment"
 	if m.editingID > 0 {
-		title = "Edit Change Request"
+		title = "Edit Comment"
 	}
 	// The counter sits just below the input, right-aligned under its edge, so the
 	// invisible 1000-char cap is visible before it is hit.
@@ -1220,30 +1220,30 @@ func (m model) noteView() string {
 }
 
 func (m model) listView() string {
-	list := m.filteredCRs()
+	list := m.filteredComments()
 	if len(list) == 0 {
-		return dimSt.Render("No comments to show.")
+		return dimSt.Render("No Comments to show.")
 	}
 	var b strings.Builder
-	title := pluralize(len(list), "Change Request")
-	if m.crFilter.active {
-		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "comment"), m.crFilter.file, m.crFilter.line)
+	title := pluralize(len(list), "Comment")
+	if m.commentFilter.active {
+		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "Comment"), m.commentFilter.file, m.commentFilter.line)
 	}
 	b.WriteString(labelSt.Render(title) + "\n\n")
-	for i, cr := range list {
+	for i, comment := range list {
 		cursor := "  "
-		if i == m.crCursor {
+		if i == m.commentCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		where := fmt.Sprintf("Step %d", cr.Step)
-		if cr.Step == 0 {
+		where := fmt.Sprintf("Step %d", comment.Step)
+		if comment.Step == 0 {
 			where = "re-raised" // carried over from a previous round, not tied to a current Step
 		}
-		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(cr.Location)))
-		for _, line := range strings.Split(strings.TrimRight(cr.Anchor, "\n"), "\n") {
+		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(comment.Location)))
+		for _, line := range strings.Split(strings.TrimRight(comment.Anchor, "\n"), "\n") {
 			b.WriteString("     " + dimSt.Render(line) + "\n")
 		}
-		for _, line := range strings.Split(wrapTo(cr.Note, m.width-5), "\n") {
+		for _, line := range strings.Split(wrapTo(comment.Note, m.width-5), "\n") {
 			b.WriteString("     " + line + "\n")
 		}
 		b.WriteString("\n")
@@ -1254,18 +1254,18 @@ func (m model) listView() string {
 func (m model) reraiseView() string {
 	declined := m.declinedDispositions()
 	if len(declined) == 0 {
-		return dimSt.Render("No declined requests to re-raise.")
+		return dimSt.Render("No declined Comments to re-raise.")
 	}
 	var b strings.Builder
-	b.WriteString(labelSt.Render("Re-raise a declined request") + "\n\n")
+	b.WriteString(labelSt.Render("Re-raise a declined Comment") + "\n\n")
 	for i, disposition := range declined {
 		cursor := "  "
 		if i == m.reraiseCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		b.WriteString(fmt.Sprintf("%s#%d  %s\n", cursor, disposition.ChangeRequestID, dimSt.Render(disposition.Location)))
+		b.WriteString(fmt.Sprintf("%s#%d  %s\n", cursor, disposition.CommentID, dimSt.Render(disposition.Location)))
 		b.WriteString("     " + dimSt.Render("you asked: ") + disposition.Note + "\n")
-		b.WriteString("     " + dimSt.Render("agent declined: ") + disposition.Reasoning + "\n\n")
+		b.WriteString("     " + dimSt.Render("agent declined: ") + disposition.Response + "\n\n")
 	}
 	return b.String()
 }
@@ -1286,11 +1286,10 @@ func (m model) doneView() string {
 		b.WriteString(dimSt.Render("Press q to exit — or r to resume, if you changed your mind.") + "\n")
 		return b.String()
 	case doneRevision:
-		addressed, declined := m.dispositionCounts()
 		var inner strings.Builder
 		inner.WriteString(labelSt.Render("Revision Round ready") + "\n")
-		if addressed+declined > 0 {
-			inner.WriteString(fmt.Sprintf("The agent addressed %d and declined %d of your Change Requests.\n", addressed, declined))
+		if summary := m.dispositionSummary(); summary != "" {
+			inner.WriteString(summary + "\n")
 		}
 		inner.WriteString(accentSt.Render("Press enter to review it."))
 		return revisionBoxStyle.Render(inner.String()) + "\n"
@@ -1299,8 +1298,8 @@ func (m model) doneView() string {
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review handed off") + "\n\n")
 		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
-			pluralize(seen, "Step"), flagged, pluralize(len(m.view.ChangeRequests), "Change Request")))
-		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Change Requests and open a Revision Round.") + "\n")
+			pluralize(seen, "Step"), flagged, pluralize(len(m.view.Comments), "Comment")))
+		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Comments and open a Revision Round.") + "\n")
 		b.WriteString(dimSt.Render("Or press r to resume your review.") + "\n")
 		return b.String()
 	}
@@ -1320,18 +1319,28 @@ func (m model) stepCounts() (seen, flagged int) {
 	return seen, flagged
 }
 
-// dispositionCounts tallies how the agent handled the previous round's Change
-// Requests, for the Revision-Round-ready summary.
-func (m model) dispositionCounts() (addressed, declined int) {
+// dispositionSummary tallies how the agent handled the previous round's
+// Comments, for the Revision-Round-ready box. A status no Comment received is
+// left out, so a round with no questions reads as it always has.
+func (m model) dispositionSummary() string {
+	counts := map[string]int{}
 	for _, disposition := range m.view.Dispositions {
-		switch disposition.Status {
-		case "addressed":
-			addressed++
-		case "declined":
-			declined++
+		counts[disposition.Status]++
+	}
+	var parts []string
+	for _, status := range []string{"addressed", "answered", "declined"} {
+		if counts[status] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", status, counts[status]))
 		}
 	}
-	return addressed, declined
+	if len(parts) == 0 {
+		return ""
+	}
+	list := parts[len(parts)-1]
+	if len(parts) > 1 {
+		list = strings.Join(parts[:len(parts)-1], ", ") + " and " + list
+	}
+	return "The agent " + list + " of your Comments."
 }
 
 // conclusionView is the pre-hand-off on-ramp reached by advancing past the last
@@ -1341,97 +1350,97 @@ func (m model) conclusionView() string {
 	var b strings.Builder
 	if m.view != nil {
 		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
-			pluralize(len(m.view.ChangeRequests), "Change Request"), pluralize(m.view.StepCount, "Step")))
+			pluralize(len(m.view.Comments), "Comment"), pluralize(m.view.StepCount, "Step")))
 	}
 	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
 	return b.String()
 }
 
-// commentAtCursor returns the Change Request anchored over the cursor's line, if
+// commentAtCursor returns the Comment anchored over the cursor's line, if
 // there is one, so it can be edited in place.
-func (m model) commentAtCursor() (daemon.ChangeRequestWire, bool) {
+func (m model) commentAtCursor() (daemon.CommentWire, bool) {
 	if !m.inStep() || !m.cursor.onCode() {
-		return daemon.ChangeRequestWire{}, false
+		return daemon.CommentWire{}, false
 	}
 	line := m.cursor.lines[m.cursor.cursor]
 	file := m.cursor.excerptOf(m.view.Step, line).File
-	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
-			return cr, true
+	for _, comment := range m.view.Comments {
+		if comment.Step == m.view.Position && comment.Covers(file, line.side, line.number) {
+			return comment, true
 		}
 	}
-	return daemon.ChangeRequestWire{}, false
+	return daemon.CommentWire{}, false
 }
 
-// filteredCRs is the List's current contents: every Change Request, or just
+// filteredComments is the List's current contents: every Comment, or just
 // those on one line when the List was opened by pressing e on a line that has
 // more than one.
-func (m model) filteredCRs() []daemon.ChangeRequestWire {
-	all := m.view.ChangeRequests
-	if !m.crFilter.active {
+func (m model) filteredComments() []daemon.CommentWire {
+	all := m.view.Comments
+	if !m.commentFilter.active {
 		return all
 	}
-	var out []daemon.ChangeRequestWire
-	for _, cr := range all {
-		if cr.Covers(m.crFilter.file, m.crFilter.side, m.crFilter.line) {
-			out = append(out, cr)
+	var out []daemon.CommentWire
+	for _, comment := range all {
+		if comment.Covers(m.commentFilter.file, m.commentFilter.side, m.commentFilter.line) {
+			out = append(out, comment)
 		}
 	}
 	return out
 }
 
-// commentsAtCursor returns every Change Request anchored over the cursor's line.
-func (m model) commentsAtCursor() []daemon.ChangeRequestWire {
+// commentsAtCursor returns every Comment anchored over the cursor's line.
+func (m model) commentsAtCursor() []daemon.CommentWire {
 	if !m.inStep() || !m.cursor.onCode() {
 		return nil
 	}
 	line := m.cursor.lines[m.cursor.cursor]
 	file := m.cursor.excerptOf(m.view.Step, line).File
-	var out []daemon.ChangeRequestWire
-	for _, cr := range m.view.ChangeRequests {
-		if cr.Step == m.view.Position && cr.Covers(file, line.side, line.number) {
-			out = append(out, cr)
+	var out []daemon.CommentWire
+	for _, comment := range m.view.Comments {
+		if comment.Step == m.view.Position && comment.Covers(file, line.side, line.number) {
+			out = append(out, comment)
 		}
 	}
 	return out
 }
 
 // commentedLines is the set of "file:side:line" in the current Step that carry a
-// Change Request, so the diff can mark them — keyed by side so a comment on a
+// Comment, so the diff can mark them — keyed by side so a comment on a
 // before-side row does not mark the after-side row that shares its number. A
-// Change Request spanning a removal and its replacement marks rows on both sides,
+// Comment spanning a removal and its replacement marks rows on both sides,
 // which is why this walks the Anchor's segments rather than one range.
 func (m model) commentedLines() map[string]bool {
 	out := map[string]bool{}
 	if m.view == nil {
 		return out
 	}
-	for _, cr := range m.view.ChangeRequests {
-		if cr.Step != m.view.Position {
+	for _, comment := range m.view.Comments {
+		if comment.Step != m.view.Position {
 			continue
 		}
-		for _, segment := range cr.Segments {
+		for _, segment := range comment.Segments {
 			for n := segment.FirstLine; n <= segment.LastLine; n++ {
-				out[commentKey(cr.File, segment.Side, n)] = true
+				out[commentKey(comment.File, segment.Side, n)] = true
 			}
 		}
 	}
 	return out
 }
 
-// ackChangeRequests counts, for each of this Step's Acknowledgements, the Change
-// Requests raised in its expanded code — so a collapsed Acknowledgement still
+// ackComments counts, for each of this Step's Acknowledgements, the Comments
+// raised in its expanded code — so a collapsed Acknowledgement still
 // shows that a point was made inside it.
-func (m model) ackChangeRequests() []int {
+func (m model) ackComments() []int {
 	if !m.inStep() {
 		return nil
 	}
 	counts := make([]int, len(m.view.Step.Acknowledgements))
-	for _, cr := range m.view.ChangeRequests {
-		if cr.Step != m.view.Position || cr.Acknowledgement == nil {
+	for _, comment := range m.view.Comments {
+		if comment.Step != m.view.Position || comment.Acknowledgement == nil {
 			continue
 		}
-		if k := *cr.Acknowledgement; k >= 0 && k < len(counts) {
+		if k := *comment.Acknowledgement; k >= 0 && k < len(counts) {
 			counts[k]++
 		}
 	}
@@ -1439,7 +1448,7 @@ func (m model) ackChangeRequests() []int {
 }
 
 // commentKey identifies a commented row by file, side, and line — the granularity
-// at which a Change Request is anchored in a unified diff.
+// at which a Comment is anchored in a unified diff.
 func commentKey(file, side string, line int) string {
 	return fmt.Sprintf("%s:%s:%d", file, side, line)
 }
@@ -1597,17 +1606,24 @@ func (m model) brief() string {
 	if len(m.view.Dispositions) > 0 {
 		b.WriteString(labelSt.Render("Since the last round") + "\n")
 		for _, disposition := range m.view.Dispositions {
-			if disposition.Status == "declined" {
-				b.WriteString(warnSt.Render("  ✗ declined") + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.ChangeRequestID, disposition.Location)) + "\n")
-				b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
-				b.WriteString("      " + dimSt.Render("agent: ") + wrap(disposition.Reasoning) + "\n")
-			} else {
-				b.WriteString(addSt.Render("  ✓ addressed") + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.ChangeRequestID, disposition.Location)) + "\n")
-				b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
+			var mark string
+			switch disposition.Status {
+			case "declined":
+				mark = warnSt.Render("  ✗ declined")
+			case "answered":
+				mark = accentSt.Render("  ↩ answered")
+			default:
+				mark = addSt.Render("  ✓ addressed")
+			}
+			b.WriteString(mark + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.CommentID, disposition.Location)) + "\n")
+			b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
+			// Required for answered and declined, optional for addressed.
+			if disposition.Response != "" {
+				b.WriteString("      " + dimSt.Render("agent: ") + wrap(disposition.Response) + "\n")
 			}
 		}
 		if len(m.declinedDispositions()) > 0 {
-			b.WriteString("\n" + dimSt.Render("  press R to re-raise a declined request") + "\n")
+			b.WriteString("\n" + dimSt.Render("  press R to re-raise a declined Comment") + "\n")
 		}
 		b.WriteString("\n")
 	}

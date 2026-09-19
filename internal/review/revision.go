@@ -2,36 +2,40 @@ package review
 
 // A Revision Round is a second Walkthrough posted after a Finish. It re-derives
 // the full Change Set, pre-marks as shown every Changed Line whose content is
-// unchanged since the previous round (ADR-0007), and accounts for every Change
-// Request the previous round raised. All of this lives in memory: restarting the
+// unchanged since the previous round (ADR-0007), and accounts for every Comment
+// the previous round raised. All of this lives in memory: restarting the
 // daemon mid-review starts the review over.
 
-// DispositionStatus is what the Authoring Agent did with a Change Request.
+// DispositionStatus is what the Authoring Agent did with a Comment.
 type DispositionStatus string
 
 const (
 	// DispositionAddressed means the agent made the change.
 	DispositionAddressed DispositionStatus = "addressed"
-	// DispositionDeclined means the agent did not, and says why.
+	// DispositionAnswered means the agent responded without changing anything,
+	// as it would to a question.
+	DispositionAnswered DispositionStatus = "answered"
+	// DispositionDeclined means the agent will not make the change, and says why.
 	DispositionDeclined DispositionStatus = "declined"
 )
 
 // Disposition is the Authoring Agent's account, posted with a Revision Round, of
-// what it did with one Change Request from the previous round.
+// what it did with one Comment from the previous round.
 type Disposition struct {
-	ChangeRequestID int
-	Status          DispositionStatus
-	// Reasoning is required when Declined: a decline the Reviewer cannot weigh is
-	// just a refusal.
-	Reasoning string
+	CommentID int
+	Status    DispositionStatus
+	// Response is required when Answered, since it is the answer, and when
+	// Declined, since a decline the Reviewer cannot weigh is just a refusal. It
+	// is optional when Addressed.
+	Response string
 }
 
-// ResolvedDisposition pairs a previous-round Change Request with what the agent
+// ResolvedDisposition pairs a previous-round Comment with what the agent
 // did about it, ready to show before any code in a Revision Round.
 type ResolvedDisposition struct {
-	ChangeRequest ChangeRequest
-	Status        DispositionStatus
-	Reasoning     string
+	Comment  Comment
+	Status   DispositionStatus
+	Response string
 }
 
 // contentKey identifies a Changed Line by its content rather than its position,
@@ -123,53 +127,58 @@ func (s *Session) preMarkUnchanged(l ledger) map[ChangedLine]bool {
 }
 
 // resolveDispositions pairs each posted Disposition with the previous round's
-// Change Request it names, and refuses a Revision Round that does not account for
-// every one — addressed, or declined with a reason.
+// Comment it names, and refuses a Revision Round that does not account for
+// every one — addressed, or answered or declined with a response.
 func (s *Session) resolveDispositions(dispositions []Disposition) ([]ResolvedDisposition, *Rejection) {
-	prior := s.changeRequests
-	byID := make(map[int]ChangeRequest, len(prior))
-	for _, cr := range prior {
-		byID[cr.ID] = cr
+	prior := s.comments
+	byID := make(map[int]Comment, len(prior))
+	for _, comment := range prior {
+		byID[comment.ID] = comment
 	}
 
 	seen := map[int]bool{}
 	out := make([]ResolvedDisposition, 0, len(dispositions))
 	for _, disposition := range dispositions {
-		cr, ok := byID[disposition.ChangeRequestID]
+		comment, ok := byID[disposition.CommentID]
 		if !ok {
 			return nil, reject(RejectedMalformedDisposition,
-				"a disposition names Change Request %d, which the previous round did not raise", disposition.ChangeRequestID)
+				"a disposition names Comment %d, which the previous round did not raise", disposition.CommentID)
 		}
-		if seen[disposition.ChangeRequestID] {
+		if seen[disposition.CommentID] {
 			return nil, reject(RejectedMalformedDisposition,
-				"Change Request %d has more than one disposition", disposition.ChangeRequestID)
+				"Comment %d has more than one disposition", disposition.CommentID)
 		}
-		seen[disposition.ChangeRequestID] = true
+		seen[disposition.CommentID] = true
 
 		switch disposition.Status {
 		case DispositionAddressed:
-		case DispositionDeclined:
-			if disposition.Reasoning == "" {
+		case DispositionAnswered:
+			if disposition.Response == "" {
 				return nil, reject(RejectedMalformedDisposition,
-					"declining Change Request %d needs a reason the Reviewer can weigh", disposition.ChangeRequestID)
+					"answering Comment %d needs a response: the response is the answer", disposition.CommentID)
+			}
+		case DispositionDeclined:
+			if disposition.Response == "" {
+				return nil, reject(RejectedMalformedDisposition,
+					"declining Comment %d needs a response the Reviewer can weigh", disposition.CommentID)
 			}
 		default:
 			return nil, reject(RejectedMalformedDisposition,
-				"Change Request %d must be disposed as %q or %q", disposition.ChangeRequestID, DispositionAddressed, DispositionDeclined)
+				"Comment %d must be disposed as %q, %q or %q", disposition.CommentID, DispositionAddressed, DispositionAnswered, DispositionDeclined)
 		}
-		out = append(out, ResolvedDisposition{ChangeRequest: cr, Status: disposition.Status, Reasoning: disposition.Reasoning})
+		out = append(out, ResolvedDisposition{Comment: comment, Status: disposition.Status, Response: disposition.Response})
 	}
 
-	for _, cr := range prior {
-		if !seen[cr.ID] {
+	for _, comment := range prior {
+		if !seen[comment.ID] {
 			return nil, reject(RejectedMalformedDisposition,
-				"Change Request %d from the previous round has no disposition; a Revision Round must account for every one", cr.ID)
+				"Comment %d from the previous round has no disposition; a Revision Round must account for every one", comment.ID)
 		}
 	}
 	return out, nil
 }
 
-// Dispositions reports how the previous round's Change Requests were resolved,
+// Dispositions reports how the previous round's Comments were resolved,
 // for display before any code.
 func (s *Session) Dispositions() []ResolvedDisposition {
 	out := make([]ResolvedDisposition, len(s.dispositions))
@@ -177,35 +186,35 @@ func (s *Session) Dispositions() []ResolvedDisposition {
 	return out
 }
 
-// ReRaise raises again a Change Request the agent declined, carrying its original
+// ReRaise raises again a Comment the agent declined, carrying its original
 // note and Anchor into the current round, so the Reviewer can insist without
-// re-composing it. Only a declined Change Request can be re-raised.
-func (s *Session) ReRaise(changeRequestID int) (ChangeRequest, error) {
+// re-composing it. Only a declined Comment can be re-raised.
+func (s *Session) ReRaise(commentID int) (Comment, error) {
 	if s.finished {
-		return ChangeRequest{}, reject(RejectedWalkthroughFinished,
+		return Comment{}, reject(RejectedWalkthroughFinished,
 			"this Walkthrough is handed off; resume it before re-raising")
 	}
 	for _, disposition := range s.dispositions {
-		if disposition.ChangeRequest.ID != changeRequestID {
+		if disposition.Comment.ID != commentID {
 			continue
 		}
 		if disposition.Status != DispositionDeclined {
-			return ChangeRequest{}, reject(RejectedNoSuchChangeRequest,
-				"Change Request %d was addressed, not declined; only a declined one can be re-raised", changeRequestID)
+			return Comment{}, reject(RejectedNoSuchComment,
+				"Comment %d was %s, not declined; only a declined one can be re-raised", commentID, disposition.Status)
 		}
-		s.nextCRID++
+		s.nextCommentID++
 		// Step is left 0: the previous round's Step number means nothing in this
 		// round, whose Steps are authored afresh. The Anchor carries the location,
 		// and it is self-contained. Step 0 keeps it from flagging the wrong Step.
-		cr := ChangeRequest{
-			ID:     s.nextCRID,
+		comment := Comment{
+			ID:     s.nextCommentID,
 			Step:   0,
-			Anchor: disposition.ChangeRequest.Anchor,
-			Note:   disposition.ChangeRequest.Note,
+			Anchor: disposition.Comment.Anchor,
+			Note:   disposition.Comment.Note,
 		}
-		s.changeRequests = append(s.changeRequests, cr)
-		return cr, nil
+		s.comments = append(s.comments, comment)
+		return comment, nil
 	}
-	return ChangeRequest{}, reject(RejectedNoSuchChangeRequest,
-		"there is no declined Change Request %d to re-raise", changeRequestID)
+	return Comment{}, reject(RejectedNoSuchComment,
+		"there is no declined Comment %d to re-raise", commentID)
 }

@@ -31,11 +31,11 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
 3. **You review in a terminal** beside your agent session: `dbn` opens the TUI,
    attaches to the daemon, and draws the Walkthrough. You move through Steps,
    select a line range to copy a self-contained **Anchor** into your agent chat,
-   or raise a **Change Request** in place.
-4. **You hand off, the agent collects the Change Requests** with a second MCP call,
-   works them, and posts a **Revision Round** — the full change set again, scoped
-   by dbn to just what moved, with each of your requests marked addressed or
-   declined. Repeat until you hand off having raised nothing.
+   or raise a **Comment** in place: a change you want, or a question.
+4. **You hand off, the agent collects the Comments** with a second MCP call,
+   responds to them, and posts a **Revision Round** — the full change set again,
+   scoped by dbn to just what moved, with each of your Comments marked addressed,
+   answered or declined. Repeat until you hand off having raised nothing.
 
 ## Installation
 
@@ -230,8 +230,8 @@ dbn
 
 The first screen shows an overview. Use Left/Right arrows to navigate through screens.
 Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions
-mid-review) or to add a change request. When you're done, press `h` to hand the review off, then
-tell your agent. It will then retrieve your change requests. Handing off is not leaving: `q` exits
+mid-review) or to add a Comment. When you're done, press `h` to hand the review off, then
+tell your agent. It will then retrieve your Comments. Handing off is not leaving: `q` exits
 the viewer at any time without losing anything, and `dbn` reopens to the same review.
 
 Other subcommands: `dbn dump` prints the posted Walkthrough as text, `dbn

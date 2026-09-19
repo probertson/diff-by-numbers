@@ -34,8 +34,8 @@ const (
 	RejectedNoSuchStep RejectionReason = "no_such_step"
 	// RejectedBadSelection means an Anchor selection is malformed or out of range.
 	RejectedBadSelection RejectionReason = "bad_selection"
-	// RejectedNoSuchChangeRequest means a withdrawal names an unknown Change Request.
-	RejectedNoSuchChangeRequest RejectionReason = "no_such_change_request"
+	// RejectedNoSuchComment means a withdrawal names an unknown Comment.
+	RejectedNoSuchComment RejectionReason = "no_such_comment"
 	// RejectedWalkthroughFinished means an edit was attempted after finishing.
 	RejectedWalkthroughFinished RejectionReason = "walkthrough_finished"
 	// RejectedEmptyAcknowledgement means an Acknowledgement claims a file that has
@@ -48,7 +48,7 @@ const (
 	// so its Excerpt can no longer be trusted to match the explanation.
 	RejectedStaleContent RejectionReason = "stale_content"
 	// RejectedMalformedDisposition means a Revision Round does not account for the
-	// previous round's Change Requests correctly.
+	// previous round's Comments correctly.
 	RejectedMalformedDisposition RejectionReason = "malformed_disposition"
 	// RejectedUnknownReview means a conclude names a review id that is not the one
 	// currently under review.

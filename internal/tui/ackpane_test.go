@@ -174,29 +174,29 @@ func TestTheAcknowledgementHeaderStaysOnScreenInsideItsCode(t *testing.T) {
 	}
 }
 
-func TestACollapsedAcknowledgementCountsItsChangeRequests(t *testing.T) {
+func TestACollapsedAcknowledgementCountsItsComments(t *testing.T) {
 	step := ackStep()
 	cur := newStepCursor(step, nil)
 
 	out := renderStep(step, cur, map[string]bool{}, []int{1}, 80, 40, false)
 
-	if !strings.Contains(lineWith(t, out, "Acknowledged"), "1 Change Request") {
-		t.Errorf("expected the stop to count its Change Request:\n%s", out)
+	if !strings.Contains(lineWith(t, out, "Acknowledged"), "1 Comment") {
+		t.Errorf("expected the stop to count its Comment:\n%s", out)
 	}
 }
 
-func TestAckChangeRequestsCountsThoseRaisedInEachAcknowledgement(t *testing.T) {
+func TestAckCommentsCountsThoseRaisedInEachAcknowledgement(t *testing.T) {
 	first := 0
-	m := model{view: &daemon.ViewWire{Posted: true, Position: 1, Step: ackStep(), ChangeRequests: []daemon.ChangeRequestWire{
+	m := model{view: &daemon.ViewWire{Posted: true, Position: 1, Step: ackStep(), Comments: []daemon.CommentWire{
 		{Step: 1, File: "gen.go", Acknowledgement: &first},
 		{Step: 1, File: "gen.go"}, // the same file, but in the Step's own code
 		{Step: 2, File: "gen.go", Acknowledgement: &first},
 	}}}
 
-	counts := m.ackChangeRequests()
+	counts := m.ackComments()
 
 	if len(counts) != 1 || counts[0] != 1 {
-		t.Errorf("expected one Change Request raised in this Step's Acknowledgement, got %v", counts)
+		t.Errorf("expected one Comment raised in this Step's Acknowledgement, got %v", counts)
 	}
 }
 

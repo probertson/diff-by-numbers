@@ -35,7 +35,7 @@ None at story-write time — all known decisions are resolved or captured in Acc
 - **The daemon never leaves the last Step while the conclusion screen shows** [4], so no request
   to the daemon is needed for opening or closing the list here. Edits and withdrawals made in the
   list already call the daemon and refresh the view.
-- **The conclusion screen's summary comes from the refreshed view** (`m.view.ChangeRequests`) [5],
+- **The conclusion screen's summary comes from the refreshed view** (`m.view.Comments`) [5],
   so after returning from the list it already reflects edits and withdrawals. No extra refresh is
   needed on return.
 - **The footer is hard-coded** as `keybar("← back", "g Overview", "q exit")` [6]. A Step's footer
@@ -69,7 +69,7 @@ from a Step still returns to the Step" is a regression guard that passes before 
 | Acceptance | Test |
 |---|---|
 | `l` and `L` on the conclusion screen open the unfiltered list | `updateConclusion("l")` / `("L")` → `modeList`, with the filter inactive and `crCursor` 0 |
-| With no Comments, the list still opens and shows its empty state | the same with an empty `ChangeRequests`; `View()` contains the empty-state text |
+| With no Comments, the list still opens and shows its empty state | the same with an empty `Comments`; `View()` contains the empty-state text |
 | Leaving that list returns to the conclusion screen | `updateList` with `esc`, `L` and `q` → `modeConclusion` |
 | Leaving a list opened from a Step still returns to the Step | `updateList("esc")` from a Step-opened list → `modeReview` |
 | An edit made from the conclusion screen's list returns to that list, and then to the conclusion screen | chain `updateList("e")`, `updateNote(enter)`, `updateList("esc")` → `modeConclusion` |
@@ -139,7 +139,7 @@ screen, and the conclusion screen's footer offers, in order: `← back`, `g Over
   quit warning does not appear and dbn does not exit).
 - In step 8, after the last withdrawal the Comment list shows its empty state ("No
   comments to show."), and `esc` returns to the conclusion screen.
-- In step 9, `l` opens the Comment list showing "No comments to show.", and `esc` returns
+- In step 9, `l` opens the Comment list showing "No Comments to show.", and `esc` returns
   to the conclusion screen, whose footer still shows the same five entries.
 - After step 10, the handed-off screen shows, headed "Review complete".
 - At no point in steps 4–10 did a Step show.

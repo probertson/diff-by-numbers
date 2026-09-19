@@ -50,16 +50,16 @@ type wireRepository struct {
 }
 
 type wireDisposition struct {
-	ChangeRequestID int    `json:"change_request_id" jsonschema:"The id of a Change Request from the previous round this accounts for"`
-	Status          string `json:"status" jsonschema:"'addressed' if you made the change, 'declined' if you did not"`
-	Reasoning       string `json:"reasoning,omitempty" jsonschema:"Why you declined, in one line. Required when status is 'declined': the Reviewer sees it before any code and may re-raise the request"`
+	CommentID int    `json:"comment_id" jsonschema:"The id of a Comment from the previous round this accounts for"`
+	Status    string `json:"status" jsonschema:"'addressed' if you made a change, 'answered' if you responded without changing anything (as to a question), 'declined' if you will not make the change it asks for"`
+	Response  string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it before any code. Required when status is 'answered' (it is the answer) or 'declined' (why you won't, in a line or two; the Reviewer may re-raise it). Optional but welcome when 'addressed', e.g. to note how you made the change"`
 }
 
 type wireWalkthrough struct {
 	Brief        wireBrief         `json:"brief"`
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
-	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, one entry per Change Request the previous round raised, saying whether you addressed or declined it. Omit for a first Walkthrough"`
+	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit for a first Walkthrough"`
 	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
 }
 
@@ -80,12 +80,12 @@ type concludeResult struct {
 	Message   string `json:"message" jsonschema:"A human-readable account of the outcome"`
 }
 
-type changeRequestWire struct {
+type commentWire struct {
 	ID       int    `json:"id"`
-	Step     int    `json:"step" jsonschema:"The Step number this Change Request was raised on"`
+	Step     int    `json:"step" jsonschema:"The Step number this Comment was raised on"`
 	Location string `json:"location" jsonschema:"Where in the code it points: the file, and the before-side and after-side lines it covers"`
 	Anchor   string `json:"anchor" jsonschema:"The full anchored context, ready to act on: the code and where it lives"`
-	Note     string `json:"note" jsonschema:"What the Reviewer asked for"`
+	Note     string `json:"note" jsonschema:"What the Reviewer said: a change they want, or a question"`
 }
 
 type stepReportWire struct {
@@ -95,13 +95,13 @@ type stepReportWire struct {
 }
 
 type fetchResult struct {
-	Posted         bool                `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
-	Finished       bool                `json:"finished" jsonschema:"Whether the Reviewer has handed the Walkthrough off to you"`
-	Message        string              `json:"message"`
-	Ask            string              `json:"ask" jsonschema:"What the review was originally about, so you can re-ground yourself if your context has moved on"`
-	Approach       string              `json:"approach"`
-	ChangeRequests []changeRequestWire `json:"change_requests"`
-	Steps          []stepReportWire    `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
+	Posted   bool             `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
+	Finished bool             `json:"finished" jsonschema:"Whether the Reviewer has handed the Walkthrough off to you"`
+	Message  string           `json:"message"`
+	Ask      string           `json:"ask" jsonschema:"What the review was originally about, so you can re-ground yourself if your context has moved on"`
+	Approach string           `json:"approach"`
+	Comments []commentWire    `json:"comments"`
+	Steps    []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
 }
 
 func (w wireWalkthrough) toDomain() review.Walkthrough {
@@ -142,9 +142,9 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 	dispositions := make([]review.Disposition, 0, len(w.Dispositions))
 	for _, d := range w.Dispositions {
 		dispositions = append(dispositions, review.Disposition{
-			ChangeRequestID: d.ChangeRequestID,
-			Status:          review.DispositionStatus(d.Status),
-			Reasoning:       d.Reasoning,
+			CommentID: d.CommentID,
+			Status:    review.DispositionStatus(d.Status),
+			Response:  d.Response,
 		})
 	}
 
@@ -172,13 +172,13 @@ func toFetchResult(r review.Results, message string) fetchResult {
 		Ask:      r.Brief.Ask,
 		Approach: r.Brief.Approach,
 	}
-	for _, cr := range r.ChangeRequests {
-		out.ChangeRequests = append(out.ChangeRequests, changeRequestWire{
-			ID:       cr.ID,
-			Step:     cr.Step,
-			Location: cr.Anchor.Location(),
-			Anchor:   cr.Anchor.Render(),
-			Note:     cr.Note,
+	for _, comment := range r.Comments {
+		out.Comments = append(out.Comments, commentWire{
+			ID:       comment.ID,
+			Step:     comment.Step,
+			Location: comment.Anchor.Location(),
+			Anchor:   comment.Anchor.Render(),
+			Note:     comment.Note,
 		})
 	}
 	for _, sr := range r.StepReports {

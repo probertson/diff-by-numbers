@@ -42,7 +42,7 @@ func editedRepo(t *testing.T) string {
 // The TUI sends the two ends of the Reviewer's selection and the daemon derives
 // the rows between them, so this is the seam where the two can disagree without
 // anyone noticing: correct segments derived from endpoints that named other rows.
-func TestAChangeRequestSpansTheSidesItsEndpointsReach(t *testing.T) {
+func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
@@ -62,7 +62,7 @@ func TestAChangeRequestSpansTheSidesItsEndpointsReach(t *testing.T) {
 	post(t, server.URL+"/advance", nil)
 
 	// From the removed row through the row that replaced it.
-	post(t, server.URL+"/changerequest", map[string]any{
+	post(t, server.URL+"/comment", map[string]any{
 		"excerpt_index": 0,
 		"start":         map[string]any{"side": "old", "line": 2},
 		"end":           map[string]any{"side": "new", "line": 2},
@@ -73,28 +73,28 @@ func TestAChangeRequestSpansTheSidesItsEndpointsReach(t *testing.T) {
 	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
 		t.Fatalf("could not read the view: %v", err)
 	}
-	if len(view.ChangeRequests) != 1 {
-		t.Fatalf("expected one Change Request, got %d", len(view.ChangeRequests))
+	if len(view.Comments) != 1 {
+		t.Fatalf("expected one Comment, got %d", len(view.Comments))
 	}
-	cr := view.ChangeRequests[0]
+	comment := view.Comments[0]
 	want := []daemon.SegmentWire{
 		{Side: "old", FirstLine: 2, LastLine: 2},
 		{Side: "new", FirstLine: 2, LastLine: 2},
 	}
-	if len(cr.Segments) != len(want) {
-		t.Fatalf("expected the Anchor to span both sides, got %+v", cr.Segments)
+	if len(comment.Segments) != len(want) {
+		t.Fatalf("expected the Anchor to span both sides, got %+v", comment.Segments)
 	}
 	for i := range want {
-		if cr.Segments[i] != want[i] {
-			t.Errorf("segment %d: expected %+v, got %+v", i, want[i], cr.Segments[i])
+		if comment.Segments[i] != want[i] {
+			t.Errorf("segment %d: expected %+v, got %+v", i, want[i], comment.Segments[i])
 		}
 	}
-	if cr.Location != "fetch.ts — before 2 — after 2" {
-		t.Errorf("unexpected location %q", cr.Location)
+	if comment.Location != "fetch.ts — before 2 — after 2" {
+		t.Errorf("unexpected location %q", comment.Location)
 	}
 	// Both rows are marked, so the Reviewer sees the comment from either side.
-	if !cr.Covers("fetch.ts", "old", 2) || !cr.Covers("fetch.ts", "new", 2) {
-		t.Error("expected the Change Request to cover its rows on both sides")
+	if !comment.Covers("fetch.ts", "old", 2) || !comment.Covers("fetch.ts", "new", 2) {
+		t.Error("expected the Comment to cover its rows on both sides")
 	}
 }
 
@@ -161,7 +161,7 @@ func postStatus(t *testing.T, url string, body map[string]any) int {
 // A selection in an expanded Acknowledgement names the Acknowledgement as well as
 // the Excerpt, so the daemon resolves it against the expansion the TUI drew and
 // the Anchor says it disputes a "mechanical" claim.
-func TestAChangeRequestCanBeRaisedInAcknowledgedCode(t *testing.T) {
+func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
@@ -180,7 +180,7 @@ func TestAChangeRequestCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	})
 	post(t, server.URL+"/advance", nil)
 
-	post(t, server.URL+"/changerequest", map[string]any{
+	post(t, server.URL+"/comment", map[string]any{
 		"acknowledgement_index": 0,
 		"excerpt_index":         0,
 		"start":                 map[string]any{"side": "old", "line": 2},
@@ -192,17 +192,17 @@ func TestAChangeRequestCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
 		t.Fatalf("could not read the view: %v", err)
 	}
-	if len(view.ChangeRequests) != 1 {
-		t.Fatalf("expected one Change Request, got %d", len(view.ChangeRequests))
+	if len(view.Comments) != 1 {
+		t.Fatalf("expected one Comment, got %d", len(view.Comments))
 	}
-	cr := view.ChangeRequests[0]
-	if cr.Location != "fetch.ts — before 2 — after 2" {
-		t.Errorf("unexpected location %q", cr.Location)
+	comment := view.Comments[0]
+	if comment.Location != "fetch.ts — before 2 — after 2" {
+		t.Errorf("unexpected location %q", comment.Location)
 	}
-	if cr.Acknowledgement == nil || *cr.Acknowledgement != 0 {
-		t.Errorf("expected the Change Request to name Acknowledgement 0, got %v", cr.Acknowledgement)
+	if comment.Acknowledgement == nil || *comment.Acknowledgement != 0 {
+		t.Errorf("expected the Comment to name Acknowledgement 0, got %v", comment.Acknowledgement)
 	}
-	if !strings.Contains(cr.Anchor, `acknowledged in Step "Mechanical" (renamed by the IDE)`) {
-		t.Errorf("expected the Anchor to name the Acknowledgement it disputes:\n%s", cr.Anchor)
+	if !strings.Contains(comment.Anchor, `acknowledged in Step "Mechanical" (renamed by the IDE)`) {
+		t.Errorf("expected the Anchor to name the Acknowledgement it disputes:\n%s", comment.Anchor)
 	}
 }

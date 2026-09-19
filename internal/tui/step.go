@@ -162,7 +162,7 @@ func lineSide(line daemon.LineWire, excerpt daemon.ExcerptWire) string {
 
 // move steps the cursor by delta rows it can land on — past any note — clamped to
 // the pane and, while a selection is alive, to the Excerpt that selection
-// anchored in. A Change Request anchors inside one Excerpt, so rather than let the
+// anchored in. A Comment anchors inside one Excerpt, so rather than let the
 // selection grow somewhere it cannot be raised and reject it later, the movement
 // itself is refused (#57). It reports whether the boundary blocked it, so the
 // caller can say why nothing moved.
@@ -291,17 +291,17 @@ func (c stepCursor) inSelection(i int) bool {
 var (
 	caretSt      = lipgloss.NewStyle().Bold(true).Foreground(accent)                                         // the moving cursor
 	selSt        = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#cfe6ff", Dark: "#0a3550"}) // an active selection range
-	commentColor = lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}                                 // a line carrying a Change Request
+	commentColor = lipgloss.AdaptiveColor{Light: "#8a6d00", Dark: "#ffd787"}                                 // a line carrying a Comment
 )
 
 // rowStyle composes the signals of a code row: colour says the line carries a
-// Change Request, weight says it is the cursor line, and a dim colour says it is
+// Comment, weight says it is the cursor line, and a dim colour says it is
 // unchanged reference context. Comment colour and cursor weight compose — a
 // commented cursor line is yellow AND bold — so the cursor never hides that a
 // line is commented. The dim is the lowest-priority layer: a reference row is
 // dimmed only when it is neither commented nor the cursor (and the caller's
 // selection background, drawn separately, overrides it too), so context recedes
-// without ever hiding a Change Request, the cursor, or a selection.
+// without ever hiding a Comment, the cursor, or a selection.
 func rowStyle(commented, cursor, reference bool) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	if commented {
@@ -383,10 +383,10 @@ func wrapRunes(s string, first, rest, maxRows int) []string {
 
 // renderStep draws the Step with the cursor and selection, windowed to height
 // rows so a long Step stays navigable, and every row clipped to width so nothing
-// overflows the terminal. ackCRs counts the Change Requests raised in each
+// overflows the terminal. ackCommentCounts counts the Comments raised in each
 // Acknowledgement's files, so a point made in acknowledged code stays visible
 // when it is collapsed.
-func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCRs []int, width, height int, showRepo bool) string {
+func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo bool) string {
 	wrap := func(text string) string {
 		if width > 1 {
 			return lipgloss.NewStyle().Width(width).Render(text)
@@ -447,7 +447,7 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	if cursorCap > available {
 		cursorCap = available
 	}
-	rows := paneRows(step, cur, commented, ackCRs, width, cursorCap, showRepo)
+	rows := paneRows(step, cur, commented, ackCommentCounts, width, cursorCap, showRepo)
 
 	curFirst, curLast := -1, -1
 	for ri, row := range rows {
@@ -588,7 +588,7 @@ func countLines(cur stepCursor, rows []paneRow) int {
 // paneRows draws every row of a Step's pane, in order: the Step's own Excerpts,
 // then each Acknowledgement — its stop, and then either its manifest or, expanded,
 // the code it stands in for, drawn exactly as narrated code is.
-func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCRs []int, width, cursorCap int, showRepo bool) []paneRow {
+func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, cursorCap int, showRepo bool) []paneRow {
 	var rows []paneRow
 	decor := func(text, fileHeader, ackHeader string) {
 		rows = append(rows, paneRow{text: text, line: -1, blank: text == "", fileHeader: fileHeader, ackHeader: ackHeader})
@@ -599,11 +599,11 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 	for i, line := range cur.lines {
 		if line.kind == kindStop {
 			ack := step.Acknowledgements[line.ack]
-			crs := 0
-			if line.ack < len(ackCRs) {
-				crs = ackCRs[line.ack]
+			commentCount := 0
+			if line.ack < len(ackCommentCounts) {
+				commentCount = ackCommentCounts[line.ack]
 			}
-			header, truncated := acknowledgementHeader(ack, crs, width)
+			header, truncated := acknowledgementHeader(ack, commentCount, width)
 			ackHeader, fileHeader = header, ""
 			lastAck, lastExcerpt = line.ack, -1
 			decor("", "", "")
@@ -720,14 +720,14 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, cursorCap int) []st
 
 // acknowledgementHeader is an Acknowledgement's one-row header — its stop, and
 // the sticky header over its expanded code: the claim, how much it covers, and
-// any Change Request raised in it. The reason is clipped to fit the row, and
+// any Comment raised in it. The reason is clipped to fit the row, and
 // truncated reports whether it was.
-func acknowledgementHeader(ack daemon.AcknowledgementWire, crs, width int) (string, bool) {
+func acknowledgementHeader(ack daemon.AcknowledgementWire, commentCount, width int) (string, bool) {
 	const label = "Acknowledged"
 	size := " · " + pluralize(len(ack.Entries), "file")
 	raised := ""
-	if crs > 0 {
-		raised = " · " + pluralize(crs, "Change Request")
+	if commentCount > 0 {
+		raised = " · " + pluralize(commentCount, "Comment")
 	}
 	room := width - 2 - len([]rune(label+" — "+size+raised))
 	if room < 8 {

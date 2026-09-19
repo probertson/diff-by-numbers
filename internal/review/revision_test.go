@@ -133,13 +133,13 @@ func TestAFirstWalkthroughRejectsDispositions(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 
 	err := session.Post(appWalkthrough([]review.Step{appStep(1, 3)},
-		[]review.Disposition{{ChangeRequestID: 1, Status: review.DispositionAddressed}}))
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
 }
 
-// finishRound1WithCR posts round 1, raises one Change Request, and finishes.
-func finishRound1WithCR(t *testing.T) (*review.Session, *roundDeriver) {
+// finishRound1WithComment posts round 1, raises one Comment, and finishes.
+func finishRound1WithComment(t *testing.T) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
@@ -147,8 +147,8 @@ func finishRound1WithCR(t *testing.T) (*review.Session, *roundDeriver) {
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.RaiseChangeRequest(span(0, 2, 2), "please fix line 2"); err != nil {
-		t.Fatalf("expected to raise a Change Request, got %v", err)
+	if _, err := session.RaiseComment(span(0, 2, 2), "please fix line 2"); err != nil {
+		t.Fatalf("expected to raise a Comment, got %v", err)
 	}
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
@@ -156,8 +156,8 @@ func finishRound1WithCR(t *testing.T) (*review.Session, *roundDeriver) {
 	return session, deriver
 }
 
-func TestARevisionRoundMustDisposeEveryPreviousChangeRequest(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+func TestARevisionRoundMustDisposeEveryPreviousComment(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
 	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)}, nil)) // no dispositions
@@ -167,23 +167,60 @@ func TestARevisionRoundMustDisposeEveryPreviousChangeRequest(t *testing.T) {
 }
 
 func TestADeclinedDispositionNeedsAReason(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
 	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
-		[]review.Disposition{{ChangeRequestID: 1, Status: review.DispositionDeclined}}))
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined}}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
 }
 
-func TestADispositionForAnUnknownChangeRequestIsRejected(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+func TestAnAnsweredDispositionNeedsAResponse(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
+	deriver.lines = changedApp(1, 4)
+
+	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionAnswered}}))
+
+	assertRejected(t, err, review.RejectedMalformedDisposition)
+	assertDetailContains(t, err, "1")
+}
+
+func TestAnAnsweredDispositionCarriesItsResponse(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
+	deriver.lines = changedApp(1, 4)
+
+	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionAnswered, Response: "it guards the retry loop"}}))
+
+	got := session.View().Dispositions
+	if len(got) != 1 || got[0].Status != review.DispositionAnswered || got[0].Response != "it guards the retry loop" {
+		t.Errorf("expected an answered disposition carrying its response, got %+v", got)
+	}
+}
+
+func TestAnAddressedDispositionMayCarryAResponse(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
+	deriver.lines = changedApp(1, 4)
+
+	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed, Response: "fixed, and the twin in retry.ts too"}}))
+
+	got := session.View().Dispositions
+	if len(got) != 1 || got[0].Response != "fixed, and the twin in retry.ts too" {
+		t.Errorf("expected the addressed disposition to keep its response, got %+v", got)
+	}
+}
+
+func TestADispositionForAnUnknownCommentIsRejected(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
 	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
 		[]review.Disposition{
-			{ChangeRequestID: 1, Status: review.DispositionAddressed},
-			{ChangeRequestID: 99, Status: review.DispositionAddressed},
+			{CommentID: 1, Status: review.DispositionAddressed},
+			{CommentID: 99, Status: review.DispositionAddressed},
 		}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
@@ -191,41 +228,41 @@ func TestADispositionForAnUnknownChangeRequestIsRejected(t *testing.T) {
 }
 
 func TestDispositionsAreVisibleBeforeAnyCode(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
-		[]review.Disposition{{ChangeRequestID: 1, Status: review.DispositionDeclined, Reasoning: "the current behaviour is intended"}}))
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined, Response: "the current behaviour is intended"}}))
 
 	view := session.View() // position 0 — the Brief, before any code
 	if len(view.Dispositions) != 1 {
 		t.Fatalf("expected one disposition on the Brief, got %d", len(view.Dispositions))
 	}
-	if view.Dispositions[0].Status != review.DispositionDeclined || view.Dispositions[0].Reasoning == "" {
-		t.Errorf("expected a declined disposition carrying its reasoning, got %+v", view.Dispositions[0])
+	if view.Dispositions[0].Status != review.DispositionDeclined || view.Dispositions[0].Response == "" {
+		t.Errorf("expected a declined disposition carrying its response, got %+v", view.Dispositions[0])
 	}
 }
 
-func TestADeclinedChangeRequestCanBeReRaised(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+func TestADeclinedCommentCanBeReRaised(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
-		[]review.Disposition{{ChangeRequestID: 1, Status: review.DispositionDeclined, Reasoning: "intended"}}))
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined, Response: "intended"}}))
 
-	cr, err := session.ReRaise(1)
+	comment, err := session.ReRaise(1)
 
 	if err != nil {
-		t.Fatalf("expected to re-raise a declined Change Request, got %v", err)
+		t.Fatalf("expected to re-raise a declined Comment, got %v", err)
 	}
-	if cr.Note != "please fix line 2" {
-		t.Errorf("expected the re-raised note carried over, got %q", cr.Note)
+	if comment.Note != "please fix line 2" {
+		t.Errorf("expected the re-raised note carried over, got %q", comment.Note)
 	}
 	// The previous round's Step number means nothing in this round; the re-raised
 	// request is not tied to a current Step, so it cannot flag the wrong one.
-	if cr.Step != 0 {
-		t.Errorf("expected a re-raised Change Request not to claim a current Step, got Step %d", cr.Step)
+	if comment.Step != 0 {
+		t.Errorf("expected a re-raised Comment not to claim a current Step, got Step %d", comment.Step)
 	}
-	if len(session.ChangeRequests()) != 1 {
-		t.Errorf("expected the re-raised Change Request to stand in the new round, got %d", len(session.ChangeRequests()))
+	if len(session.Comments()) != 1 {
+		t.Errorf("expected the re-raised Comment to stand in the new round, got %d", len(session.Comments()))
 	}
 }
 
@@ -250,13 +287,13 @@ func TestDuplicateContentIsNotPreMarkedSoNewLinesCannotEscape(t *testing.T) {
 	assertDetailContains(t, err, "3")
 }
 
-func TestOnlyADeclinedChangeRequestCanBeReRaised(t *testing.T) {
-	session, deriver := finishRound1WithCR(t)
+func TestOnlyADeclinedCommentCanBeReRaised(t *testing.T) {
+	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
-		[]review.Disposition{{ChangeRequestID: 1, Status: review.DispositionAddressed}}))
+		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}))
 
 	_, err := session.ReRaise(1)
 
-	assertRejected(t, err, review.RejectedNoSuchChangeRequest)
+	assertRejected(t, err, review.RejectedNoSuchComment)
 }

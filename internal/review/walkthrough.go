@@ -97,7 +97,7 @@ type Walkthrough struct {
 	Brief     Brief
 	ChangeSet ChangeSet
 	Steps     []Step
-	// Dispositions accounts for the previous round's Change Requests when this
+	// Dispositions accounts for the previous round's Comments when this
 	// Walkthrough is a Revision Round. It is empty for a first Walkthrough.
 	Dispositions []Disposition
 	// Label is an optional human-readable name the Authoring Agent may attach so a

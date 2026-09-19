@@ -103,7 +103,7 @@ func TestANewReviewIsActive(t *testing.T) {
 	}
 }
 
-func TestAZeroChangeRequestFinishReadsAsConcluded(t *testing.T) {
+func TestAZeroCommentFinishReadsAsConcluded(t *testing.T) {
 	session, _, _ := finishRound1(t)
 
 	if !session.Concluded() {
@@ -117,28 +117,28 @@ func TestAZeroChangeRequestFinishReadsAsConcluded(t *testing.T) {
 func TestTheViewReportsConcluded(t *testing.T) {
 	concluded, _, _ := finishRound1(t)
 	if !concluded.View().Concluded {
-		t.Error("a zero-Change-Request finish should report Concluded on the view")
+		t.Error("a zero-Comment finish should report Concluded on the view")
 	}
 
-	awaiting, _ := finishRound1WithCR(t)
+	awaiting, _ := finishRound1WithComment(t)
 	if awaiting.View().Concluded {
-		t.Error("a finish with a Change Request outstanding should not report Concluded on the view")
+		t.Error("a finish with a Comment outstanding should not report Concluded on the view")
 	}
 }
 
-func TestAFinishWithChangeRequestsIsNotConcluded(t *testing.T) {
-	session, _ := finishRound1WithCR(t)
+func TestAFinishWithCommentsIsNotConcluded(t *testing.T) {
+	session, _ := finishRound1WithComment(t)
 
 	if session.Concluded() {
-		t.Error("expected a finish with a Change Request not to be concluded")
+		t.Error("expected a finish with a Comment not to be concluded")
 	}
 	if !session.Active() {
 		t.Error("expected a review awaiting a Revision Round to still be active")
 	}
 }
 
-func TestExplicitConcludeEndsAReviewEvenWithOpenChangeRequests(t *testing.T) {
-	session, _ := finishRound1WithCR(t)
+func TestExplicitConcludeEndsAReviewEvenWithOpenComments(t *testing.T) {
+	session, _ := finishRound1WithComment(t)
 
 	if err := session.Conclude(session.ReviewID()); err != nil {
 		t.Fatalf("expected conclude to succeed, got %v", err)
@@ -153,7 +153,7 @@ func TestExplicitConcludeEndsAReviewEvenWithOpenChangeRequests(t *testing.T) {
 }
 
 func TestConcludeIsIdempotent(t *testing.T) {
-	session, _ := finishRound1WithCR(t)
+	session, _ := finishRound1WithComment(t)
 	id := session.ReviewID()
 
 	if err := session.Conclude(id); err != nil {
@@ -181,10 +181,10 @@ func TestConcludeWithoutAReviewIsRejected(t *testing.T) {
 	assertRejected(t, err, review.RejectedNoWalkthrough)
 }
 
-func TestReopenUnconcludesAZeroChangeRequestFinish(t *testing.T) {
+func TestReopenUnconcludesAZeroCommentFinish(t *testing.T) {
 	session, _, _ := finishRound1(t)
 	if !session.Concluded() {
-		t.Fatal("precondition: expected a zero-CR finish to be concluded")
+		t.Fatal("precondition: expected a zero-Comment finish to be concluded")
 	}
 
 	if err := session.Reopen(); err != nil {
@@ -200,7 +200,7 @@ func TestReopenUnconcludesAZeroChangeRequestFinish(t *testing.T) {
 }
 
 func TestReopenUndoesAnExplicitConclude(t *testing.T) {
-	session, _ := finishRound1WithCR(t)
+	session, _ := finishRound1WithComment(t)
 	if err := session.Conclude(session.ReviewID()); err != nil {
 		t.Fatal(err)
 	}

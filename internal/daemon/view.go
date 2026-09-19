@@ -70,30 +70,30 @@ type CoverageWire struct {
 }
 
 type DispositionWire struct {
-	ChangeRequestID int    `json:"change_request_id"`
-	Status          string `json:"status"`
-	Reasoning       string `json:"reasoning,omitempty"`
-	Note            string `json:"note"`
-	Location        string `json:"location"`
+	CommentID int    `json:"comment_id"`
+	Status    string `json:"status"`
+	Response  string `json:"response,omitempty"`
+	Note      string `json:"note"`
+	Location  string `json:"location"`
 }
 
 type ViewWire struct {
-	Posted         bool                `json:"posted"`
-	Posting        int                 `json:"posting"`
-	ReviewID       string              `json:"review_id,omitempty"`
-	Brief          BriefWire           `json:"brief"`
-	StepNames      []string            `json:"step_names"`
-	StepCount      int                 `json:"step_count"`
-	Position       int                 `json:"position"`
-	Step           *StepWire           `json:"step,omitempty"`
-	Coverage       CoverageWire        `json:"coverage"`
-	Repositories   []RepositoryWire    `json:"repositories"`
-	Seen           []bool              `json:"seen"`
-	StepStatuses   []string            `json:"step_statuses"`
-	ChangeRequests []ChangeRequestWire `json:"change_requests"`
-	Finished       bool                `json:"finished"`
-	Concluded      bool                `json:"concluded"`
-	Dispositions   []DispositionWire   `json:"dispositions,omitempty"`
+	Posted       bool              `json:"posted"`
+	Posting      int               `json:"posting"`
+	ReviewID     string            `json:"review_id,omitempty"`
+	Brief        BriefWire         `json:"brief"`
+	StepNames    []string          `json:"step_names"`
+	StepCount    int               `json:"step_count"`
+	Position     int               `json:"position"`
+	Step         *StepWire         `json:"step,omitempty"`
+	Coverage     CoverageWire      `json:"coverage"`
+	Repositories []RepositoryWire  `json:"repositories"`
+	Seen         []bool            `json:"seen"`
+	StepStatuses []string          `json:"step_statuses"`
+	Comments     []CommentWire     `json:"comments"`
+	Finished     bool              `json:"finished"`
+	Concluded    bool              `json:"concluded"`
+	Dispositions []DispositionWire `json:"dispositions,omitempty"`
 }
 
 // SegmentWire is one side-qualified range of an Anchor's extent. An Anchor taken
@@ -104,7 +104,7 @@ type SegmentWire struct {
 	LastLine  int    `json:"last_line"`
 }
 
-type ChangeRequestWire struct {
+type CommentWire struct {
 	ID       int           `json:"id"`
 	Step     int           `json:"step"`
 	File     string        `json:"file"`
@@ -113,18 +113,18 @@ type ChangeRequestWire struct {
 	Anchor   string        `json:"anchor"`
 	Note     string        `json:"note"`
 	// Acknowledgement is the index, within its Step, of the Acknowledgement the
-	// Change Request was raised in, absent for the Step's own code.
+	// Comment was raised in, absent for the Step's own code.
 	Acknowledgement *int `json:"acknowledgement,omitempty"`
 }
 
-// Covers reports whether the Change Request is anchored over a row of the
-// rendering. It tests every segment, so a Change Request spanning a removal and
+// Covers reports whether the Comment is anchored over a row of the
+// rendering. It tests every segment, so a Comment spanning a removal and
 // its replacement is found from either side.
-func (cr ChangeRequestWire) Covers(file, side string, line int) bool {
-	if cr.File != file {
+func (comment CommentWire) Covers(file, side string, line int) bool {
+	if comment.File != file {
 		return false
 	}
-	for _, segment := range cr.Segments {
+	for _, segment := range comment.Segments {
 		if segment.Side == side && line >= segment.FirstLine && line <= segment.LastLine {
 			return true
 		}
@@ -164,29 +164,29 @@ func toViewWire(v review.ViewModel) ViewWire {
 	for _, st := range v.StepStatuses {
 		wire.StepStatuses = append(wire.StepStatuses, string(st))
 	}
-	for _, cr := range v.ChangeRequests {
-		wire.ChangeRequests = append(wire.ChangeRequests, ChangeRequestWire{
-			ID: cr.ID, Step: cr.Step,
-			File:     cr.Anchor.File,
-			Segments: toSegmentWires(cr.Anchor.Segments),
-			Location: cr.Anchor.Location(),
-			Anchor:   cr.Anchor.Render(),
-			Note:     cr.Note,
+	for _, comment := range v.Comments {
+		wire.Comments = append(wire.Comments, CommentWire{
+			ID: comment.ID, Step: comment.Step,
+			File:     comment.Anchor.File,
+			Segments: toSegmentWires(comment.Anchor.Segments),
+			Location: comment.Anchor.Location(),
+			Anchor:   comment.Anchor.Render(),
+			Note:     comment.Note,
 
-			Acknowledgement: cr.Anchor.Acknowledgement,
+			Acknowledgement: comment.Anchor.Acknowledgement,
 		})
 	}
 	for _, repository := range v.Repositories {
 		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})
 	}
 	for _, disposition := range v.Dispositions {
-		cr := disposition.ChangeRequest
+		comment := disposition.Comment
 		wire.Dispositions = append(wire.Dispositions, DispositionWire{
-			ChangeRequestID: cr.ID,
-			Status:          string(disposition.Status),
-			Reasoning:       disposition.Reasoning,
-			Note:            cr.Note,
-			Location:        cr.Anchor.Location(),
+			CommentID: comment.ID,
+			Status:    string(disposition.Status),
+			Response:  disposition.Response,
+			Note:      comment.Note,
+			Location:  comment.Anchor.Location(),
 		})
 	}
 	if v.Step != nil {

@@ -101,7 +101,7 @@ The Authoring Agent's declaration that a set of changes is mechanical and need n
 read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of
 an Excerpt and renders as a manifest of files and counts. A claim, not a dismissal: the
 Reviewer may expand it into real Excerpts at any time — inline in the Step, as a unified diff
-they can navigate, anchor and raise Change Requests against like any other code.
+they can navigate, anchor and raise Comments against like any other code.
 _Avoid_: skip, noise, ignore, suppress
 
 **Anchor**:
@@ -116,24 +116,24 @@ Acknowledgement names that Acknowledgement and its reason, because a point raise
 disputes the claim that the change was mechanical, not just the line.
 _Avoid_: reference, citation, pointer, location
 
-**Change Request**:
-A Reviewer's request for an edit, raised against an Anchor. Collected
-during the Walkthrough and acted on only once the Walkthrough ends — never
-mid-flight. A proposal rather than an instruction: it resolves to *addressed* or
-*declined*, and a decline carries the Authoring Agent's reasoning. Distinct from a
-question, which is asked in the harness chat and changes nothing.
-_Avoid_: comment, note, feedback, todo
+**Comment**:
+A Reviewer's remark raised against an Anchor, either a request for an edit or a
+question, collected during the Walkthrough and responded to only once it ends. Resolves
+to *addressed*, *answered* or *declined*. An answer or a decline carries the Authoring
+Agent's response; an addressed Comment may carry one too. A question that needs a live
+exchange still belongs in the harness chat (ADR-0011).
+_Avoid_: change request, note, feedback, todo
 
 **Revision Round**:
-The Authoring Agent working the collected Change Requests, followed by a fresh
-Walkthrough over just the resulting changes. Its Brief maps every Change Request
-to its resolution, so a decline is read before any code. Repeats until the Reviewer
+The Authoring Agent responding to the collected Comments, followed by a fresh
+Walkthrough over just the resulting changes. Its Brief maps every Comment to its
+resolution, so an answer or a decline is read before any code. Repeats until the Reviewer
 hands a Walkthrough off having raised nothing.
 _Avoid_: fix pass, iteration, follow-up
 
 **Hand Off**:
 The Reviewer ending a round and passing the baton back: it locks their own edits
-until they resume, and authorizes the Authoring Agent's next Revision Round. A
+until they resume, and authorizes the Authoring Agent to respond to its Comments in the next Revision Round. A
 turn boundary in a loop, not a conclusion — which is why it is not called
 *finishing*, a word that reads as a synonym of leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete

@@ -24,7 +24,7 @@ func httpPost(t *testing.T, url string) {
 	}
 }
 
-func raiseChangeRequest(t *testing.T, baseURL string, excerpt, first, last int, note string) {
+func raiseComment(t *testing.T, baseURL string, excerpt, first, last int, note string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"excerpt_index": excerpt,
@@ -32,26 +32,26 @@ func raiseChangeRequest(t *testing.T, baseURL string, excerpt, first, last int, 
 		"end":           map[string]any{"line": last},
 		"note":          note,
 	})
-	response, err := http.Post(baseURL+"/changerequest", "application/json", bytes.NewReader(body))
+	response, err := http.Post(baseURL+"/comment", "application/json", bytes.NewReader(body))
 	if err != nil {
-		t.Fatalf("raise change request: %v", err)
+		t.Fatalf("raise comment: %v", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(response.Body)
-		t.Fatalf("raise change request answered %s: %s", response.Status, b)
+		t.Fatalf("raise comment answered %s: %s", response.Status, b)
 	}
 }
 
 type viewShape struct {
 	Dispositions []struct {
-		ChangeRequestID int    `json:"change_request_id"`
-		Status          string `json:"status"`
-		Reasoning       string `json:"reasoning"`
+		CommentID int    `json:"comment_id"`
+		Status    string `json:"status"`
+		Response  string `json:"response"`
 	} `json:"dispositions"`
-	ChangeRequests []struct {
+	Comments []struct {
 		ID int `json:"id"`
-	} `json:"change_requests"`
+	} `json:"comments"`
 }
 
 func getView(t *testing.T, baseURL string) viewShape {
@@ -69,7 +69,7 @@ func getView(t *testing.T, baseURL string) viewShape {
 }
 
 // TestARevisionRoundFlowsThroughTheDaemon drives the whole loop over the real
-// surfaces: post, raise a Change Request, finish, post a Revision Round that
+// surfaces: post, raise a Comment, finish, post a Revision Round that
 // declines it, see the decline on the view, and re-raise it.
 func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
@@ -96,28 +96,28 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "range": "main"}}, "steps": steps,
 	})
 	httpPost(t, server.URL+"/goto/1")
-	raiseChangeRequest(t, server.URL, 0, 4, 4, "please rename this")
+	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
 	httpPost(t, server.URL+"/finish")
 
-	// Round 2: a Revision Round declining the one Change Request.
+	// Round 2: a Revision Round declining the one Comment.
 	postWalkthrough(t, server.URL, map[string]any{
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "range": "main"}}, "steps": steps,
-		"dispositions": []any{map[string]any{"change_request_id": 1, "status": "declined", "reasoning": "the name is deliberate"}},
+		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "the name is deliberate"}},
 	})
 
 	view := getView(t, server.URL)
-	if len(view.Dispositions) != 1 || view.Dispositions[0].Status != "declined" || view.Dispositions[0].Reasoning == "" {
-		t.Fatalf("expected one declined disposition with reasoning on the view, got %+v", view.Dispositions)
+	if len(view.Dispositions) != 1 || view.Dispositions[0].Status != "declined" || view.Dispositions[0].Response == "" {
+		t.Fatalf("expected one declined disposition with a response on the view, got %+v", view.Dispositions)
 	}
-	if len(view.ChangeRequests) != 0 {
-		t.Fatalf("expected the Revision Round to start with no Change Requests, got %d", len(view.ChangeRequests))
+	if len(view.Comments) != 0 {
+		t.Fatalf("expected the Revision Round to start with no Comments, got %d", len(view.Comments))
 	}
 
 	// The Reviewer re-raises the decline.
 	httpPost(t, server.URL+"/reraise/1")
 
 	after := getView(t, server.URL)
-	if len(after.ChangeRequests) != 1 {
-		t.Fatalf("expected the re-raised Change Request to stand, got %d", len(after.ChangeRequests))
+	if len(after.Comments) != 1 {
+		t.Fatalf("expected the re-raised Comment to stand, got %d", len(after.Comments))
 	}
 }

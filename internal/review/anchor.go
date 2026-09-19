@@ -61,7 +61,7 @@ type Anchor struct {
 	AcknowledgementReason string
 	// Acknowledgement is the index, within its Step, of the Acknowledgement the
 	// Anchor lies in, or nil for the Step's own code — so a surface can tell which
-	// Acknowledgement a Change Request was raised in.
+	// Acknowledgement a Comment was raised in.
 	Acknowledgement *int
 }
 

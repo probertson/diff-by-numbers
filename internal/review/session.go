@@ -13,10 +13,10 @@ type Results struct {
 	Posted bool
 	// Finished reports whether the Reviewer has completed the Walkthrough. The
 	// agent does not wait for this; it asks and is told.
-	Finished       bool
-	ChangeRequests []ChangeRequest
+	Finished bool
+	Comments []Comment
 	// Brief and StepReports let the agent re-ground itself when it comes to work
-	// the Change Requests, since its own context may have moved on or been
+	// the Comments, since its own context may have moved on or been
 	// compacted since it posted (ADR-0008).
 	Brief       Brief
 	StepReports []StepReport
@@ -35,10 +35,10 @@ type Session struct {
 	position int
 	// seen records which Steps the Reviewer has visited. A Step becomes seen the
 	// moment it is in view, whether reached by advancing, going back, or jumping.
-	seen           map[int]bool
-	changeRequests []ChangeRequest
-	nextCRID       int
-	finished       bool
+	seen          map[int]bool
+	comments      []Comment
+	nextCommentID int
+	finished      bool
 	// hashes fingerprints each new-side Excerpt file as it was when the
 	// Walkthrough was accepted, so a Step whose file later changes can refuse to
 	// show code beneath an explanation that has stopped describing it.
@@ -50,7 +50,7 @@ type Session struct {
 	// preShown marks the current round's Changed Lines that were unchanged since
 	// the previous round: already reviewed, and counted as seen from the start.
 	preShown map[ChangedLine]bool
-	// dispositions accounts for the previous round's Change Requests in a Revision
+	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
 	// id is the review's identity, minted when a new review is first posted and
@@ -106,7 +106,7 @@ func (s *Session) Label() string { return s.label }
 
 // Post submits a Walkthrough for review. Posting after the previous Walkthrough
 // was handed off is a Revision Round: it re-derives the full Change Set, pre-marks
-// what is unchanged, and must account for the previous round's Change Requests.
+// what is unchanged, and must account for the previous round's Comments.
 func (s *Session) Post(w Walkthrough) error {
 	revision := s.walkthrough != nil && s.finished
 	if s.walkthrough != nil && !s.finished {
@@ -117,8 +117,8 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
-	// Dispositions account for the previous round's Change Requests. Resolve them
-	// before any state is reset, while the previous round's Change Requests still
+	// Dispositions account for the previous round's Comments. Resolve them
+	// before any state is reset, while the previous round's Comments still
 	// stand.
 	var dispositions []ResolvedDisposition
 	if revision {
@@ -129,7 +129,7 @@ func (s *Session) Post(w Walkthrough) error {
 		dispositions = resolved
 	} else if len(w.Dispositions) > 0 {
 		return reject(RejectedMalformedDisposition,
-			"this is the first Walkthrough; there are no Change Requests to dispose of")
+			"this is the first Walkthrough; there are no Comments to dispose of")
 	}
 
 	// Derive what git says changed, then hold the plan to it. Order matters:
@@ -174,8 +174,8 @@ func (s *Session) Post(w Walkthrough) error {
 	s.ledger = ledger
 	s.position = 0
 	s.seen = map[int]bool{}
-	s.changeRequests = nil
-	s.nextCRID = 0
+	s.comments = nil
+	s.nextCommentID = 0
 	s.finished = false
 	s.hashes = s.hashExcerptFiles(w.Steps)
 	s.preShown = preShown
@@ -256,11 +256,11 @@ func (s *Session) Results() (Results, error) {
 		reports[i] = StepReport{Number: i + 1, Name: step.Name, Status: s.stepStatus(i + 1)}
 	}
 	return Results{
-		Posted:         true,
-		Finished:       s.finished,
-		ChangeRequests: s.ChangeRequests(),
-		Brief:          s.walkthrough.Brief,
-		StepReports:    reports,
+		Posted:      true,
+		Finished:    s.finished,
+		Comments:    s.Comments(),
+		Brief:       s.walkthrough.Brief,
+		StepReports: reports,
 	}, nil
 }
 

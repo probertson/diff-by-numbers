@@ -40,3 +40,9 @@ inbox needs.
 
 Deferred and recorded as an issue: one-shot answers returning into dbn beside the code, with
 deeper threads escalating to chat.
+
+## Amendment: batched questions go through dbn (ADR-0013)
+
+A question that can wait for the round to end is raised in dbn as a **Comment**, anchored like
+any other, and the agent answers it in the Revision Round. Live discussion, follow-ups and
+anything that needs a back-and-forth stay in the harness chat, as above.

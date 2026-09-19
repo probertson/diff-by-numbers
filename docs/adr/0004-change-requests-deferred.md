@@ -1,5 +1,8 @@
 # Change Requests are collected, not applied mid-Walkthrough
 
+> Now reads "Comments deferred": Change Requests were renamed **Comments**, which may also be
+> questions (ADR-0013). The decision below is unchanged.
+
 Questions are asked in the harness chat and change nothing. Change Requests are attached to
 their Steps and acted on only once the Walkthrough ends, then reviewed in a fresh
 Revision Round over just the resulting changes.

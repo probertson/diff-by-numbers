@@ -318,17 +318,17 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprint(w, d.session.Dump())
 	})
 
-	mux.HandleFunc("POST /changerequest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /comment", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			anchorRequest
 			Note string `json:"note"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad change-request", http.StatusBadRequest)
+			http.Error(w, "bad comment", http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
-		_, err := d.session.RaiseChangeRequest(req.target(), req.Note)
+		_, err := d.session.RaiseComment(req.target(), req.Note)
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -337,7 +337,7 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	})
 
-	mux.HandleFunc("PUT /changerequest/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /comment/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
@@ -351,7 +351,7 @@ func (d *Daemon) Handler() http.Handler {
 			return
 		}
 		d.mu.Lock()
-		err = d.session.EditChangeRequest(id, req.Note)
+		err = d.session.EditComment(id, req.Note)
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -360,14 +360,14 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	})
 
-	mux.HandleFunc("DELETE /changerequest/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /comment/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
-		err = d.session.WithdrawChangeRequest(id)
+		err = d.session.WithdrawComment(id)
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -587,10 +587,10 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 
 	message := "no Walkthrough is posted; post one before asking how the review went"
 	switch {
-	case results.Posted && results.Finished && len(results.ChangeRequests) == 0:
+	case results.Posted && results.Finished && len(results.Comments) == 0:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
 	case results.Posted && results.Finished:
-		message = "the Reviewer has handed off; work the Change Requests below, then post a Revision Round"
+		message = "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
 	case results.Posted:
 		message = "the Reviewer has not handed off the Walkthrough yet"
 	}
