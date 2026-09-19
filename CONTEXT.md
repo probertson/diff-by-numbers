@@ -133,9 +133,10 @@ _Avoid_: fix pass, iteration, follow-up
 
 **Hand Off**:
 The Reviewer ending a round and passing the baton back: it locks their own edits
-until they resume, and authorizes the Authoring Agent to respond to its Comments in the next Revision Round. A
-turn boundary in a loop, not a conclusion — which is why it is not called
-*finishing*, a word that reads as a synonym of leaving the viewer.
+until they resume, and authorizes the Authoring Agent to respond to the Reviewer's
+Comments in the next Revision Round. A turn boundary in a loop, not a conclusion —
+which is why it is not called *finishing*, a word that reads as a synonym of
+leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete
 
 **Coverage Ledger**:

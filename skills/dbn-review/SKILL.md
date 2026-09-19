@@ -9,9 +9,8 @@ dbn is a channel for you to walk a human through the code you just wrote, in an
 order that makes sense for review rather than the order git happens to print.
 You post one complete **Walkthrough**; the reviewer navigates it themselves in a
 side terminal and raises **Comments** (requests for a change, or questions); you
-collect those and post a
-**Revision Round**. You never block waiting — you post, end your turn, and pick
-the results up later.
+collect those and post a **Revision Round**. You never block waiting — you post,
+end your turn, and pick the results up later.
 
 The dbn daemon exposes three MCP tools: `post_walkthrough`, `fetch_results`, and
 `conclude`. If they are not available, dbn's MCP server is not registered — see
@@ -105,9 +104,10 @@ code:
 Use `answered` for a question, even one you could read as a request; use
 `declined` only when you are turning down a change. If answering the question
 led you to change the code, that is `addressed`, with the answer as its
-`response`. dbn
-re-derives everything and pre-marks as already-seen every line whose content is
-unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
+`response`.
+
+dbn re-derives everything and pre-marks as already-seen every line whose content
+is unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
 plan Steps and coverage for the moved lines the same way.
 
 A Comment whose anchor says the code was `acknowledged in Step "…"`

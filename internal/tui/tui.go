@@ -647,7 +647,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				here := m.commentsAtCursor()
 				switch len(here) {
 				case 0:
-					m.status = "no comment on this line to edit"
+					m.status = "no Comment on this line to edit"
 				case 1:
 					m.editingID = here[0].ID
 					m.pendingCode = here[0].Anchor
@@ -746,9 +746,9 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status = "could not update the Comment"
 					}
 				} else if m.client.raiseComment(m.pendingSel, note) {
-					m.status = "comment added"
+					m.status = "Comment added"
 				} else {
-					m.status = "could not add the comment"
+					m.status = "could not add the Comment"
 				}
 			}
 			m.editingID = 0
@@ -1319,8 +1319,8 @@ func (m model) stepCounts() (seen, flagged int) {
 	return seen, flagged
 }
 
-// dispositionSummary tallies how the agent handled the previous round's
-// Comments, for the Revision-Round-ready box. A status no Comment received is
+// dispositionSummary is the sentence saying how the agent handled the previous
+// round's Comments, for the Revision-Round-ready box. A status no Comment received is
 // left out, so a round with no questions reads as it always has.
 func (m model) dispositionSummary() string {
 	counts := map[string]int{}

@@ -257,7 +257,7 @@ func TestADeclinedCommentCanBeReRaised(t *testing.T) {
 		t.Errorf("expected the re-raised note carried over, got %q", comment.Note)
 	}
 	// The previous round's Step number means nothing in this round; the re-raised
-	// request is not tied to a current Step, so it cannot flag the wrong one.
+	// Comment is not tied to a current Step, so it cannot flag the wrong one.
 	if comment.Step != 0 {
 		t.Errorf("expected a re-raised Comment not to claim a current Step, got Step %d", comment.Step)
 	}

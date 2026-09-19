@@ -452,9 +452,9 @@ func TestTheBoundaryMessageIsTakenBackOnceMovementSucceeds(t *testing.T) {
 		t.Errorf("expected a successful movement to take the message back, got %q", m.status)
 	}
 
-	m.status = "comment added"
+	m.status = "Comment added"
 	m.noteBoundary(false)
-	if m.status != "comment added" {
+	if m.status != "Comment added" {
 		t.Errorf("an unrelated status has nothing to do with moving the cursor, got %q", m.status)
 	}
 }

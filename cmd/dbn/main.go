@@ -71,7 +71,7 @@ run `+"`dbn <command> -h`"+` for a command's flags
 }
 
 func run(args []string, out io.Writer) error {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") && !isVersionFlag(args[0]) {
+	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !isVersionFlag(args[0])) {
 		port, err := parseTUIArgs(args, out)
 		if errors.Is(err, flag.ErrHelp) {
 			return nil

@@ -1,9 +1,10 @@
 package review
 
-// Comment is a Reviewer's request for an edit, anchored to the code it
-// concerns. It is a proposal, not an instruction: the Authoring Agent works it
-// after the Walkthrough ends and may address or decline it. Nothing on disk moves
-// while the Walkthrough is under review (ADR-0004).
+// Comment is a Reviewer's remark, a request for an edit or a question, anchored
+// to the code it concerns. It is a proposal, not an instruction: the Authoring
+// Agent responds to it after the Walkthrough ends, and may address, answer or
+// decline it. Nothing on disk moves while the Walkthrough is under review
+// (ADR-0004).
 type Comment struct {
 	ID     int
 	Step   int
