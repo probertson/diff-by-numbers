@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -42,9 +43,43 @@ func defaultPort() int {
 // listens nowhere else.
 func daemonURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
 
+// parseTUIArgs reads the flags of the bare `dbn` form, which opens the review
+// TUI. Help goes to usage and comes back as flag.ErrHelp.
+func parseTUIArgs(args []string, usage io.Writer) (int, error) {
+	flags := flag.NewFlagSet("dbn", flag.ContinueOnError)
+	flags.SetOutput(usage)
+	port := flags.Int("port", defaultPort(), "daemon port to attach to")
+	// Written out rather than PrintDefaults, which would show the default as
+	// whatever DBN_PORT resolved to and not say where it came from.
+	flags.Usage = func() {
+		fmt.Fprintf(usage, `usage: dbn [-port N]                 open the review TUI
+       dbn <command> [flags]
+commands: serve, mcp, dump, abandon, update, version
+run `+"`dbn <command> -h`"+` for a command's flags
+
+  -port int
+    	daemon port to attach to (default %d, or $DBN_PORT)
+`, daemon.DefaultPort)
+	}
+	if err := flags.Parse(args); err != nil {
+		return 0, err
+	}
+	if flags.NArg() > 0 {
+		return 0, fmt.Errorf("unexpected argument %q; run `dbn -h` for usage", flags.Arg(0))
+	}
+	return *port, nil
+}
+
 func run(args []string, out io.Writer) error {
-	if len(args) == 0 {
-		return tui.Run(defaultPort())
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") && !isVersionFlag(args[0]) {
+		port, err := parseTUIArgs(args, out)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return tui.Run(port)
 	}
 
 	switch args[0] {
@@ -117,9 +152,11 @@ func run(args []string, out io.Writer) error {
 		return abandon(*port, out)
 
 	default:
-		return fmt.Errorf("unknown command %q; run `dbn` for the review TUI, or dbn <serve|mcp|dump|abandon|update|version> [flags]", args[0])
+		return fmt.Errorf("unknown command %q; run `dbn -h` for usage", args[0])
 	}
 }
+
+func isVersionFlag(arg string) bool { return arg == "--version" || arg == "-v" }
 
 // reportUpdate adds what the update check found under the version line. Unlike
 // the TUI, `dbn version` says when the check itself failed: someone asking a
