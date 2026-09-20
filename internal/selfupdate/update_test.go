@@ -22,8 +22,15 @@ import (
 )
 
 // newBinary is what the fake release ships, and what the installed binary must
-// contain once an update has succeeded.
-const newBinary = "#!/bin/sh\necho dbn 0.2.0\n"
+// contain once an update has succeeded. It answers `skill-check` too, so a test
+// can tell that the update re-ran the check as the *new* binary.
+const newBinary = `#!/bin/sh
+if [ "$1" = skill-check ]; then echo "` + skillReport + `"; exit 0; fi
+echo dbn 0.2.0
+`
+
+// skillReport is what the fake new binary prints when asked to check skills.
+const skillReport = "the new binary checked the skills"
 
 // release is a stand-in for the GitHub release: the latest-release API and the
 // assets that hang off the tag, served from one test server.
@@ -35,9 +42,16 @@ type release struct {
 
 func newRelease(t *testing.T, tag string) *release {
 	t.Helper()
+	return newReleaseOf(t, tag, newBinary)
+}
+
+// newReleaseOf is newRelease with the shipped binary's contents chosen by the
+// caller, for the cases that care what happens when it is run.
+func newReleaseOf(t *testing.T, tag, binary string) *release {
+	t.Helper()
 	r := &release{tag: tag}
 	asset := fmt.Sprintf("dbn_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
-	archive := tarball(t, newBinary)
+	archive := tarball(t, binary)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/latest", func(w http.ResponseWriter, _ *http.Request) {
@@ -469,4 +483,64 @@ func tarballNamed(t *testing.T, name, contents string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// The skill ships separately from the binary, so an update that replaced dbn
+// leaves the skill behind. The check has to run as the *new* binary, because
+// only it embeds the skill the new release expects.
+func TestAnUpdateReportsOnTheSkillAsTheNewBinary(t *testing.T) {
+	rel := newRelease(t, "v0.2.0")
+	executable := installed(t, "the old binary")
+
+	out, err := run(t, testUpdateConfig(t, rel, executable, "0.1.0"))
+
+	if err != nil {
+		t.Fatalf("the update failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, skillReport) {
+		t.Errorf("the update did not pass the new binary's skill check through:\n%s", out)
+	}
+}
+
+// An up-to-date binary can still have a stale skill beside it, which is exactly
+// the case a Reviewer runs `dbn update` to rule out.
+func TestSkillsAreCheckedEvenWhenThereIsNothingToUpdate(t *testing.T) {
+	rel := newRelease(t, "v0.1.0")
+	executable := installed(t, newBinary)
+
+	out, err := run(t, testUpdateConfig(t, rel, executable, "0.1.0"))
+
+	if err != nil {
+		t.Fatalf("the update failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "already the latest release") {
+		t.Errorf("expected the no-op message:\n%s", out)
+	}
+	if !strings.Contains(out, skillReport) {
+		t.Errorf("a no-op update still has to check the skill:\n%s", out)
+	}
+}
+
+// A skill check is a hint, not the job. Whatever goes wrong running it, the
+// update itself must still be reported as having succeeded.
+func TestAFailingSkillCheckDoesNotFailTheUpdate(t *testing.T) {
+	// A release whose binary has no shebang and is not a valid executable: it
+	// installs fine, then fails to run. Pointing Executable somewhere unwritable
+	// would not do — the update would refuse before ever reaching the check.
+	rel := newReleaseOf(t, "v0.2.0", "\x00 not an executable at all")
+	executable := installed(t, "the old binary")
+
+	out, err := run(t, testUpdateConfig(t, rel, executable, "0.1.0"))
+
+	if err != nil {
+		t.Fatalf("a skill check that cannot run must not fail the update: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Updated to 0.2.0") {
+		t.Errorf("the update should still report success:\n%s", out)
+	}
+	// Proves the test reached the path it is named for: had the installed binary
+	// been runnable, its report would be here and nothing would have failed.
+	if strings.Contains(out, skillReport) {
+		t.Errorf("this binary cannot be executed, so no skill report should have been passed through:\n%s", out)
+	}
 }

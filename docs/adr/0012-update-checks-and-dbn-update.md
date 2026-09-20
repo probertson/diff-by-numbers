@@ -82,4 +82,9 @@ being replaced under it. The tool list it mirrored at startup does not refresh, 
 by a newer release appear only when the agent restarts its MCP server.
 
 The plugin/skill ships separately from the binary and still versions independently. That gap
-is recorded as its own issue rather than settled here.
+was recorded as its own issue rather than settled here, and #64 has since closed it: cutting a
+release writes the version into `.claude-plugin/plugin.json`, so Claude Code offers the plugin
+update at all, and `dbn update` ends by re-execing the newly installed binary as `dbn
+skill-check`, which compares the skill it embeds against the copies in the two locations dbn
+installs to. The versions still move independently — nothing here makes a stale skill refuse to
+run — but drift is now reported instead of silent.

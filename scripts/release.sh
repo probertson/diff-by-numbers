@@ -54,25 +54,28 @@ git ls-remote --exit-code --tags origin "refs/tags/${version}" >/dev/null 2>&1 &
 	die "tag ${version} already exists on origin"
 
 # The workflow builds from the tagged commit on GitHub, so main must be on
-# origin. Refuse if origin/main has commits we lack (needs a pull); push main
-# ourselves if it is merely ahead, so this stays a one-command release.
+# origin. Refuse if origin/main has commits we lack (needs a pull). We always
+# push main ourselves below, because the release now makes a commit of its own.
 git fetch -q origin main
 [ -z "$(git rev-list HEAD..origin/main)" ] ||
 	die "origin/main has commits you don't have locally — pull/rebase first"
-push_main=no
-[ -z "$(git rev-list origin/main..HEAD)" ] || push_main=yes
 
 if [ "${SKIP_TESTS:-}" != "1" ]; then
 	echo "running tests..."
 	go test ./... >/dev/null || die "tests failed — not tagging a broken build (SKIP_TESTS=1 to override)"
 fi
 
-commit=$(git rev-parse --short HEAD)
-if [ "$push_main" = yes ]; then
-	printf 'About to push main, then tag %s at %s and push the tag, triggering the release build.\n' "$version" "$commit"
-else
-	printf 'About to tag %s at %s (main) and push it, triggering the release build.\n' "$version" "$commit"
-fi
+# The Claude Code plugin carries the dbn-review skill, and Claude Code only
+# offers an update when plugin.json's version changes — so a release that leaves
+# it alone ships a skill nobody receives. It is set here, in plugin.json only:
+# the docs are explicit that plugin.json silently wins over marketplace.json,
+# so setting both would just be two places to disagree.
+plugin_manifest=".claude-plugin/plugin.json"
+[ -f "$plugin_manifest" ] || die "${plugin_manifest} not found — is this the dbn repository?"
+plugin_version=${version#v}
+
+printf 'About to set the plugin version to %s, commit it as "Release %s", push main,\n' "$plugin_version" "$version"
+printf 'then tag %s at that commit and push the tag, triggering the release build.\n' "$version"
 printf 'Continue? [y/N] '
 read -r reply
 case "$reply" in
@@ -80,10 +83,38 @@ y | Y) ;;
 *) die "aborted" ;;
 esac
 
-if [ "$push_main" = yes ]; then
-	echo "pushing main..."
-	git push origin main
+# Rewrite the first "version" key in the manifest. plugin.json is a flat,
+# hand-maintained object with exactly one, so first-match is the right match;
+# were it ever to gain a nested "version", this would need a real JSON tool.
+# The result is read back and checked, because a silently unchanged manifest is
+# the whole bug this guards against.
+#
+# The temp file goes outside the repository: one left behind inside it would be
+# untracked, and the *next* release would then die on its clean-tree check.
+tmp_manifest=$(mktemp) || die "could not create a temporary file"
+trap 'rm -f "$tmp_manifest"' EXIT INT TERM
+
+sed 's/\("version"[[:space:]]*:[[:space:]]*\)"[^"]*"/\1"'"$plugin_version"'"/' \
+	"$plugin_manifest" >"$tmp_manifest" || die "could not rewrite ${plugin_manifest}"
+cat "$tmp_manifest" >"$plugin_manifest" || die "could not write ${plugin_manifest}"
+
+written=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$plugin_manifest" | head -n 1)
+[ "$written" = "$plugin_version" ] ||
+	die "could not set the plugin version in ${plugin_manifest} (it reads '${written}')"
+
+# Nothing to commit when the manifest already carried this version, which
+# happens when an earlier attempt got this far and then failed. Re-running must
+# still tag and push rather than dying on an empty commit.
+if git diff --quiet -- "$plugin_manifest"; then
+	echo "plugin version is already ${plugin_version}; nothing to commit"
+else
+	echo "setting the plugin version to ${plugin_version}..."
+	git add "$plugin_manifest"
+	git commit -qm "Release ${version}"
 fi
+
+echo "pushing main..."
+git push origin main
 
 git tag -a "$version" -m "Release ${version}"
 git push origin "$version"

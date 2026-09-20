@@ -17,8 +17,10 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 	"github.com/probertson/diff-by-numbers/internal/selfupdate"
 	"github.com/probertson/diff-by-numbers/internal/shim"
+	"github.com/probertson/diff-by-numbers/internal/skillcheck"
 	"github.com/probertson/diff-by-numbers/internal/tui"
 	"github.com/probertson/diff-by-numbers/internal/updatecheck"
+	"github.com/probertson/diff-by-numbers/skills"
 )
 
 func main() {
@@ -134,6 +136,19 @@ func run(args []string, out io.Writer) error {
 		}
 		cfg.Force = *force
 		return selfupdate.Update(context.Background(), cfg, out)
+
+	case "skill-check":
+		// Deliberately absent from the usage list: this is the second hop of
+		// `dbn update`, which re-execs the freshly installed binary so the
+		// comparison is made against the skill that binary shipped with, not the
+		// one the outgoing binary embedded. Nothing stops a Reviewer running it,
+		// but it is not a command they need to know.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not find your home directory to check the dbn-review skill: %w", err)
+		}
+		skillcheck.Report(skillcheck.Config{Home: home, Embedded: skills.DbnReview}, out)
+		return nil
 
 	case "dump":
 		flags := flag.NewFlagSet("dump", flag.ContinueOnError)

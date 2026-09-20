@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,5 +108,36 @@ func TestRunUnknownCommandIsAOneLineError(t *testing.T) {
 	}
 	if !strings.Contains(msg, `unknown command "foo"`) || !strings.HasSuffix(msg, "run `dbn -h` for usage") {
 		t.Errorf("error = %q, want it to name the command and end with the usage hint", msg)
+	}
+}
+
+func TestSkillCheckReportsOnAStaleUserSkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".claude", "skills", "dbn-review", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("nothing like the shipped skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	if err := run([]string{"skill-check"}, &out); err != nil {
+		t.Fatalf("dbn skill-check: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "is out of date: run npx skills add") {
+		t.Errorf("skill-check did not report the stale skill:\n%s", out.String())
+	}
+}
+
+func TestSkillCheckIsNotAdvertisedInUsage(t *testing.T) {
+	var usage bytes.Buffer
+
+	_, _ = parseTUIArgs([]string{"-h"}, &usage)
+
+	if strings.Contains(usage.String(), "skill-check") {
+		t.Errorf("skill-check is an internal hop for `dbn update`, not a command to advertise:\n%s", usage.String())
 	}
 }

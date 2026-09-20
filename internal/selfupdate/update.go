@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -108,6 +109,9 @@ func Update(ctx context.Context, cfg Config, out io.Writer) error {
 	}
 	if !result.Available {
 		fmt.Fprintf(out, "dbn %s is already the latest release.\n", cfg.Current)
+		// Still worth saying: the binary and the skill are installed separately,
+		// so an up-to-date dbn is no evidence the skill beside it is current.
+		reportSkills(ctx, cfg.Executable, out)
 		return nil
 	}
 
@@ -131,7 +135,42 @@ func Update(ctx context.Context, cfg Config, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "Updated to %s.\n", result.Latest)
 
-	return restartDaemon(ctx, cfg, out)
+	// The binary has already been replaced by this point, so the skill hint is
+	// owed whatever becomes of the daemon. Sequenced rather than nested for that
+	// reason: restartDaemon reports its own trouble and returns nil today, but a
+	// future error path there must not silently swallow the hint as well.
+	restartErr := restartDaemon(ctx, cfg, out)
+	reportSkills(ctx, cfg.Executable, out)
+	return restartErr
+}
+
+// skillCheckTimeout bounds the skill check. It only reads a few local files, so
+// anything approaching this means something is wrong and the hint is not worth
+// waiting on.
+const skillCheckTimeout = 10 * time.Second
+
+// reportSkills asks the binary on disk to compare the dbn-review skills on this
+// machine against the one it shipped with, and passes its answer through.
+//
+// It runs as a subprocess rather than in this process because of the path that
+// matters: after an update, the process running this code is the *outgoing*
+// binary, and it embeds the outgoing skill. Only the binary just written knows
+// what the new release expects. On the nothing-to-update path the two are the
+// same binary and the hop buys nothing, but it costs one exec and keeps a
+// single answer to "is my skill current?".
+//
+// Failures are swallowed. This is advice about a separate install, appended to
+// an update that has already happened; a Reviewer whose dbn was replaced should
+// not be told the update failed because a hint could not be printed.
+func reportSkills(ctx context.Context, executable string, out io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, skillCheckTimeout)
+	defer cancel()
+
+	reported, err := exec.CommandContext(ctx, executable, "skill-check").Output()
+	if err != nil {
+		return
+	}
+	_, _ = out.Write(reported)
 }
 
 // fetchRelease downloads the archive for this platform, verifies it against the

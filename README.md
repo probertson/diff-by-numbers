@@ -132,6 +132,11 @@ npx skills add probertson/diff-by-numbers/skills/dbn-review
 /plugin install dbn@diff-by-numbers
 ```
 
+Third-party marketplaces do not auto-update by default, so the plugin will not
+follow dbn on its own: run `/plugin update dbn@diff-by-numbers` after upgrading
+dbn, or turn auto-update on for the marketplace. `dbn update` checks the copies
+it can find and tells you when one has fallen behind.
+
 The skill teaches Step sizing and narrative ordering, Provenance, when an
 Acknowledgement is appropriate, and how to run the collect-and-revise loop.
 
