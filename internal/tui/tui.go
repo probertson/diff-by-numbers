@@ -1327,7 +1327,7 @@ const noteMaxHeight = 10
 func (m *model) setNoteHeight() {
 	codeLines := 1 // the "lines %d-%d" placeholder shown when there is no anchor
 	if m.pendingCode != "" {
-		codeLines = lipgloss.Height(wrapTo(m.pendingCode, m.width))
+		codeLines = len(renderAnchorRows(m.pendingCode, m.width))
 	}
 	// The fixed single-line rows around the input: the header and its blank line,
 	// the title and its blank line, the counter, and the keybar — six in all — plus
@@ -1346,7 +1346,7 @@ func (m model) noteView() string {
 	if code == "" {
 		code = dimSt.Render(pluralize(m.pendingSel.rows, "line"))
 	} else {
-		code = wrapTo(code, m.width) // the anchor's "Re: …" header is one long line
+		code = strings.Join(renderAnchorRows(code, m.width), "\n")
 	}
 	title := "New Comment"
 	if m.editingID > 0 {
@@ -1358,6 +1358,11 @@ func (m model) noteView() string {
 		Render(dimSt.Render(fmt.Sprintf("%d/%d", m.note.Length(), m.note.CharLimit)))
 	return labelSt.Render(title) + "\n\n" + code + "\n" + m.note.View() + "\n" + counter
 }
+
+// listItemIndent is how far the Comment list and the re-raise picker indent an
+// item's body under its heading. It is both the padding drawn and the width the
+// body loses, so the two cannot drift apart.
+const listItemIndent = 5
 
 func (m model) listView() string {
 	list := m.filteredComments()
@@ -1380,11 +1385,14 @@ func (m model) listView() string {
 			where = "re-raised"
 		}
 		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(comment.Location)))
-		for _, line := range strings.Split(strings.TrimRight(comment.Anchor, "\n"), "\n") {
-			b.WriteString("     " + dimSt.Render(line) + "\n")
+		// An item's body is indented under its heading, so it has that much less
+		// width to wrap in.
+		indent := strings.Repeat(" ", listItemIndent)
+		for _, line := range renderAnchorRows(comment.Anchor, m.width-listItemIndent) {
+			b.WriteString(indent + dimSt.Render(line) + "\n")
 		}
-		for _, line := range strings.Split(wrapTo(comment.Note, m.width-5), "\n") {
-			b.WriteString("     " + line + "\n")
+		for _, line := range strings.Split(wrapTo(comment.Note, m.width-listItemIndent), "\n") {
+			b.WriteString(indent + line + "\n")
 		}
 		b.WriteString("\n")
 	}
