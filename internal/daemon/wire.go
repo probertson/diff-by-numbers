@@ -86,6 +86,9 @@ type commentWire struct {
 	Location string `json:"location" jsonschema:"Where in the code it points: the file, and the before-side and after-side lines it covers"`
 	Anchor   string `json:"anchor" jsonschema:"The full anchored context, ready to act on: the code and where it lives"`
 	Note     string `json:"note" jsonschema:"What the Reviewer said: a change they want, or a question"`
+	// ReRaisedFrom is only set when the Reviewer pushed back on how you resolved a
+	// Comment last round.
+	ReRaisedFrom int `json:"re_raised_from,omitempty" jsonschema:"Set when the Reviewer re-raised the Comment you declined or answered as #N: they did not accept your reasoning. Answer the point or change the code — repeating the same reasoning is not a response"`
 }
 
 type stepReportWire struct {
@@ -179,6 +182,8 @@ func toFetchResult(r review.Results, message string) fetchResult {
 			Location: comment.Anchor.Location(),
 			Anchor:   comment.Anchor.Render(),
 			Note:     comment.Note,
+
+			ReRaisedFrom: comment.ReRaisedFrom,
 		})
 	}
 	for _, sr := range r.StepReports {

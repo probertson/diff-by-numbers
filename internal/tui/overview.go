@@ -30,12 +30,15 @@ type dispositionGroup struct {
 	heading string
 	mark    string
 	style   lipgloss.Style
+	// disputable marks a group the Reviewer can push back on. An addressed
+	// Comment is not one: the code moved, and there is fresh code to comment on.
+	disputable bool
 }
 
 func dispositionGroups() []dispositionGroup {
 	return []dispositionGroup{
-		{status: "declined", heading: "Declined", mark: "✗", style: warnSt},
-		{status: "answered", heading: "Answered", mark: "↩", style: accentSt},
+		{status: "declined", heading: "Declined", mark: "✗", style: warnSt, disputable: true},
+		{status: "answered", heading: "Answered", mark: "↩", style: accentSt, disputable: true},
 		{status: "addressed", heading: "Addressed", mark: "✓", style: addSt},
 	}
 }
@@ -59,14 +62,30 @@ func (m model) sinceTheLastRound(width int) string {
 		if len(members) == 0 {
 			continue
 		}
+		// A re-raised resolution stays in its group — it is still what the agent
+		// did — but the heading says how many have been pushed back on, so the
+		// count the Reviewer acts on is the one still standing (#80).
+		reRaised := 0
+		for _, disposition := range members {
+			if _, ok := m.reRaiseOf(disposition.CommentID); ok {
+				reRaised++
+			}
+		}
 		name := fmt.Sprintf("%s (%d)", group.heading, len(members))
+		if reRaised > 0 {
+			name = fmt.Sprintf("%s (%d, %d re-raised)", group.heading, len(members), reRaised)
+		}
 		hint := ""
-		if group.status == "declined" {
+		if group.disputable && reRaised < len(members) {
 			hint = " — press R to re-raise one"
 		}
 		b.WriteString(indent + fitRow(name+hint, labelSt.Render(name)+dimSt.Render(hint), width-dispositionIndent) + "\n")
 		for _, disposition := range members {
-			for _, row := range dispositionItem(group, disposition, width) {
+			mark := ""
+			if reRaise, ok := m.reRaiseOf(disposition.CommentID); ok {
+				mark = fmt.Sprintf("↻ re-raised as #%d", reRaise.ID)
+			}
+			for _, row := range dispositionItem(group, disposition, mark, width) {
 				b.WriteString(row + "\n")
 			}
 		}
@@ -92,10 +111,16 @@ func dispositionStatus(disposition daemon.DispositionWire) string {
 // was raised, then what the Reviewer asked and what the agent said back, each
 // hanging in its own block. The blank row at the end is the whitespace that was
 // missing when every item ran together into one paragraph (#75).
-func dispositionItem(group dispositionGroup, disposition daemon.DispositionWire, width int) []string {
+func dispositionItem(group dispositionGroup, disposition daemon.DispositionWire, reRaisedAs string, width int) []string {
 	tail := fmt.Sprintf(" #%d  %s", disposition.CommentID, disposition.Location)
 	rows := []string{strings.Repeat(" ", dispositionIndent) +
 		fitRow(group.mark+tail, group.style.Render(group.mark)+dimSt.Render(tail), width-dispositionIndent)}
+	if reRaisedAs != "" {
+		// Under the item rather than beside it: the Reviewer scanning for what is
+		// still open reads the marks down the left, and this one says "not this".
+		rows = append(rows, strings.Repeat(" ", dispositionLabelIndent)+
+			fitRow(reRaisedAs, accentSt.Render(reRaisedAs), width-dispositionLabelIndent))
+	}
 	rows = append(rows, hangingField("you asked: ", disposition.Note, dimSt, width)...)
 	// Required of an answer and a decline, and welcome on one the agent addressed.
 	// Its label carries the accent where "you asked:" stays dim, so the eye finds
@@ -154,11 +179,19 @@ func hangingField(label, text string, labelStyle lipgloss.Style, width int) []st
 
 // declinesHint is the conclusion screen's last chance to push back: the round
 // ends at the hand-off, and a decline the Reviewer disagreed with is easiest to
-// forget there. Empty when the agent declined nothing.
+// forget there. It counts only the declines still standing (#80), so a Reviewer
+// who has already pushed back on all of them is not nagged; empty when there are
+// none left, or none at all.
 func (m model) declinesHint() string {
-	declined := len(m.declinedDispositions())
-	if declined == 0 {
+	declined := m.declinedDispositions()
+	standing := 0
+	for _, disposition := range declined {
+		if _, ok := m.reRaiseOf(disposition.CommentID); !ok {
+			standing++
+		}
+	}
+	if standing == 0 {
 		return ""
 	}
-	return fmt.Sprintf("The agent declined %s — R to re-raise", pluralize(declined, "Comment"))
+	return fmt.Sprintf("%d of %s not re-raised — R to re-raise", standing, pluralize(len(declined), "decline"))
 }

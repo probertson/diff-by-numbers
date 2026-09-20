@@ -106,6 +106,11 @@ Use `answered` for a question, even one you could read as a request; use
 led you to change the code, that is `addressed`, with the answer as its
 `response`.
 
+A Comment carrying `re_raised_from` is one the reviewer pushed back on: they read
+your decline or your answer and did not accept it. It calls for a change, or for
+a stronger argument than the one they already rejected — repeating the same
+reasoning is not a response.
+
 dbn re-derives everything and pre-marks as already-seen every line whose content
 is unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
 plan Steps and coverage for the moved lines the same way.

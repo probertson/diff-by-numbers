@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -385,8 +386,17 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
+		// The note is optional: an empty body re-raises the Comment as it stood,
+		// which is what a Reviewer who simply disagrees wants.
+		var req struct {
+			Note string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			http.Error(w, "bad re-raise", http.StatusBadRequest)
+			return
+		}
 		d.mu.Lock()
-		_, err = d.session.ReRaise(id)
+		_, err = d.session.ReRaise(id, req.Note)
 		d.mu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)

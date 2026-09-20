@@ -75,6 +75,9 @@ type DispositionWire struct {
 	Response  string `json:"response,omitempty"`
 	Note      string `json:"note"`
 	Location  string `json:"location"`
+	// Anchor is the previous round's Anchor rendered, so re-raising can open the
+	// note editor over the code the point was about.
+	Anchor string `json:"anchor,omitempty"`
 }
 
 type ViewWire struct {
@@ -115,11 +118,15 @@ type CommentWire struct {
 	// Acknowledgement is the index, within its Step, of the Acknowledgement the
 	// Comment was raised in, absent for the Step's own code.
 	Acknowledgement *int `json:"acknowledgement,omitempty"`
+	// ReRaisedFrom is the previous round's Comment this one disputes, or 0 for a
+	// Comment raised on this round's code.
+	ReRaisedFrom int `json:"re_raised_from,omitempty"`
 }
 
 // ReRaised reports whether the Comment was carried over from a previous round
-// rather than raised on a Step of this one, which is what a Step of 0 encodes.
-func (comment CommentWire) ReRaised() bool { return comment.Step == 0 }
+// rather than raised on a Step of this one — which is exactly the Comments that
+// name the resolution they dispute.
+func (comment CommentWire) ReRaised() bool { return comment.ReRaisedFrom != 0 }
 
 // Covers reports whether the Comment is anchored over a row of the
 // rendering. It tests every segment, so a Comment spanning a removal and
@@ -178,6 +185,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Note:     comment.Note,
 
 			Acknowledgement: comment.Anchor.Acknowledgement,
+			ReRaisedFrom:    comment.ReRaisedFrom,
 		})
 	}
 	for _, repository := range v.Repositories {
@@ -191,6 +199,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Response:  disposition.Response,
 			Note:      comment.Note,
 			Location:  comment.Anchor.Location(),
+			Anchor:    comment.Anchor.Render(),
 		})
 	}
 	if v.Step != nil {

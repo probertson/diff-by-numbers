@@ -53,6 +53,10 @@ const (
 	// RejectedUnknownReview means a conclude names a review id that is not the one
 	// currently under review.
 	RejectedUnknownReview RejectionReason = "unknown_review"
+	// RejectedAlreadyReRaised means a resolution the Reviewer disputed already has
+	// a Comment standing against it this round, so re-raising again would only
+	// send the agent the same point twice.
+	RejectedAlreadyReRaised RejectionReason = "already_re_raised"
 )
 
 // Rejection is a refusal that names its cause.

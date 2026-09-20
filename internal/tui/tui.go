@@ -114,8 +114,12 @@ func (c client) reopen() {
 	c.intent("/reopen")
 }
 
-func (c client) reraise(id int) bool {
-	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "text/plain", nil)
+// reraise pushes back on a resolution, carrying whatever the Reviewer wrote in
+// the note editor — the original wording where they left it alone, a follow-up
+// or a counter-argument where they did not.
+func (c client) reraise(id int, note string) bool {
+	body, _ := json.Marshal(map[string]any{"note": note})
+	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
@@ -182,6 +186,7 @@ type model struct {
 	pendingSel       selectedRun   // the selection awaiting a note
 	pendingCode      string        // the code being commented on, shown above the note input
 	editingID        int           // >0 when editing an existing Comment rather than adding
+	reraisingID      int           // >0 when the editor is composing a push-back on that resolution (#80)
 	confirmingDelete bool          // an inline y/n delete confirm is armed (edit screen or List)
 	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
 	commentFilter    commentFilter // when active, the List shows only the Comments on one line
@@ -193,8 +198,12 @@ type model struct {
 	// listReturn is where leaving the Comment list goes: modeReview when it was
 	// opened from a Step, modeConclusion when it was opened from the conclusion
 	// screen. Zero value modeReview, as above.
-	listReturn    mode
-	reraiseCursor int // selected row among declined dispositions
+	listReturn mode
+	// reraiseReturn is where leaving the re-raise picker goes: modeReview when R
+	// was pressed on the Overview, modeConclusion when it was the last chance
+	// before the hand-off. Zero value modeReview, as above.
+	reraiseReturn mode
+	reraiseCursor int // selected row among the resolutions still open to push-back
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -657,11 +666,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openList(modeReview)
 			return m, nil
 		case "R":
-			if len(m.declinedDispositions()) == 0 {
-				m.status = "no declined Comments to re-raise"
+			if len(m.reRaisableDispositions()) == 0 {
+				// Two different nothings: the agent turned nothing down, or the
+				// Reviewer has already pushed back on everything it did.
+				if len(m.disputable()) == 0 {
+					m.status = "no declined or answered Comments to re-raise"
+				} else {
+					m.status = "every declined or answered Comment is already re-raised"
+				}
 				return m, nil
 			}
 			m.reraiseCursor = 0
+			m.reraiseReturn = modeReview
 			m.mode = modeReraise
 			return m, nil
 		case "h", "H":
@@ -829,6 +845,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			m.editingID = 0
+			m.reraisingID = 0
 			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, nil
@@ -842,7 +859,17 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			note := m.note.Value()
 			status := ""
-			if note != "" {
+			switch {
+			// A re-raise sends whatever is in the box, empty included: the Reviewer
+			// picked a resolution to push back on, and clearing the pre-filled text
+			// means "as it stood", not "never mind" — esc is how you take it back.
+			case m.reraisingID > 0:
+				if m.client.reraise(m.reraisingID, note) {
+					status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", m.reraisingID)
+				} else {
+					status = "could not re-raise the Comment"
+				}
+			case note != "":
 				if m.editingID > 0 {
 					if m.client.editComment(m.editingID, note) {
 						status = "Comment updated"
@@ -863,6 +890,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = status
 			m.editingID = 0
+			m.reraisingID = 0
 			m.cursor.sel = -1
 			m.mode = m.noteReturn
 			m.note.Blur()
@@ -935,10 +963,10 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
-	declined := m.declinedDispositions()
+	offered := m.reRaisableDispositions()
 	switch key {
 	case "esc", "q", "R":
-		m.mode = modeReview
+		m.mode = m.reraiseReturn
 		return m, nil
 	case "up", "k":
 		if m.reraiseCursor > 0 {
@@ -946,20 +974,27 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.reraiseCursor < len(declined)-1 {
+		if m.reraiseCursor < len(offered)-1 {
 			m.reraiseCursor++
 		}
 		return m, nil
 	case "enter":
-		if m.reraiseCursor < len(declined) {
-			disposition := declined[m.reraiseCursor]
-			if m.client.reraise(disposition.CommentID) {
-				m.status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", disposition.CommentID)
-			} else {
-				m.status = "could not re-raise the Comment"
-			}
-			m.mode = modeReview
-			return m, m.refresh()
+		if m.reraiseCursor < len(offered) {
+			// The note editor opens over the original wording rather than sending it
+			// straight back: the Reviewer read the agent's reasoning, and a push-back
+			// that answers it lands better than the same sentence repeated (#80).
+			disposition := offered[m.reraiseCursor]
+			m.reraisingID = disposition.CommentID
+			// Back to wherever R was pressed, not to a Step: the Reviewer who pushed
+			// back from the conclusion screen was on their way out, not in.
+			m.noteReturn = m.reraiseReturn
+			m.editingID = 0
+			m.pendingCode = disposition.Anchor
+			m.note.SetValue(disposition.Note)
+			m.note.Focus()
+			m.setNoteHeight()
+			m.mode = modeNote
+			return m, textarea.Blink
 		}
 		return m, nil
 	}
@@ -983,6 +1018,17 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		// The full list, whatever the Reviewer was last filtered to on a Step: from
 		// here they are looking over everything they raised, not one line of it.
 		m.openList(modeConclusion)
+		return m, nil
+	case "R":
+		// This screen carries the count of what is still standing, so R has to work
+		// from here: it is the last chance to push back before the hand-off (#80).
+		if len(m.reRaisableDispositions()) == 0 {
+			m.status = "every declined or answered Comment is already re-raised"
+			return m, nil
+		}
+		m.reraiseCursor = 0
+		m.reraiseReturn = modeConclusion
+		m.mode = modeReraise
 		return m, nil
 	case "h", "H":
 		m.client.intent("/finish")
@@ -1097,11 +1143,54 @@ func (m model) declinedDispositions() []daemon.DispositionWire {
 	}
 	var out []daemon.DispositionWire
 	for _, disposition := range m.view.Dispositions {
-		if disposition.Status == "declined" {
+		if dispositionStatus(disposition) == "declined" {
 			out = append(out, disposition)
 		}
 	}
 	return out
+}
+
+// disputable is the previous round's resolutions the Reviewer can still push
+// back on: the ones the agent declined or only answered. An addressed Comment is
+// left out — the code moved, and there is fresh code to comment on instead.
+func (m model) disputable() []daemon.DispositionWire {
+	if m.view == nil {
+		return nil
+	}
+	var out []daemon.DispositionWire
+	for _, disposition := range m.view.Dispositions {
+		if status := dispositionStatus(disposition); status == "declined" || status == "answered" {
+			out = append(out, disposition)
+		}
+	}
+	return out
+}
+
+// reRaisableDispositions is what the picker offers: the disputable resolutions
+// that do not already have a Comment standing against them this round (#80).
+// Withdrawing that Comment puts its resolution back on the list.
+func (m model) reRaisableDispositions() []daemon.DispositionWire {
+	var out []daemon.DispositionWire
+	for _, disposition := range m.disputable() {
+		if _, ok := m.reRaiseOf(disposition.CommentID); !ok {
+			out = append(out, disposition)
+		}
+	}
+	return out
+}
+
+// reRaiseOf is the Comment standing against a previous round's resolution, if
+// the Reviewer has raised one this round.
+func (m model) reRaiseOf(commentID int) (daemon.CommentWire, bool) {
+	if m.view == nil {
+		return daemon.CommentWire{}, false
+	}
+	for _, comment := range m.view.Comments {
+		if comment.ReRaisedFrom == commentID {
+			return comment, true
+		}
+	}
+	return daemon.CommentWire{}, false
 }
 
 var (
@@ -1222,8 +1311,10 @@ func (m model) modeKeys() string {
 	}
 	if m.view.Position == 0 {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
-		if len(m.declinedDispositions()) > 0 {
-			tokens = append(tokens, "R re-raise a decline")
+		// Offered only while something is still open: once every decline and
+		// answer has been pushed back on, R has nothing left to do (#80).
+		if len(m.reRaisableDispositions()) > 0 {
+			tokens = append(tokens, "R re-raise a decline or answer")
 		}
 		return keybar(tokens...)
 	}
@@ -1412,19 +1503,19 @@ func (m model) commentItem(i int, comment daemon.CommentWire) []string {
 }
 
 func (m model) reraiseView() string {
-	declined := m.declinedDispositions()
-	if len(declined) == 0 {
-		return dimSt.Render("No declined Comments to re-raise.")
+	offered := m.reRaisableDispositions()
+	if len(offered) == 0 {
+		return dimSt.Render("No declined or answered Comments to re-raise.")
 	}
-	items := make([][]string, 0, len(declined))
-	for i, disposition := range declined {
+	items := make([][]string, 0, len(offered))
+	for i, disposition := range offered {
 		items = append(items, m.declinedItem(i, disposition))
 	}
-	return m.windowedList("Re-raise a declined Comment", items, m.reraiseCursor)
+	return m.windowedList("Re-raise a declined or answered Comment", items, m.reraiseCursor)
 }
 
-// declinedItem draws one decline of the re-raise picker: what the Reviewer asked
-// and what the agent said back, which is what they weigh before pushing.
+// declinedItem draws one resolution of the re-raise picker: what the Reviewer
+// asked and what the agent said back, which is what they weigh before pushing.
 func (m model) declinedItem(i int, disposition daemon.DispositionWire) []string {
 	cursor := "  "
 	if i == m.reraiseCursor {
@@ -1434,7 +1525,11 @@ func (m model) declinedItem(i int, disposition daemon.DispositionWire) []string 
 	body := m.width - listItemIndent
 	rows := []string{fmt.Sprintf("%s#%d  %s", cursor, disposition.CommentID, dimSt.Render(disposition.Location))}
 	rows = append(rows, indentedField(indent, "you asked: ", disposition.Note, body)...)
-	rows = append(rows, indentedField(indent, "agent declined: ", disposition.Response, body)...)
+	said := "agent declined: "
+	if dispositionStatus(disposition) == "answered" {
+		said = "agent answered: "
+	}
+	rows = append(rows, indentedField(indent, said, disposition.Response, body)...)
 	return append(rows, "")
 }
 
@@ -1482,10 +1577,11 @@ func (m model) doneView() string {
 		if summary := m.dispositionSummary(); summary != "" {
 			inner.WriteString(summary + "\n")
 		}
-		// A decline is the one outcome the Reviewer may want to argue with, and
-		// nothing on the way in said the argument was available (#75).
-		if len(m.declinedDispositions()) > 0 {
-			inner.WriteString("You can re-raise a decline with R.\n")
+		// A decline, or an answer that did not settle it, is what the Reviewer may
+		// want to argue with — and nothing on the way in said the argument was
+		// available (#75, widened to answers by #80).
+		if len(m.disputable()) > 0 {
+			inner.WriteString("You can re-raise a decline or an answer with R.\n")
 		}
 		inner.WriteString(accentSt.Render("Press enter to review it."))
 		return revisionBoxStyle.Render(inner.String()) + "\n"

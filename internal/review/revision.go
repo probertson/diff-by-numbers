@@ -186,10 +186,18 @@ func (s *Session) Dispositions() []ResolvedDisposition {
 	return out
 }
 
-// ReRaise raises again a Comment the agent declined, carrying its original
-// note and Anchor into the current round, so the Reviewer can insist without
-// re-composing it. Only a declined Comment can be re-raised.
-func (s *Session) ReRaise(commentID int) (Comment, error) {
+// ReRaise raises again a Comment the agent declined or answered, carrying its
+// original Anchor into the current round so the Reviewer can insist in place
+// without re-composing it. A resolution the agent addressed is not re-raisable:
+// the code moved, and there is fresh code to comment on instead.
+//
+// note is what the Comment says. An empty one keeps the original wording, which
+// is what a Reviewer who simply disagrees wants; anything else replaces it, so a
+// follow-up or a counter-argument can go with the push-back.
+//
+// A resolution can carry only one standing re-raise (#80). Withdrawing that
+// Comment frees it to be raised again.
+func (s *Session) ReRaise(commentID int, note string) (Comment, error) {
 	if s.finished {
 		return Comment{}, reject(RejectedWalkthroughFinished,
 			"this Walkthrough is handed off; resume it before re-raising")
@@ -198,23 +206,42 @@ func (s *Session) ReRaise(commentID int) (Comment, error) {
 		if disposition.Comment.ID != commentID {
 			continue
 		}
-		if disposition.Status != DispositionDeclined {
+		if disposition.Status == DispositionAddressed {
 			return Comment{}, reject(RejectedNoSuchComment,
-				"Comment %d was %s, not declined; only a declined one can be re-raised", commentID, disposition.Status)
+				"Comment %d was addressed, so there is nothing to push back on; comment on the new code instead", commentID)
+		}
+		if standing, ok := s.reRaiseOf(commentID); ok {
+			return Comment{}, reject(RejectedAlreadyReRaised,
+				"Comment %d is already re-raised as Comment %d; withdraw that one to raise it afresh", commentID, standing.ID)
+		}
+		if note == "" {
+			note = disposition.Comment.Note
 		}
 		s.nextCommentID++
 		// Step is left 0: the previous round's Step number means nothing in this
 		// round, whose Steps are authored afresh. The Anchor carries the location,
 		// and it is self-contained. Step 0 keeps it from flagging the wrong Step.
 		comment := Comment{
-			ID:     s.nextCommentID,
-			Step:   0,
-			Anchor: disposition.Comment.Anchor,
-			Note:   disposition.Comment.Note,
+			ID:           s.nextCommentID,
+			Step:         0,
+			Anchor:       disposition.Comment.Anchor,
+			Note:         note,
+			ReRaisedFrom: commentID,
 		}
 		s.comments = append(s.comments, comment)
 		return comment, nil
 	}
 	return Comment{}, reject(RejectedNoSuchComment,
-		"there is no declined Comment %d to re-raise", commentID)
+		"there is no Comment %d from the previous round to re-raise", commentID)
+}
+
+// reRaiseOf is the Comment standing against a previous round's resolution this
+// round, if the Reviewer has raised one.
+func (s *Session) reRaiseOf(commentID int) (Comment, bool) {
+	for _, comment := range s.comments {
+		if comment.ReRaisedFrom == commentID {
+			return comment, true
+		}
+	}
+	return Comment{}, false
 }

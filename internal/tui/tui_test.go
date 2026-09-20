@@ -708,8 +708,9 @@ func TestTheHandedOffScreenCallOutReadsSingular(t *testing.T) {
 
 func TestTheHandedOffScreenCallsOutReRaisedComments(t *testing.T) {
 	m := handedOffModel([]string{"flagged", "seen"},
-		daemon.CommentWire{ID: 1, Step: 1}, daemon.CommentWire{ID: 2, Step: 0},
-		daemon.CommentWire{ID: 3, Step: 0})
+		daemon.CommentWire{ID: 1, Step: 1},
+		daemon.CommentWire{ID: 2, Step: 0, ReRaisedFrom: 7},
+		daemon.CommentWire{ID: 3, Step: 0, ReRaisedFrom: 8})
 
 	out := flatten(m.doneView())
 

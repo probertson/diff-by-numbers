@@ -185,7 +185,7 @@ func TestTheRevisionRoundBoxSaysDeclinesCanBePushedBack(t *testing.T) {
 	with := model{view: &daemon.ViewWire{Posted: true, Dispositions: []daemon.DispositionWire{declined(1)}}}
 	without := model{view: &daemon.ViewWire{Posted: true, Dispositions: []daemon.DispositionWire{addressed(1)}}}
 
-	if !strings.Contains(flatten(with.doneView()), "You can re-raise a decline with R.") {
+	if !strings.Contains(flatten(with.doneView()), "You can re-raise a decline or an answer with R.") {
 		t.Errorf("the box announcing the round should say you can push back, got:\n%s", with.doneView())
 	}
 	if strings.Contains(without.doneView(), "re-raise") {
@@ -203,12 +203,13 @@ func TestTheConclusionScreenSaysWhatWasDeclined(t *testing.T) {
 
 	out := with.conclusionView()
 
-	if !strings.Contains(out, "The agent declined 2 Comments — R to re-raise") {
+	// #80 narrowed the wording to the declines still standing.
+	if !strings.Contains(out, "2 of 2 declines not re-raised — R to re-raise") {
 		t.Errorf("the last chance to push back belongs on the conclusion screen, got:\n%s", out)
 	}
 	// The agreed layout: the count, then the declines hint, then the list prompt.
 	count := strings.Index(out, "Comment for your agent")
-	hint := strings.Index(out, "The agent declined")
+	hint := strings.Index(out, "not re-raised")
 	prompt := strings.Index(out, "Press l to see your")
 	if !(count < hint && hint < prompt) {
 		t.Errorf("the declines hint sits between the count and the list prompt, got:\n%s", out)

@@ -50,7 +50,8 @@ type viewShape struct {
 		Response  string `json:"response"`
 	} `json:"dispositions"`
 	Comments []struct {
-		ID int `json:"id"`
+		ID           int `json:"id"`
+		ReRaisedFrom int `json:"re_raised_from"`
 	} `json:"comments"`
 }
 
@@ -119,5 +120,66 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	after := getView(t, server.URL)
 	if len(after.Comments) != 1 {
 		t.Fatalf("expected the re-raised Comment to stand, got %d", len(after.Comments))
+	}
+	// #80: the re-raise names the decline it disputes, on the view and in what the
+	// agent fetches, so neither has to guess which point came back.
+	if after.Comments[0].ReRaisedFrom != 1 {
+		t.Errorf("expected the re-raise to name Comment 1, got %d", after.Comments[0].ReRaisedFrom)
+	}
+
+	httpPost(t, server.URL+"/finish")
+	results := decodeResult[struct {
+		Comments []struct {
+			ID           int `json:"id"`
+			ReRaisedFrom int `json:"re_raised_from"`
+		} `json:"comments"`
+	}](t, callTool(t, server.URL, "fetch_results", struct{}{}))
+
+	if len(results.Comments) != 1 || results.Comments[0].ReRaisedFrom != 1 {
+		t.Errorf("expected re_raised_from to reach the agent, got %+v", results.Comments)
+	}
+}
+
+// TestARaisedResolutionCannotBeReRaisedTwice holds the daemon to the core rule
+// (#80): the picker hides what is already re-raised, and the endpoint refuses it
+// even if something asks anyway.
+func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+
+	steps := []any{map[string]any{
+		"name": "The code", "explanation": "fetch.ts gains a line",
+		"excerpts": []any{map[string]any{"repository": root, "file": "FILE-src/fetch.ts", "side": "new", "first_line": 1, "last_line": 4}},
+	}, map[string]any{
+		"name": "Mechanical", "explanation": "the lockfile",
+		"acknowledgements": []any{map[string]any{"repository": root, "files": []any{"LOCKFILE"}, "reason": "generated"}},
+	}}
+	brief := map[string]any{"ask": "x", "approach": "y",
+		"provenance": map[string]any{"kind": "stated", "citation": "s"}}
+	body := map[string]any{"brief": brief,
+		"repositories": []any{map[string]any{"root": root, "range": "main"}}, "steps": steps}
+
+	postWalkthrough(t, server.URL, body)
+	httpPost(t, server.URL+"/goto/1")
+	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
+	httpPost(t, server.URL+"/finish")
+	withDecline := map[string]any{"brief": brief,
+		"repositories": []any{map[string]any{"root": root, "range": "main"}}, "steps": steps,
+		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "deliberate"}}}
+	postWalkthrough(t, server.URL, withDecline)
+	httpPost(t, server.URL+"/reraise/1")
+
+	second, err := http.Post(server.URL+"/reraise/1", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Body.Close()
+
+	if second.StatusCode == http.StatusOK {
+		t.Error("a decline with a re-raise standing must not be re-raised again")
+	}
+	if got := len(getView(t, server.URL).Comments); got != 1 {
+		t.Errorf("the refused re-raise must not leave a duplicate, got %d Comments", got)
 	}
 }

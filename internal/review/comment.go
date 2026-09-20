@@ -10,6 +10,12 @@ type Comment struct {
 	Step   int
 	Anchor Anchor
 	Note   string
+	// ReRaisedFrom is the previous round's Comment this one disputes — one the
+	// agent declined or answered, and the Reviewer did not accept. Zero for a
+	// Comment raised on this round's code. It is what keeps a resolution from
+	// being re-raised over and over, and what tells the agent that repeating the
+	// same reasoning is not an answer.
+	ReRaisedFrom int
 }
 
 // RaiseComment anchors a note to a selection in the Step in view and
