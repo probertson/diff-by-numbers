@@ -139,6 +139,20 @@ which is why it is not called *finishing*, a word that reads as a synonym of
 leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete
 
+**Round Snapshot**:
+A git tree object recording each repository's working tree as it stood when a
+Walkthrough was accepted. A Revision Round is scoped by diffing the previous
+round's snapshot against the current one, so "already read" is decided by
+position rather than by line text (ADR-0014). Nothing is derived from a
+snapshot — it answers only whether a line moved since the last round.
+_Avoid_: stash, checkpoint, baseline
+
+**Position**:
+Where a line stood in a given Round Snapshot: a file path and a line number.
+What the round-over-round mapping answers with, and the unit that decides
+whether a Changed Line was already shown.
+_Avoid_: location, coordinate, address
+
 **Coverage Ledger**:
 dbn's own record, derived from git rather than from the Authoring Agent, of every
 Changed Line and Opaque Change under review, and whether each has been shown by an

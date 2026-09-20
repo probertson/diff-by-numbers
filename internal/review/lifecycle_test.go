@@ -104,7 +104,7 @@ func TestANewReviewIsActive(t *testing.T) {
 }
 
 func TestAZeroCommentFinishReadsAsConcluded(t *testing.T) {
-	session, _, _ := finishRound1(t)
+	session, _ := finishRound1(t)
 
 	if !session.Concluded() {
 		t.Error("expected a finish with nothing raised to read as concluded")
@@ -115,7 +115,7 @@ func TestAZeroCommentFinishReadsAsConcluded(t *testing.T) {
 }
 
 func TestTheViewReportsConcluded(t *testing.T) {
-	concluded, _, _ := finishRound1(t)
+	concluded, _ := finishRound1(t)
 	if !concluded.View().Concluded {
 		t.Error("a zero-Comment finish should report Concluded on the view")
 	}
@@ -166,7 +166,7 @@ func TestConcludeIsIdempotent(t *testing.T) {
 }
 
 func TestConcludeRejectsAnUnknownReviewID(t *testing.T) {
-	session, _, _ := finishRound1(t)
+	session, _ := finishRound1(t)
 
 	err := session.Conclude("not-the-id")
 
@@ -182,7 +182,7 @@ func TestConcludeWithoutAReviewIsRejected(t *testing.T) {
 }
 
 func TestReopenUnconcludesAZeroCommentFinish(t *testing.T) {
-	session, _, _ := finishRound1(t)
+	session, _ := finishRound1(t)
 	if !session.Concluded() {
 		t.Fatal("precondition: expected a zero-Comment finish to be concluded")
 	}

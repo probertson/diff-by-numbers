@@ -47,7 +47,7 @@ func (s *Session) Finish() error {
 	if s.walkthrough == nil {
 		return reject(RejectedNoWalkthrough, "there is no Walkthrough to hand off")
 	}
-	if rejection := s.ledger.validateCoverage(s.walkthrough.Steps, s.preShown); rejection != nil {
+	if rejection := s.ledger.validateCoverage(s.walkthrough.Steps, s.preShown, s.preShownOpaque); rejection != nil {
 		return rejection
 	}
 	s.finished = true

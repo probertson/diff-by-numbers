@@ -61,6 +61,11 @@ type Derivation struct {
 	Lines           []ChangedLine
 	Opaque          []OpaqueChange
 	Correspondences []Correspondence
+	// Base is the resolved merge-base the Change Set was derived from. A
+	// Revision Round compares it with the previous round's: when it has moved,
+	// the branch was rebased under the review and old-side lines no longer sit
+	// where they did.
+	Base string
 }
 
 // Deriver produces the Changed Lines and Opaque Changes of a repository's range.
@@ -89,10 +94,14 @@ type ledger struct {
 	lines           []ChangedLine
 	opaque          []OpaqueChange
 	correspondences []Correspondence
+	// bases is each repository's resolved merge-base, keyed by root. A Revision
+	// Round compares it with the previous round's to tell whether the branch was
+	// rebased underneath the review, which moves every old-side line.
+	bases map[string]string
 }
 
 func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
-	var l ledger
+	l := ledger{bases: map[string]string{}}
 	for _, repository := range changeSet.Repositories {
 		derivation, err := deriver.Derive(repository)
 		if err != nil {
@@ -101,6 +110,9 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		l.lines = append(l.lines, derivation.Lines...)
 		l.opaque = append(l.opaque, derivation.Opaque...)
 		l.correspondences = append(l.correspondences, derivation.Correspondences...)
+		if derivation.Base != "" {
+			l.bases[repository.Root] = derivation.Base
+		}
 	}
 	return l, nil
 }
@@ -150,7 +162,7 @@ func stepCoversOpaque(step Step, opaque OpaqueChange) bool {
 // validateCoverage refuses a plan that leaves any Changed Line or Opaque Change
 // unaccounted for. The guarantee the agent cannot opt out of. Lines pre-marked as
 // shown by a Revision Round are already accounted for and are not re-demanded.
-func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool) *Rejection {
+func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, preShownOpaque map[fileRef]bool) *Rejection {
 	var uncovered []string
 	for _, line := range l.lines {
 		if preShown[line] {
@@ -167,6 +179,9 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool) *R
 		}
 	}
 	for _, opaque := range l.opaque {
+		if preShownOpaque[fileRef{opaque.Repository, opaque.File}] {
+			continue
+		}
 		if !anyStep(steps, func(s Step) bool { return stepCoversOpaque(s, opaque) }) {
 			uncovered = append(uncovered, opaque.String())
 		}

@@ -11,7 +11,24 @@ const revRepo = "/r"
 
 // roundDeriver returns whatever Changed Lines it is currently set to, so a test
 // can re-derive a different Change Set for a Revision Round on the same Session.
-type roundDeriver struct{ lines []review.ChangedLine }
+//
+// It also stands in for the git adapter's snapshot capability. A test says which
+// atoms it moved since the previous round by setting `touched`; everything else
+// is reported as sitting exactly where it was. That is the shape of the real
+// mapping — a diff of two working-tree snapshots — without a repository on disk.
+// The behaviour of the real thing is covered against real repositories in
+// internal/git.
+type roundDeriver struct {
+	lines []review.ChangedLine
+	// touched names what moved since the previous round: "file:line" for a
+	// Changed Line, or a bare file name for an Opaque Change. Empty means
+	// nothing moved, which is the ordinary case for a round that only answers
+	// Comments.
+	touched map[string]bool
+	// renamed says what a file was called in the previous round, for the cases
+	// that move one between rounds.
+	renamed map[string]string
+}
 
 func (d *roundDeriver) Derive(repo review.Repository) (review.Derivation, error) {
 	out := make([]review.ChangedLine, len(d.lines))
@@ -19,7 +36,40 @@ func (d *roundDeriver) Derive(repo review.Repository) (review.Derivation, error)
 		line.Repository = repo.Root
 		out[i] = line
 	}
-	return review.Derivation{Lines: out}, nil
+	// A constant base: unchanged between rounds, so old-side lines map by
+	// identity, which is what happens when nobody rebases mid-review.
+	return review.Derivation{Lines: out, Base: "base"}, nil
+}
+
+func (d *roundDeriver) Snapshot(string) (string, error) { return "snapshot", nil }
+
+func (d *roundDeriver) MapBetween(_, _, _ string) (review.RoundMapping, error) {
+	return fakeMapping{touched: d.touched, renamed: d.renamed}, nil
+}
+
+// fakeMapping reports the atoms a test named as touched, and everything else as
+// unmoved and in place.
+type fakeMapping struct {
+	touched map[string]bool
+	renamed map[string]string
+}
+
+func (m fakeMapping) Lookup(file string, line int) (review.Position, bool) {
+	if m.touched[fmt.Sprintf("%s:%d", file, line)] {
+		return review.Position{}, false
+	}
+	return review.Position{File: file, Line: line}, true
+}
+
+func (m fakeMapping) Touched(file string) bool { return m.touched[file] }
+
+// renamed maps a current file name to what it was called last round; empty
+// means the file has not moved, which is the ordinary case.
+func (m fakeMapping) PathIn(file string) string {
+	if was, ok := m.renamed[file]; ok {
+		return was
+	}
+	return file
 }
 
 // textResolver resolves new-side lines from a map a test can mutate between
@@ -68,9 +118,9 @@ func changedApp(first, last int) []review.ChangedLine {
 }
 
 // finishRound1 posts a first Walkthrough over app.ts:1-3 and finishes it, leaving
-// the Session ready for a Revision Round. It returns the deriver and resolver so
-// the caller can re-derive and edit content for round two.
-func finishRound1(t *testing.T) (*review.Session, *roundDeriver, *textResolver) {
+// the Session ready for a Revision Round. It returns the deriver so the caller
+// can re-derive a different Change Set, and say what moved, for round two.
+func finishRound1(t *testing.T) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	resolver := &textResolver{text: map[string]string{}}
@@ -79,14 +129,15 @@ func finishRound1(t *testing.T) (*review.Session, *roundDeriver, *textResolver) 
 	if err := session.Finish(); err != nil {
 		t.Fatalf("expected round 1 to finish, got %v", err)
 	}
-	return session, deriver, resolver
+	return session, deriver
 }
 
 func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {
-	session, deriver, _ := finishRound1(t)
+	session, deriver := finishRound1(t)
 
 	// The fix added line 4; lines 1-3 are unchanged.
 	deriver.lines = changedApp(1, 4)
+	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only the moved line is enough: 1-3 are pre-marked as shown.
 	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)}, nil))
@@ -104,8 +155,9 @@ func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {
 }
 
 func TestARevisionRoundStillDemandsTheLinesThatMoved(t *testing.T) {
-	session, deriver, _ := finishRound1(t)
+	session, deriver := finishRound1(t)
 	deriver.lines = changedApp(1, 4) // line 4 moved
+	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only a pre-shown line leaves the moved line 4 unaccounted for.
 	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
@@ -114,10 +166,10 @@ func TestARevisionRoundStillDemandsTheLinesThatMoved(t *testing.T) {
 	assertDetailContains(t, err, "4")
 }
 
-func TestARevisionRoundDetectsAChangedLineByContentNotNumber(t *testing.T) {
-	session, deriver, resolver := finishRound1(t)
-	deriver.lines = changedApp(1, 3)    // the same line numbers
-	resolver.text["app.ts:2"] = "MOVED" // but line 2's content changed
+func TestARevisionRoundDemandsOnlyTheLineTheMappingSaysWasTouched(t *testing.T) {
+	session, deriver := finishRound1(t)
+	deriver.lines = changedApp(1, 3) // the same line numbers
+	deriver.touched = map[string]bool{"app.ts:2": true}
 
 	// Line 2 moved, 1 and 3 did not: covering only line 2 suffices.
 	if err := session.Post(appWalkthrough([]review.Step{appStep(2, 2)}, nil)); err != nil {
@@ -266,7 +318,12 @@ func TestADeclinedCommentCanBeReRaised(t *testing.T) {
 	}
 }
 
-func TestDuplicateContentIsNotPreMarkedSoNewLinesCannotEscape(t *testing.T) {
+// The safety property the old uniqueness rule bought, kept without it: a line
+// the mapping says was touched is demanded, whatever its text happens to be.
+// Positional matching gets this right by construction — there is no content to
+// collide — where content matching had to disqualify every repeated line to be
+// safe, and so disqualified most boilerplate in the bargain.
+func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 2)}
 	resolver := &textResolver{text: map[string]string{"app.ts:1": "}", "app.ts:2": "keep"}}
 	session := review.NewSession(resolver, deriver)
@@ -275,12 +332,12 @@ func TestDuplicateContentIsNotPreMarkedSoNewLinesCannotEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The fix adds a brand-new line 3 whose text collides with line 1's "}".
+	// The fix adds a brand-new line 3 whose text collides with line 1's "}" —
+	// which used to be enough to let it escape, and now is simply irrelevant.
 	deriver.lines = changedApp(1, 3)
 	resolver.text["app.ts:3"] = "}"
+	deriver.touched = map[string]bool{"app.ts:3": true}
 
-	// The new line 3 must not be pre-marked off the back of the old "}": a plan
-	// that omits it is rejected. (Under content-only matching it would escape.)
 	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
@@ -296,4 +353,30 @@ func TestOnlyADeclinedCommentCanBeReRaised(t *testing.T) {
 	_, err := session.ReRaise(1)
 
 	assertRejected(t, err, review.RejectedNoSuchComment)
+}
+
+// failingSnapshotDeriver cannot snapshot, standing in for a repository whose
+// index is unreadable or whose git call fails.
+type failingSnapshotDeriver struct{ roundDeriver }
+
+func (d *failingSnapshotDeriver) Snapshot(string) (string, error) {
+	return "", fmt.Errorf("no snapshot for you")
+}
+
+// Pre-marking is an optimisation over the coverage guarantee, never a hole in
+// it. When the snapshot cannot be taken, nothing is pre-marked and the round
+// demands everything — the same conservative answer a daemon restart gives.
+func TestAFailedSnapshotPreMarksNothing(t *testing.T) {
+	deriver := &failingSnapshotDeriver{roundDeriver{lines: changedApp(1, 3)}}
+	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
+	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	if err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Round 2 moves nothing at all. With a working snapshot every line would be
+	// pre-marked; without one the agent must show them again.
+	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
+
+	assertRejected(t, err, review.RejectedUncoveredChanges)
 }

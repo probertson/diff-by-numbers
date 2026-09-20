@@ -43,13 +43,16 @@ type Session struct {
 	// Walkthrough was accepted, so a Step whose file later changes can refuse to
 	// show code beneath an explanation that has stopped describing it.
 	hashes map[fileRef]string
-	// priorContent counts the previous round's Changed Lines by content, so a
-	// Revision Round can tell what has since moved — and pre-mark only content
-	// unique enough to match to a line (ADR-0007).
-	priorContent map[contentKey]int
+	// prior is what the previous accepted round left behind — its snapshots,
+	// bases and the atoms it showed — which is what a Revision Round is scoped
+	// against (ADR-0014).
+	prior roundState
 	// preShown marks the current round's Changed Lines that were unchanged since
 	// the previous round: already reviewed, and counted as seen from the start.
 	preShown map[ChangedLine]bool
+	// preShownOpaque does the same for Opaque Changes, which have no lines to
+	// map and are recognised by the file being identical between rounds.
+	preShownOpaque map[fileRef]bool
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
@@ -144,12 +147,18 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
-	// In a Revision Round, a Changed Line whose content is unchanged since the
-	// previous round is pre-marked as shown, so coverage is enforced over what
-	// actually moved.
+	// In a Revision Round, a Changed Line the Reviewer already read is pre-marked
+	// as shown, so coverage is enforced over what actually moved. Both the
+	// snapshots and the bases are worked out now and kept only on acceptance.
+	bases := ledger.bases
+	var snapshots map[string]string
+	if snapshotter, ok := s.deriver.(Snapshotter); ok {
+		snapshots = snapshotAll(snapshotter, w.ChangeSet)
+	}
 	var preShown map[ChangedLine]bool
+	var preShownOpaque map[fileRef]bool
 	if revision {
-		preShown = s.preMarkUnchanged(ledger)
+		preShown, preShownOpaque = s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases)
 	}
 
 	if rejection := ledger.validateBudget(w.Steps); rejection != nil {
@@ -158,7 +167,7 @@ func (s *Session) Post(w Walkthrough) error {
 	if rejection := ledger.validateAcknowledgements(w.Steps); rejection != nil {
 		return rejection
 	}
-	if rejection := ledger.validateCoverage(w.Steps, preShown); rejection != nil {
+	if rejection := ledger.validateCoverage(w.Steps, preShown, preShownOpaque); rejection != nil {
 		return rejection
 	}
 
@@ -179,8 +188,9 @@ func (s *Session) Post(w Walkthrough) error {
 	s.finished = false
 	s.hashes = s.hashExcerptFiles(w.Steps)
 	s.preShown = preShown
+	s.preShownOpaque = preShownOpaque
 	s.dispositions = dispositions
-	s.priorContent = s.captureContent(ledger)
+	s.prior = captureRound(ledger, snapshots, bases)
 	s.postings++
 
 	// A new review mints an id and takes the Walkthrough's label as given; a

@@ -1,5 +1,16 @@
 # Revision Rounds are scoped by pre-marking the Coverage Ledger
 
+> **Superseded in part by [ADR-0014](0014-revision-rounds-scoped-by-round-snapshots.md).**
+> Pre-marking itself stands, and so does the full re-derivation and the in-memory lifetime.
+> What ADR-0014 replaces is *how* a line is recognised as already read: matching is now
+> positional, through a diff of the two rounds' working-tree snapshots, not by line content.
+> That retires the uniqueness rule described below, the limitation that Opaque Changes can
+> never be pre-marked, and the open follow-up in the #23 amendment — old-side lines are now
+> pre-marked too. ADR-0014 also explains why the tree-snapshot alternative rejected below
+> was reconsidered: content identity disqualified 42% of the Changed Lines in a measured
+> real review, because blank lines and closing braces are never unique.
+
+
 A Revision Round re-derives the *full* change set for the branch and then pre-marks as
 shown every Changed Line whose content is unchanged since the previous Walkthrough. The
 Coverage Ledger then points the Authoring Agent at exactly what moved, and its existing

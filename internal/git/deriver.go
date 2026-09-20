@@ -38,7 +38,12 @@ func (Deriver) Derive(repo review.Repository) (review.Derivation, error) {
 	if err != nil {
 		return review.Derivation{}, err
 	}
-	return parseUnifiedZero(repo.Root, out)
+	derivation, err := parseUnifiedZero(repo.Root, out)
+	if err != nil {
+		return review.Derivation{}, err
+	}
+	derivation.Base = base
+	return derivation, nil
 }
 
 func mergeBase(root, rangeRef string) (string, error) {

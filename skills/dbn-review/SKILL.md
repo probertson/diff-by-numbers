@@ -122,9 +122,17 @@ Use `answered` for a question, even one you could read as a request; use
 led you to change the code, that is `addressed`, with the answer as its
 `response`.
 
-dbn re-derives everything and pre-marks as already-seen every line whose content
-is unchanged, so the new Walkthrough is scoped to exactly what you moved. You still
-plan Steps and coverage for the moved lines the same way.
+dbn re-derives everything and pre-marks as already-seen every line the reviewer
+read last round and nobody has touched since, so the new Walkthrough is scoped to
+exactly what you moved. You still plan Steps and coverage for the moved lines the
+same way.
+
+Scoping is positional — dbn compares each round against a snapshot of the working
+tree it took when the last round was accepted — so it is exact. Blank lines and
+lone closing braces are scoped out like anything else, and a file you did not
+touch at all needs nothing. That includes Opaque Changes: a binary, a mode change
+or a rename you have not re-touched since the last round needs **no second
+Acknowledgement**. Only what actually moved comes back.
 
 A Comment whose anchor says the code was `acknowledged in Step "…"`
 disputes that Acknowledgement as well as the line: the reviewer read code you
