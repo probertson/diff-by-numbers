@@ -117,6 +117,10 @@ type CommentWire struct {
 	Acknowledgement *int `json:"acknowledgement,omitempty"`
 }
 
+// ReRaised reports whether the Comment was carried over from a previous round
+// rather than raised on a Step of this one, which is what a Step of 0 encodes.
+func (comment CommentWire) ReRaised() bool { return comment.Step == 0 }
+
 // Covers reports whether the Comment is anchored over a row of the
 // rendering. It tests every segment, so a Comment spanning a removal and
 // its replacement is found from either side.

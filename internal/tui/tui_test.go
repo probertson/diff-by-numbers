@@ -26,6 +26,19 @@ func widestLine(s string) int {
 	return widest
 }
 
+// flatten squashes a rendered screen onto one space-separated line and drops the
+// box-drawing characters, so a sentence a bordered call-out wrapped over several
+// rows can still be asserted as the one string it reads as.
+func flatten(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r >= 0x2500 && r <= 0x257f { // the box-drawing block
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // newNote builds a textarea configured the way the model's WindowSizeMsg handler
 // does, so a view test that renders the note input matches what runs.
 func newNote(width int) textarea.Model {
@@ -124,24 +137,18 @@ func TestListViewTitlePluralizesComments(t *testing.T) {
 
 func TestDoneViewPluralizesItsCounts(t *testing.T) {
 	// Finished with a Comment outstanding is the waiting face (State 1).
-	m := model{
-		view: &daemon.ViewWire{
-			Finished:     true,
-			StepStatuses: []string{"seen"},
-			Comments:     []daemon.CommentWire{{ID: 1}},
-		},
-	}
+	m := handedOffModel([]string{"flagged"}, daemon.CommentWire{ID: 1, Step: 1})
 
-	out := m.doneView()
+	out := flatten(m.doneView())
 
 	if strings.Contains(out, "(s)") {
 		t.Errorf("the finish summary should not use the lazy (s) form, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 Step seen") {
-		t.Errorf("expected '1 Step seen', got:\n%s", out)
+	if !strings.Contains(out, "1 Step seen.") {
+		t.Errorf("expected '1 Step seen.', got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 Comment raised") {
-		t.Errorf("expected '1 Comment raised', got:\n%s", out)
+	if !strings.Contains(out, "1 Comment across 1 Step is waiting") {
+		t.Errorf("expected the singular call-out, got:\n%s", out)
 	}
 }
 
@@ -532,11 +539,37 @@ func TestConclusionViewShowsTheSummaryAndHandOffCTA(t *testing.T) {
 
 	out := m.conclusionView()
 
-	if !strings.Contains(out, "2 Comments across 3 Steps") {
-		t.Errorf("expected the light summary, got:\n%s", out)
+	if !strings.Contains(out, "2 Comments for your agent") {
+		t.Errorf("expected the Comment count on its own line, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Press h to hand off") {
 		t.Errorf("expected the hand-off call to action, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewCountsCommentsInTheSingular(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}},
+	}}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "1 Comment for your agent") {
+		t.Errorf("one Comment should read in the singular, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewSaysHandingOffCompletesItWithNoComments(t *testing.T) {
+	m := model{view: &daemon.ViewWire{StepCount: 3}}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "No Comments — handing off completes the review.") {
+		t.Errorf("with nothing raised the hand-off is the end, and should say so, got:\n%s", out)
+	}
+	if strings.Contains(out, "for your agent") {
+		t.Errorf("there is no count to stand out when nothing was raised, got:\n%s", out)
 	}
 }
 
@@ -601,6 +634,110 @@ func TestTheHandedOffScreenSaysHandedOff(t *testing.T) {
 
 	if !strings.Contains(out, "Review handed off") {
 		t.Errorf("expected the handed-off heading, got:\n%s", out)
+	}
+}
+
+// handedOffModel is the waiting face of the handed-off screen: the Reviewer has
+// handed off and the Revision Round has not arrived yet.
+func handedOffModel(statuses []string, comments ...daemon.CommentWire) model {
+	return model{
+		mode: modeDone,
+		view: &daemon.ViewWire{
+			Posted: true, Finished: true,
+			StepCount: len(statuses), StepStatuses: statuses,
+			Comments: comments,
+		},
+		width: 100, height: 30, ready: true,
+	}
+}
+
+func TestTheHandedOffScreenCountsAFlaggedStepAsSeen(t *testing.T) {
+	m := handedOffModel([]string{"seen", "flagged", "flagged"},
+		daemon.CommentWire{ID: 1, Step: 2}, daemon.CommentWire{ID: 2, Step: 3})
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "3 Steps seen.") {
+		t.Errorf("a flagged Step was seen too, so all three should read as seen, got:\n%s", out)
+	}
+	if strings.Contains(out, "flagged") {
+		t.Errorf("seen and flagged are exclusive, so reporting both reads as a counting bug, got:\n%s", out)
+	}
+}
+
+func TestTheHandedOffScreenSaysHowManyStepsWereNotSeen(t *testing.T) {
+	m := handedOffModel([]string{"seen", "flagged", "unseen", "unseen"},
+		daemon.CommentWire{ID: 1, Step: 2})
+
+	out := m.doneView()
+
+	if !strings.Contains(out, "2 of 4 Steps seen (2 unseen).") {
+		t.Errorf("expected the of-total wording when Steps were left unseen, got:\n%s", out)
+	}
+}
+
+func TestTheHandedOffScreenCallsOutTheCommentsWaiting(t *testing.T) {
+	m := handedOffModel([]string{"flagged", "flagged", "seen"},
+		daemon.CommentWire{ID: 1, Step: 1}, daemon.CommentWire{ID: 2, Step: 1},
+		daemon.CommentWire{ID: 3, Step: 2})
+
+	out := m.doneView()
+
+	want := "3 Comments across 2 Steps are waiting for your agent — tell it you're done and it will collect them."
+	if !strings.Contains(flatten(out), want) {
+		t.Errorf("expected the call-out %q, got:\n%s", want, out)
+	}
+	if strings.Contains(out, "Tell your agent you are done") {
+		t.Errorf("the call-out replaces the old dim line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Or press r to resume your review.") {
+		t.Errorf("the resume line belongs below the call-out, got:\n%s", out)
+	}
+}
+
+func TestTheHandedOffScreenCallOutReadsSingular(t *testing.T) {
+	m := handedOffModel([]string{"flagged", "seen"}, daemon.CommentWire{ID: 1, Step: 1})
+
+	out := flatten(m.doneView())
+
+	want := "1 Comment across 1 Step is waiting for your agent"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected %q, got:\n%s", want, out)
+	}
+}
+
+func TestTheHandedOffScreenCallsOutReRaisedComments(t *testing.T) {
+	m := handedOffModel([]string{"flagged", "seen"},
+		daemon.CommentWire{ID: 1, Step: 1}, daemon.CommentWire{ID: 2, Step: 0},
+		daemon.CommentWire{ID: 3, Step: 0})
+
+	out := flatten(m.doneView())
+
+	want := "3 Comments (2 re-raised) across 1 Step are waiting for your agent"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected the re-raised call-out %q, got:\n%s", want, out)
+	}
+}
+
+func TestTheHandedOffScreenCallOutStaysInsideTheTerminal(t *testing.T) {
+	const width = 56
+	m := handedOffModel([]string{"flagged"}, daemon.CommentWire{ID: 1, Step: 1})
+	m.width = width
+
+	out := m.doneView()
+
+	if over := widestLine(out); over > width {
+		t.Errorf("the call-out box is %d cells wide, over the %d terminal:\n%s", over, width, out)
+	}
+}
+
+func TestTheHandedOffScreenStaysSilentAboutReRaisesWhenThereAreNone(t *testing.T) {
+	m := handedOffModel([]string{"flagged"}, daemon.CommentWire{ID: 1, Step: 1})
+
+	out := m.doneView()
+
+	if strings.Contains(out, "re-raised") {
+		t.Errorf("a round with no re-raises should not mention them, got:\n%s", out)
 	}
 }
 
@@ -1077,7 +1214,7 @@ func TestConclusionViewPromptsForTheListBetweenTheSummaryAndTheHandOff(t *testin
 	if prompt < 0 {
 		t.Fatalf("expected the plural prompt, got:\n%s", out)
 	}
-	if summary := strings.Index(out, "You raised"); prompt < summary {
+	if summary := strings.Index(out, "Comments for your agent"); prompt < summary {
 		t.Errorf("the prompt belongs below the summary, got:\n%s", out)
 	}
 	if handOff := strings.Index(out, "Press h to hand off"); prompt > handOff {

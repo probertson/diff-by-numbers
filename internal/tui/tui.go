@@ -1353,8 +1353,8 @@ func (m model) listView() string {
 			cursor = accentSt.Render("▸ ")
 		}
 		where := fmt.Sprintf("Step %d", comment.Step)
-		if comment.Step == 0 {
-			where = "re-raised" // carried over from a previous round, not tied to a current Step
+		if comment.ReRaised() {
+			where = "re-raised"
 		}
 		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(comment.Location)))
 		for _, line := range strings.Split(strings.TrimRight(comment.Anchor, "\n"), "\n") {
@@ -1411,15 +1411,59 @@ func (m model) doneView() string {
 		inner.WriteString(accentSt.Render("Press enter to review it."))
 		return revisionBoxStyle.Render(inner.String()) + "\n"
 	default: // doneWaiting
-		seen, flagged := m.stepCounts()
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review handed off") + "\n\n")
-		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
-			pluralize(seen, "Step"), flagged, pluralize(len(m.view.Comments), "Comment")))
-		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Comments and open a Revision Round.") + "\n")
+		b.WriteString(m.stepsSeenLine() + "\n\n")
+		// A bordered call-out rather than the dim line it replaces: the count is
+		// the one thing on this screen the Reviewer must not forget before telling
+		// the agent they are done. The text is wrapped to what the border and
+		// padding leave, so the box stays inside the terminal.
+		inner := m.width - revisionBoxStyle.GetHorizontalFrameSize()
+		b.WriteString(revisionBoxStyle.Render(wrapTo(m.commentsWaitingCallOut(), inner)) + "\n\n")
 		b.WriteString(dimSt.Render("Or press r to resume your review.") + "\n")
 		return b.String()
 	}
+}
+
+// stepsSeenLine reports how much of the Walkthrough the Reviewer got through.
+// Step statuses are exclusive — a flagged Step is one they saw and raised a
+// Comment on — so the two are added rather than printed side by side, which read
+// as a counting bug (#74). With nothing left unseen the total stands alone.
+func (m model) stepsSeenLine() string {
+	seen, flagged := m.stepCounts()
+	viewed := seen + flagged
+	total := m.view.StepCount
+	if viewed >= total {
+		return fmt.Sprintf("%s seen.", pluralize(total, "Step"))
+	}
+	return fmt.Sprintf("%d of %s seen (%d unseen).", viewed, pluralize(total, "Step"), total-viewed)
+}
+
+// commentsWaitingCallOut is the sentence in the handed-off screen's box: how
+// much is waiting for the agent, and what to do about it. "Across N Steps"
+// counts flagged Steps, so re-raised Comments — which belong to no current Step
+// — are named separately; with only those there is no Step span to give.
+func (m model) commentsWaitingCallOut() string {
+	_, flagged := m.stepCounts()
+	raised := len(m.view.Comments)
+	reRaised := 0
+	for _, comment := range m.view.Comments {
+		if comment.ReRaised() {
+			reRaised++
+		}
+	}
+	count := pluralize(raised, "Comment")
+	if reRaised > 0 {
+		count += fmt.Sprintf(" (%d re-raised)", reRaised)
+	}
+	if flagged > 0 {
+		count += " across " + pluralize(flagged, "Step")
+	}
+	verb := "are"
+	if raised == 1 {
+		verb = "is"
+	}
+	return fmt.Sprintf("%s %s waiting for your agent — tell it you're done and it will collect them.", count, verb)
 }
 
 // stepCounts tallies how many Steps the reviewer saw and flagged, for the
@@ -1461,22 +1505,26 @@ func (m model) dispositionSummary() string {
 }
 
 // conclusionView is the pre-hand-off on-ramp reached by advancing past the last
-// Step: a light summary and the deliberate hand-off action, with "End of review"
-// carried by the header the way "Overview" is at the other end.
+// Step: the status first, then the actions, with "End of review" carried by the
+// header the way "Overview" is at the other end.
 func (m model) conclusionView() string {
 	var b strings.Builder
 	if m.view != nil {
-		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
-			pluralize(len(m.view.Comments), "Comment"), pluralize(m.view.StepCount, "Step")))
-		// Plain text, not the accent the hand-off line carries: looking over what
-		// you raised is an invitation, handing off is the deliberate act. With
-		// nothing raised there is nothing to look over, so the line goes entirely.
+		// The count carries the accent on a line of its own rather than sitting
+		// mid-sentence: it is the one thing that must register before the hand-off
+		// (#74). With nothing raised the hand-off is simply the end, and the
+		// invitation to look over what you raised goes with the count.
 		if raised := len(m.view.Comments); raised > 0 {
 			noun := "Comments"
 			if raised == 1 {
 				noun = "Comment"
 			}
+			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n\n")
+			// Plain text, not the accent the hand-off line carries: looking over what
+			// you raised is an invitation, handing off is the deliberate act.
 			b.WriteString("Press l to see your " + noun + ".\n\n")
+		} else {
+			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
 		}
 	}
 	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
