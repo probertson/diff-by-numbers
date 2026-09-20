@@ -339,16 +339,19 @@ func leadingSpaces(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " "))
 }
 
-// wrapRunes hard-wraps a plain (ANSI-free) string so the line under the cursor
-// can be read in full where a single row would clip it. The first row gets first
-// cells and every continuation gets rest, which is narrower by the hanging
-// indent the caller will prepend. It caps the result at maxRows chunks; when the
-// text overruns that cap the last chunk is truncated with an ellipsis exactly as
-// a single clipped line is, so an enormous line cannot grow the pane without
-// bound. It wraps on runes rather than words: code has no reliable word
-// boundaries, and a full row is easier to read back against the original than a
-// ragged one.
-func wrapRunes(s string, first, rest, maxRows int) []string {
+// wrapCode soft-wraps a plain (ANSI-free) line of code so the line under the
+// cursor can be read in full where a single row would clip it. The first row
+// gets first cells and every continuation gets rest, which is narrower by the
+// hanging indent the caller will prepend. It caps the result at maxRows chunks;
+// when the text overruns that cap the last chunk is truncated with an ellipsis
+// exactly as a single clipped line is, so an enormous line cannot grow the pane
+// without bound.
+//
+// Rows break on spaces only (#73). Code has no other reliable word boundary, and
+// breaking inside an identifier is what made a wrapped line hard to read back
+// against the original. A token with no room anywhere hard-breaks at the row
+// edge rather than leaving a ragged gap first.
+func wrapCode(s string, first, rest, maxRows int) []string {
 	if first < 1 || rest < 1 || maxRows < 1 {
 		return []string{truncateTo(s, first)}
 	}
@@ -363,22 +366,69 @@ func wrapRunes(s string, first, rest, maxRows int) []string {
 			// The last row allowed, with more text than fits: clip the remainder.
 			return append(chunks, truncateTo(string(r), w))
 		}
-		n := w
-		if n > len(r) {
-			n = len(r)
-		}
+		n := runesForRow(r, w, rest)
 		chunks = append(chunks, string(r[:n]))
-		r = r[n:]
 		// A break landing inside a run of spaces — gofmt's end-of-line comment
 		// alignment, say — would otherwise carry that padding onto the next row and
 		// start it at an arbitrary column. Drop it: at a wrap point it is layout,
 		// not content, and keeping it is what made the indent look random.
-		for len(r) > 0 && r[0] == ' ' {
-			r = r[1:]
-		}
+		r = r[skipSpaces(r, n):]
 		w = rest
 	}
 	return chunks
+}
+
+// skipSpaces reports the first index at or after i that is not a space, or the
+// length of r if there is none.
+func skipSpaces(r []rune, i int) int {
+	for i < len(r) && r[i] == ' ' {
+		i++
+	}
+	return i
+}
+
+// runesForRow reports how many runes of r belong on a row width cells wide,
+// given that the row after it is nextWidth cells wide. It prefers the last space
+// that fits, and falls back to the row edge in the two cases where a space would
+// not help: the token the break would push down is too long for the next row
+// anyway and the row edge falls inside it, and the only space available is
+// inside the line's own leading indent.
+func runesForRow(r []rune, width, nextWidth int) int {
+	if len(r) <= width {
+		return len(r)
+	}
+	indent := skipSpaces(r, 0)
+	brk := -1
+	for i := width; i > indent; i-- {
+		if r[i] == ' ' {
+			brk = i
+			break
+		}
+	}
+	if brk < 0 {
+		// Either the row edge is inside a token, or the whole row is the line's own
+		// indent — which the caller's hanging indent keeps narrower than the row.
+		return width
+	}
+	// Step back over the whole run of spaces, so the row does not end in padding.
+	// The run cannot reach the indent, whose next rune is by definition not a space.
+	for brk > 0 && r[brk-1] == ' ' {
+		brk--
+	}
+	// The token that a break here would move down: if it will not fit on the next
+	// row either, filling this one costs nothing and wastes no cells — but only
+	// while the row edge falls inside the token. Where a run of alignment padding
+	// pushes the token past the edge, filling would spend the row on blanks, so
+	// the break stands and the token hard-breaks from the next row instead.
+	start := skipSpaces(r, brk)
+	end := start
+	for end < len(r) && r[end] != ' ' {
+		end++
+	}
+	if end-start > nextWidth && width > start {
+		return width
+	}
+	return brk
 }
 
 // renderStep draws the Step with the cursor and selection, windowed to height
@@ -689,7 +739,7 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, cursorCap int) []st
 		}
 		restWidth := textWidth - hang
 		if textWidth >= 1 && restWidth >= 1 {
-			chunks := wrapRunes(text, textWidth, restWidth, cursorCap)
+			chunks := wrapCode(text, textWidth, restWidth, cursorCap)
 			if len(chunks) > 1 {
 				indent := strings.Repeat(" ", lipgloss.Width(gutter)+hang)
 				rows = []string{gutter + chunks[0]}

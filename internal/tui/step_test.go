@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -506,7 +507,9 @@ func TestASelectionMayCrossFromTheBeforeSideToTheAfterSide(t *testing.T) {
 }
 
 func wrapStep() *daemon.StepWire {
-	long := strings.Repeat("a", 30) + "TAIL"
+	// Spaces in the long line, so the render tests exercise the word-aware wrap
+	// (#73) rather than only its hard-break fallback.
+	long := "alpha " + strings.Repeat("a", 24) + " TAIL"
 	return &daemon.StepWire{
 		Name: "Wrap", Explanation: "x",
 		Excerpts: []daemon.ExcerptWire{{File: "a.go", Side: "new", FirstLine: 1, LastLine: 3, Lines: []daemon.LineWire{
@@ -579,7 +582,7 @@ func TestRenderStepDoesNotCarryAlignmentPaddingOntoAContinuation(t *testing.T) {
 }
 
 func TestRenderStepWrapsTheCursorLineInPlace(t *testing.T) {
-	// At width 40 the code column is 27 cells wide, so a 34-cell line's tail
+	// At width 40 the code column is 27 cells wide, so a 35-cell line's tail
 	// ("TAIL") can only be seen if the cursor line soft-wraps.
 	step := wrapStep()
 	const width, height = 40, 40
@@ -694,5 +697,103 @@ func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
 
 	if strings.Contains(out, "more above") || strings.Contains(out, "more below") {
 		t.Errorf("expected no scroll indicators when the whole Step fits, got:\n%s", out)
+	}
+}
+
+func TestRenderStepDoesNotSplitAWordAcrossTheCursorLinesWrap(t *testing.T) {
+	// At width 40 the code column is 27 cells, one short of this line — so the
+	// identifier used to lose its last letter to the next row.
+	step := oneLineStep("value := configurationOption")
+	cur := newStepCursor(step, nil)
+
+	out := renderStep(step, cur, map[string]bool{}, nil, 40, 20, false)
+
+	if !strings.Contains(out, "configurationOption") {
+		t.Errorf("the wrap should fall at the space, leaving the identifier whole, got:\n%s", out)
+	}
+}
+
+// TestWrapCodeBreaksAtTheLastSpaceThatFits and the tests below it cover the
+// wrapper directly: it breaks on spaces (#73), so a word is readable rather than
+// cut in half across the wrap point.
+func TestWrapCodeBreaksAtTheLastSpaceThatFits(t *testing.T) {
+	got := wrapCode("alpha beta gamma", 12, 12, 10)
+
+	want := []string{"alpha beta", "gamma"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeStartsNoRowWithASpace(t *testing.T) {
+	// A run of spaces at the break point is layout, not content: the row ends
+	// before it and the next row starts at the word.
+	got := wrapCode("alpha  beta", 7, 7, 10)
+
+	want := []string{"alpha", "beta"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeFillsTheRowWithATokenTooLongForAFreshOne(t *testing.T) {
+	// "xxx…" is 20 cells and no row is that wide, so moving it down would only
+	// waste the rest of this row before hard-breaking it anyway.
+	got := wrapCode("ab "+strings.Repeat("x", 20), 10, 10, 10)
+
+	want := []string{"ab xxxxxxx", "xxxxxxxxxx", "xxx"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeDoesNotFillARowWithAlignmentPadding(t *testing.T) {
+	// The over-long token starts past the row edge, behind a run of gofmt's
+	// end-of-line alignment padding. Filling the row would spend it on blanks.
+	got := wrapCode("ab"+strings.Repeat(" ", 8)+strings.Repeat("x", 20), 10, 10, 10)
+
+	want := []string{"ab", "xxxxxxxxxx", "xxxxxxxxxx"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeDoesNotBreakOnPunctuation(t *testing.T) {
+	// Spaces are the only break point: a run of punctuation is part of the token.
+	got := wrapCode("a,b,c,d,e,f", 5, 5, 10)
+
+	want := []string{"a,b,c", ",d,e,", "f"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeRespectsTheContinuationWidth(t *testing.T) {
+	// The first row is wider than the rest, which hang under the line's own indent.
+	got := wrapCode("aaaa bbbb cccc dddd", 10, 5, 10)
+
+	want := []string{"aaaa bbbb", "cccc", "dddd"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeTruncatesTheLastRowAtTheCap(t *testing.T) {
+	got := wrapCode("alpha beta gamma delta epsilon", 12, 12, 2)
+
+	want := []string{"alpha beta", "gamma delta…"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
+	}
+}
+
+func TestWrapCodeKeepsTheLinesOwnIndentOnTheFirstRow(t *testing.T) {
+	// The leading indent is the code's own, not padding at a wrap point, so it
+	// stays — and is never itself a break point, which would leave a blank row.
+	got := wrapCode("    foobarbazqux more", 12, 12, 10)
+
+	want := []string{"    foobarba", "zqux more"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wrapCode = %q, want %q", got, want)
 	}
 }
