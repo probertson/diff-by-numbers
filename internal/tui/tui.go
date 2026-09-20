@@ -23,30 +23,51 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/updatecheck"
 )
 
-// Run attaches to the daemon and blocks until the Reviewer quits. It refuses to
-// start at all when no daemon answers: a review surface with nothing behind it
-// should say so on stderr, not draw an empty screen.
+// Run attaches to the daemon and blocks until the Reviewer quits.
 func Run(port int) error {
-	client := client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
-	view, err := client.view()
+	starting, err := attach(port)
 	if err != nil {
-		return fmt.Errorf("no dbn daemon on port %d — start one with `dbn serve`: %w", port, err)
+		return err
 	}
 
-	program := tea.NewProgram(
-		model{client: client, view: view},
-		tea.WithAltScreen(),
-	)
+	program := tea.NewProgram(starting, tea.WithAltScreen())
 	_, err = program.Run()
 	return err
 }
 
+// attach builds the model the program starts from. No daemon answering is not a
+// failure: the Reviewer often opens the TUI while their agent is still preparing
+// the Walkthrough, so the model starts waiting for one and the poll loop picks it
+// up when it appears.
+func attach(port int) (model, error) {
+	client := client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
+	view, err := client.view()
+	if err != nil {
+		var noDaemon errNoDaemon
+		if !errors.As(err, &noDaemon) {
+			return model{}, fmt.Errorf("port %d: %w", port, err)
+		}
+		return model{client: client, port: port, waiting: true, waitingSince: time.Now()}, nil
+	}
+
+	return model{client: client, port: port, view: view}, nil
+}
+
 type client struct{ base string }
+
+// errNoDaemon marks nothing answering on the port at all, as against a server
+// that answers but is not dbn. Only the first is worth waiting through: a daemon
+// may yet be started there, while something else already holding the port will
+// never turn into one.
+type errNoDaemon struct{ err error }
+
+func (e errNoDaemon) Error() string { return e.err.Error() }
+func (e errNoDaemon) Unwrap() error { return e.err }
 
 func (c client) view() (*daemon.ViewWire, error) {
 	response, err := http.Get(c.base + "/view")
 	if err != nil {
-		return nil, err
+		return nil, errNoDaemon{err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -109,7 +130,20 @@ type model struct {
 	// updateNotice is set once the background update check finds a newer release.
 	// Persistent for the same reason daemonVersion is: it is a standing fact about
 	// this install, not a response to a keypress.
-	updateNotice     string
+	updateNotice string
+	// waiting is set while no daemon has ever answered. Distinct from lostErr,
+	// which is a daemon that answered and then went away: the Reviewer waiting
+	// for their agent to start one needs different words from the Reviewer whose
+	// review just vanished.
+	waiting bool
+	// waitingSince is when this wait began, so a wait that drags on can say more
+	// than a wait a few seconds old needs to.
+	waitingSince time.Time
+	// hintAfter is how long the wait runs before that longer message appears.
+	// Zero means waitHintAfter; it is a field so a test need not wait out the real
+	// threshold.
+	hintAfter        time.Duration
+	port             int
 	lostErr          error
 	viewport         viewport.Model
 	cursor           stepCursor
@@ -443,9 +477,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		positionChanged := false
 		newWalkthrough := false
-		reconnected := false
+		newConnection := false
 		if msg.err != nil {
-			m.lostErr = msg.err
+			// A poll that fails during a wait is the wait, not a loss: nothing has
+			// been lost until something has answered.
+			if !m.waiting {
+				m.lostErr = msg.err
+			}
 		} else {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true
@@ -463,9 +501,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Coming back after losing the daemon, the daemon on the other end may
 			// not be the one we left — a restart is exactly how it gets replaced by
-			// a different build — so ask again who it is.
-			reconnected = m.lostErr != nil
+			// a different build — so ask again who it is. The daemon that ends a
+			// wait has never been asked at all, which wants the same question.
+			newConnection = m.lostErr != nil || m.waiting
 			m.lostErr = nil
+			m.waiting = false
 			m.view = msg.view
 		}
 		if newWalkthrough {
@@ -489,7 +529,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ready {
 			m.viewport.SetContent(m.content())
 		}
-		if reconnected {
+		if newConnection {
 			return m, m.readStatus()
 		}
 		return m, nil
@@ -1533,6 +1573,8 @@ func (m model) header() string {
 
 func (m model) headerLine() string {
 	switch {
+	case m.waiting:
+		return headerSt.Render("dbn") + dimSt.Render(" — waiting for the dbn daemon")
 	case m.lostErr != nil:
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
@@ -1578,6 +1620,9 @@ func (m model) navHint() string {
 }
 
 func (m model) content() string {
+	if m.waiting {
+		return m.waitingView()
+	}
 	if m.view == nil || !m.view.Posted {
 		return dimSt.Render("An Authoring Agent posts a Walkthrough over MCP; it will appear here.")
 	}
@@ -1585,6 +1630,37 @@ func (m model) content() string {
 		return m.brief()
 	}
 	return m.step()
+}
+
+// waitingView is what the Reviewer reads while no daemon has answered yet. It
+// says whose job starting one is, because the answer — the Authoring Agent's,
+// when it posts — is the difference between waiting and being stuck.
+func (m model) waitingView() string {
+	body := dimSt.Render(wrapTo(
+		"The dbn daemon starts when your Authoring Agent posts a Walkthrough. This screen fills in as soon as it does.",
+		m.viewport.Width))
+	if !m.waitHintDue() {
+		return body
+	}
+	hint := fmt.Sprintf("still waiting — is your agent set up with dbn? (port %d; use -port or $DBN_PORT for another)", m.port)
+
+	return body + "\n\n" + warnSt.Render(wrapTo(hint, m.viewport.Width))
+}
+
+// waitHintAfter is how long a wait runs before it stops being unremarkable. Short
+// enough to catch a misconfigured agent, long enough that a Reviewer who opened
+// the TUI a beat early never sees it.
+const waitHintAfter = 30 * time.Second
+
+// waitHintDue reports whether this wait has run long enough to be worth
+// explaining rather than merely announcing.
+func (m model) waitHintDue() bool {
+	after := m.hintAfter
+	if after == 0 {
+		after = waitHintAfter
+	}
+
+	return time.Since(m.waitingSince) >= after
 }
 
 func (m model) brief() string {
