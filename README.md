@@ -228,6 +228,9 @@ agent uses dbn — you do not need to start anything.
 dbn
 ```
 
+You can open it before your agent is ready: with no daemon yet, the TUI waits for
+one and fills in the moment the Walkthrough is posted.
+
 The first screen shows an overview. Use Left/Right arrows to navigate through screens.
 Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions
 mid-review) or to add a Comment. When you're done, press `h` to hand the review off, then
