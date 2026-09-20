@@ -1728,10 +1728,14 @@ const nbsp = "\u00a0"
 // inside each label are made non-breaking so a label like "g Brief" never
 // splits across a wrap.
 func keybar(tokens ...string) string {
+	// Substituted into a slice of its own: the parameter aliases the caller's
+	// slice whenever a token list is spread into it, and a caller that reads its
+	// list back must not find non-breaking spaces in it.
+	labels := make([]string, len(tokens))
 	for i, t := range tokens {
-		tokens[i] = strings.ReplaceAll(t, " ", nbsp)
+		labels[i] = strings.ReplaceAll(t, " ", nbsp)
 	}
-	return strings.Join(tokens, "  ·  ")
+	return strings.Join(labels, "  ·  ")
 }
 
 // jumpHint labels the number-jump with the real Step count, and says how to

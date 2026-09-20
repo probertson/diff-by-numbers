@@ -1201,3 +1201,25 @@ func TestOpeningTheCommentListClearsTheStatusMessage(t *testing.T) {
 		t.Errorf("the list has no status row, so a message must not survive the round trip, got %q", m.status)
 	}
 }
+
+// TestKeybarLeavesItsCallersSliceAlone guards the trap a caller falls into when
+// it spreads its own token list: keybar joins labels for display, and must not
+// edit the slice it was handed.
+func TestKeybarLeavesItsCallersSliceAlone(t *testing.T) {
+	tokens := []string{"↑/↓ move", "y copy"}
+
+	keybar(tokens...)
+
+	if tokens[0] != "↑/↓ move" || tokens[1] != "y copy" {
+		t.Errorf("keybar rewrote its caller's slice, got %q", tokens)
+	}
+}
+
+func TestKeybarMakesTheSpacesInsideALabelNonBreaking(t *testing.T) {
+	got := keybar("y copy", "q exit")
+
+	want := "y" + nbsp + "copy" + "  ·  " + "q" + nbsp + "exit"
+	if got != want {
+		t.Errorf("keybar = %q, want %q", got, want)
+	}
+}
