@@ -1390,6 +1390,16 @@ func (m model) conclusionView() string {
 	if m.view != nil {
 		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
 			pluralize(len(m.view.Comments), "Comment"), pluralize(m.view.StepCount, "Step")))
+		// Plain text, not the accent the hand-off line carries: looking over what
+		// you raised is an invitation, handing off is the deliberate act. With
+		// nothing raised there is nothing to look over, so the line goes entirely.
+		if raised := len(m.view.Comments); raised > 0 {
+			noun := "Comments"
+			if raised == 1 {
+				noun = "Comment"
+			}
+			b.WriteString("Press l to see your " + noun + ".\n\n")
+		}
 	}
 	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
 	return b.String()

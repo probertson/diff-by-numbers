@@ -1062,3 +1062,71 @@ func TestConclusionFooterOffersTheListAndHandOff(t *testing.T) {
 		t.Errorf("expected the conclusion footer %q, got:\n%s", want, out)
 	}
 }
+
+// CL-3: the conclusion screen invites the Reviewer to look over what they raised.
+
+func TestConclusionViewPromptsForTheListBetweenTheSummaryAndTheHandOff(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}, {ID: 2}},
+	}}
+
+	out := m.conclusionView()
+
+	prompt := strings.Index(out, "Press l to see your Comments.")
+	if prompt < 0 {
+		t.Fatalf("expected the plural prompt, got:\n%s", out)
+	}
+	if summary := strings.Index(out, "You raised"); prompt < summary {
+		t.Errorf("the prompt belongs below the summary, got:\n%s", out)
+	}
+	if handOff := strings.Index(out, "Press h to hand off"); prompt > handOff {
+		t.Errorf("the prompt belongs above the hand-off line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "\n\nPress l to see your Comments.\n\n") {
+		t.Errorf("the prompt should have a blank line above and below it, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewPromptsInTheSingularForOneComment(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}},
+	}}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "Press l to see your Comment.") {
+		t.Errorf("one Comment should read in the singular, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewOmitsThePromptWithNoComments(t *testing.T) {
+	m := model{view: &daemon.ViewWire{StepCount: 3}}
+
+	out := m.conclusionView()
+
+	if strings.Contains(out, "Press l") {
+		t.Errorf("with nothing raised there is nothing to look over, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Press h to hand off") {
+		t.Errorf("the hand-off line stays whatever the count, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewDropsThePromptWhenTheLastCommentIsWithdrawn(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}},
+	}}
+	if !strings.Contains(m.conclusionView(), "Press l") {
+		t.Fatal("expected the prompt while a Comment stands")
+	}
+
+	// The refreshed view the daemon sends back after the withdrawal.
+	m.view = &daemon.ViewWire{StepCount: 3}
+
+	if strings.Contains(m.conclusionView(), "Press l") {
+		t.Errorf("withdrawing the last Comment should take the prompt with it, got:\n%s", m.conclusionView())
+	}
+}
