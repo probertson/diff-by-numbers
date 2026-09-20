@@ -31,8 +31,18 @@ func Run(port int) error {
 	}
 
 	program := tea.NewProgram(starting, tea.WithAltScreen())
-	_, err = program.Run()
-	return err
+	final, err := program.Run()
+	if err != nil {
+		return err
+	}
+	// A wait that ended because something answered that was not dbn leaves its
+	// reason here: the screen is gone by now, so it belongs on stderr, exactly as
+	// it would have at startup.
+	if ended, ok := final.(model); ok {
+		return ended.fatalErr
+	}
+
+	return nil
 }
 
 // attach builds the model the program starts from. No daemon answering is not a
@@ -43,9 +53,8 @@ func attach(port int) (model, error) {
 	client := client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
 	view, err := client.view()
 	if err != nil {
-		var noDaemon errNoDaemon
-		if !errors.As(err, &noDaemon) {
-			return model{}, fmt.Errorf("port %d: %w", port, err)
+		if !worthWaitingThrough(err) {
+			return model{}, onPort(port, err)
 		}
 		return model{client: client, port: port, waiting: true, waitingSince: time.Now()}, nil
 	}
@@ -63,6 +72,19 @@ type errNoDaemon struct{ err error }
 
 func (e errNoDaemon) Error() string { return e.err.Error() }
 func (e errNoDaemon) Unwrap() error { return e.err }
+
+// worthWaitingThrough reports whether err is the kind a daemon turning up would
+// answer. Only silence is: anything that answered has already told us what holds
+// the port, and it is not going to change its mind.
+func worthWaitingThrough(err error) bool {
+	var noDaemon errNoDaemon
+
+	return errors.As(err, &noDaemon)
+}
+
+// onPort says which port the trouble was on, which is the one thing the Reviewer
+// needs to act on it.
+func onPort(port int, err error) error { return fmt.Errorf("port %d: %w", port, err) }
 
 func (c client) view() (*daemon.ViewWire, error) {
 	response, err := http.Get(c.base + "/view")
@@ -139,10 +161,16 @@ type model struct {
 	// waitingSince is when this wait began, so a wait that drags on can say more
 	// than a wait a few seconds old needs to.
 	waitingSince time.Time
+	// fatalErr ends the program: set when the wait meets something it cannot wait
+	// out, so Run can report it on stderr once the screen is gone.
+	fatalErr error
 	// hintAfter is how long the wait runs before that longer message appears.
 	// Zero means waitHintAfter; it is a field so a test need not wait out the real
 	// threshold.
-	hintAfter        time.Duration
+	hintAfter time.Duration
+	// port is the port this TUI attached to, which the waiting hint names: the
+	// Reviewer checking whether their agent is wired up needs to know which one
+	// is being watched.
 	port             int
 	lostErr          error
 	viewport         viewport.Model
@@ -479,11 +507,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newWalkthrough := false
 		newConnection := false
 		if msg.err != nil {
-			// A poll that fails during a wait is the wait, not a loss: nothing has
-			// been lost until something has answered.
-			if !m.waiting {
+			switch {
+			case !m.waiting:
 				m.lostErr = msg.err
+			case !worthWaitingThrough(msg.err):
+				// Something took the port and it is not dbn. Waiting will not fix
+				// that here any more than it would have at startup.
+				m.fatalErr = onPort(m.port, msg.err)
+
+				return m, tea.Quit
 			}
+			// Otherwise the poll failing is the wait itself: nothing has been lost
+			// until something has answered.
 		} else {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true

@@ -2,7 +2,7 @@ package tui
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,8 +17,8 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// closedPort is a port nothing is listening on: taken and released, so it is
-// free for as long as this test needs it to answer "connection refused".
+// closedPort is a port nothing is listening on: taken from the OS and released
+// again, so a connection to it is refused rather than answered.
 func closedPort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -76,22 +76,29 @@ func TestAttachingToSomethingThatIsNotTheDaemonStillFails(t *testing.T) {
 	}
 }
 
-// waitingModel is the model as attach leaves it when no daemon answered, sized
-// so the view functions have room to render.
-func waitingModel() model {
-	return model{
-		port:         7373,
-		waiting:      true,
-		waitingSince: time.Now(),
-		width:        80,
-		height:       24,
-		viewport:     viewport.New(80, 18),
-		ready:        true,
+// waitingOn is the model starting with no daemon on port really produces, sized
+// as the first WindowSizeMsg would size it. Built through attach rather than by
+// hand, so a wait these tests describe is a wait the TUI can actually be in.
+func waitingOn(t *testing.T, port int) model {
+	t.Helper()
+	m, err := attach(port)
+	if err != nil {
+		t.Fatalf("attaching with no daemon on port %d failed: %v", port, err)
 	}
+	if !m.waiting {
+		t.Fatalf("attaching with no daemon on port %d did not start a wait", port)
+	}
+	m.width, m.height = 80, 24
+	m.viewport = viewport.New(80, 18)
+	m.ready = true
+
+	return m
 }
 
+func waitingModel(t *testing.T) model { return waitingOn(t, closedPort(t)) }
+
 func TestTheWaitingScreenSaysWhatItIsWaitingFor(t *testing.T) {
-	m := waitingModel()
+	m := waitingModel(t)
 
 	header, body := m.headerLine(), m.content()
 
@@ -110,17 +117,20 @@ func TestTheWaitingScreenSaysWhatItIsWaitingFor(t *testing.T) {
 // agent is actually wired up to dbn, and the port it would appear on is the
 // first thing to check.
 func TestALongWaitAddsAHintNamingThePort(t *testing.T) {
-	m := waitingModel()
-	m.waitingSince = time.Now().Add(-time.Minute)
-	m.hintAfter = 30 * time.Second
+	port := closedPort(t)
+	m := waitingOn(t, port)
+	// Deliberately not the 30s default: the threshold the test sets is the one
+	// that has to decide, or the field is not the seam it claims to be.
+	m.hintAfter = time.Minute
+	m.waitingSince = time.Now().Add(-2 * time.Minute)
 
 	body := m.content()
 
 	if !strings.Contains(body, "still waiting") {
 		t.Errorf("a wait past the threshold should add the hint, got %q", body)
 	}
-	if !strings.Contains(body, "7373") {
-		t.Errorf("the hint should name the port being watched, got %q", body)
+	if !strings.Contains(body, strconv.Itoa(port)) {
+		t.Errorf("the hint should name port %d, the one being watched, got %q", port, body)
 	}
 	if !strings.Contains(body, "-port") || !strings.Contains(body, "$DBN_PORT") {
 		t.Errorf("the hint should say how to watch another port, got %q", body)
@@ -130,7 +140,7 @@ func TestALongWaitAddsAHintNamingThePort(t *testing.T) {
 // The Reviewer who opens the TUI a beat before their agent posts is in the
 // ordinary case, and should not be told to go and check their configuration.
 func TestAFreshWaitHoldsTheHintBack(t *testing.T) {
-	m := waitingModel()
+	m := waitingModel(t)
 	m.hintAfter = time.Hour
 
 	body := m.content()
@@ -141,7 +151,7 @@ func TestAFreshWaitHoldsTheHintBack(t *testing.T) {
 }
 
 func TestADaemonAppearingEndsTheWait(t *testing.T) {
-	m := waitingModel()
+	m := waitingModel(t)
 
 	updated, _ := m.Update(refreshMsg{view: &daemon.ViewWire{}})
 	after := updated.(model)
@@ -158,15 +168,16 @@ func TestADaemonAppearingEndsTheWait(t *testing.T) {
 // left running from before an update is exactly how that happens — so the first
 // connect asks who it is, just as a reconnect does.
 func TestTheFirstConnectAsksWhichBuildTheDaemonIs(t *testing.T) {
-	port := servePort(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/status" {
 			http.NotFound(w, r)
 			return
 		}
 		json.NewEncoder(w).Encode(daemon.StatusWire{Version: "0.9.9"})
-	})))
-	m := waitingModel()
-	m.client = client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
+	}))
+	t.Cleanup(server.Close)
+	m := waitingModel(t)
+	m.client = client{base: server.URL}
 
 	_, cmd := m.Update(refreshMsg{view: &daemon.ViewWire{}})
 
@@ -188,7 +199,7 @@ func TestTheFirstConnectAsksWhichBuildTheDaemonIs(t *testing.T) {
 // Waiting and losing are different situations with different words, so a poll
 // that still finds nothing must not quietly turn one into the other.
 func TestAPollThatStillFindsNothingKeepsWaiting(t *testing.T) {
-	m := waitingModel()
+	m := waitingModel(t)
 
 	updated, _ := m.Update(refreshMsg{err: errNoDaemon{errUnreachable{}}})
 	after := updated.(model)
@@ -207,7 +218,7 @@ func TestAPollThatStillFindsNothingKeepsWaiting(t *testing.T) {
 // The wait has no timeout, so leaving it is the Reviewer's call and the keybar
 // has to say so.
 func TestTheWaitEndsOnQ(t *testing.T) {
-	m := waitingModel()
+	m := waitingModel(t)
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 
@@ -216,5 +227,50 @@ func TestTheWaitEndsOnQ(t *testing.T) {
 	}
 	if keys := m.globalKeys(); !strings.Contains(keys, "q"+nbsp+"exit") {
 		t.Errorf("the keybar should offer q exit while waiting, got %q", keys)
+	}
+}
+
+// Waiting is only ever waiting for a daemon. Something else taking the port
+// mid-wait is an answer, not a silence, and no amount of waiting turns it into
+// dbn — so it ends the wait the same way it would have ended startup.
+func TestSomethingElseAnsweringDuringAWaitEndsIt(t *testing.T) {
+	port := closedPort(t)
+	m := waitingOn(t, port)
+
+	updated, cmd := m.Update(refreshMsg{err: errors.New("the server answered 404 Not Found — is that dbn?")})
+	after := updated.(model)
+
+	if after.fatalErr == nil {
+		t.Fatal("a server that is not dbn should end the wait with an error")
+	}
+	if !strings.Contains(after.fatalErr.Error(), strconv.Itoa(port)) || !strings.Contains(after.fatalErr.Error(), "is that dbn?") {
+		t.Errorf("the error should name the port and what answered, got %q", after.fatalErr)
+	}
+	if !isQuit(cmd) {
+		t.Error("the wait should end rather than run on under a header that cannot come true")
+	}
+}
+
+// The wait usually ends on the Walkthrough itself: the agent posts, and the
+// first poll that answers carries the whole review rather than an empty daemon.
+func TestAWalkthroughArrivingEndsTheWaitOnTheOverview(t *testing.T) {
+	m := waitingModel(t)
+
+	updated, _ := m.Update(refreshMsg{view: &daemon.ViewWire{
+		Posted:    true,
+		StepCount: 2,
+		StepNames: []string{"one", "two"},
+		Seen:      []bool{false, false},
+	}})
+	after := updated.(model)
+
+	if after.waiting {
+		t.Error("a posted Walkthrough should end the wait")
+	}
+	if header := after.headerLine(); !strings.Contains(header, "Overview") || !strings.Contains(header, "2 Steps ahead") {
+		t.Errorf("the wait should end on the Overview, got %q", header)
+	}
+	if after.mode != modeReview {
+		t.Errorf("the wait should end on the walking screen, got mode %v", after.mode)
 	}
 }
