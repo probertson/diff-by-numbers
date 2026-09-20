@@ -80,6 +80,12 @@ Walkthrough that leaves any of them shown by neither an Excerpt nor an
 Acknowledgement. If your post is rejected as `uncovered_changes`, it names what
 you missed — add it and re-post.
 
+**Untracked files count.** A file you created but never `git add`ed is part of
+the Change Set, every line of it, and needs covering like any other. There is no
+opt-out. Scratch files you do not want reviewed should be deleted or added to
+`.gitignore` — or, if they belong to the work but do not repay reading, covered
+by an Acknowledgement, which the reviewer can see and expand.
+
 ## Posting
 
 Call `post_walkthrough` once, complete. Name every repository under review in

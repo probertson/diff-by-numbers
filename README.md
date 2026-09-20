@@ -57,6 +57,9 @@ Note the variables go on the `sh` side of the pipe, since that is the process th
 Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
 Linux build). `dbn version` confirms the install.
 
+dbn shells out to `git`, and needs **git 2.25 or newer** (January 2020) — it derives the Change Set
+with pathspec files, which older git does not read. `git --version` confirms yours.
+
 ### Updating
 
 dbn checks once a day whether a newer release has been published, and says so in

@@ -7,7 +7,6 @@ package git
 import (
 	"bufio"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -35,7 +34,7 @@ func (Deriver) Derive(repo review.Repository) (review.Derivation, error) {
 	// non-ASCII path (its default), which would otherwise derive a mangled File
 	// no agent-authored Excerpt or Acknowledgement could ever match — leaving that
 	// file's coverage permanently unsatisfiable.
-	out, err := runGit(repo.Root, "-c", "core.quotePath=false", "diff", "--unified=0", "--no-color", "-M", base, "--")
+	out, err := diffWithUntracked(repo.Root, "-c", "core.quotePath=false", "diff", "--unified=0", "--no-color", "-M", base, "--")
 	if err != nil {
 		return review.Derivation{}, err
 	}
@@ -53,14 +52,13 @@ func mergeBase(root, rangeRef string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// runGit runs git against the repository's real index, read-only.
+//
+// Not for a diff: plain `git diff` sees tracked files only, so a diff run this
+// way silently omits every untracked file and lets it escape the Coverage
+// Ledger. Diffs go through diffWithUntracked.
 func runGit(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
+	return runGitEnv(root, nil, args...)
 }
 
 // block accumulates the header facts of one file's diff, so that when the file

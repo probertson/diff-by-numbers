@@ -86,7 +86,7 @@ func existsAtRev(root, rev, file string) bool {
 // hides the deleted old path, and git needs to see both to pair them into a
 // rename.
 func renameSource(root, base, file string) (string, bool) {
-	out, err := runGit(root, "-c", "core.quotePath=false", "diff", "--name-status", "-M", "--find-renames", base)
+	out, err := diffWithUntracked(root, "-c", "core.quotePath=false", "diff", "--name-status", "-M", "--find-renames", base)
 	if err != nil {
 		return "", false
 	}
