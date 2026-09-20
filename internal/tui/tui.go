@@ -1482,6 +1482,11 @@ func (m model) doneView() string {
 		if summary := m.dispositionSummary(); summary != "" {
 			inner.WriteString(summary + "\n")
 		}
+		// A decline is the one outcome the Reviewer may want to argue with, and
+		// nothing on the way in said the argument was available (#75).
+		if len(m.declinedDispositions()) > 0 {
+			inner.WriteString("You can re-raise a decline with R.\n")
+		}
 		inner.WriteString(accentSt.Render("Press enter to review it."))
 		return revisionBoxStyle.Render(inner.String()) + "\n"
 	default: // doneWaiting
@@ -1560,7 +1565,7 @@ func (m model) stepCounts() (seen, flagged int) {
 func (m model) dispositionSummary() string {
 	counts := map[string]int{}
 	for _, disposition := range m.view.Dispositions {
-		counts[disposition.Status]++
+		counts[dispositionStatus(disposition)]++
 	}
 	var parts []string
 	for _, status := range []string{"addressed", "answered", "declined"} {
@@ -1588,17 +1593,25 @@ func (m model) conclusionView() string {
 		// mid-sentence: it is the one thing that must register before the hand-off
 		// (#74). With nothing raised the hand-off is simply the end, and the
 		// invitation to look over what you raised goes with the count.
-		if raised := len(m.view.Comments); raised > 0 {
+		raised := len(m.view.Comments)
+		if raised > 0 {
+			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n\n")
+		} else {
+			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
+		}
+		// The status first, then the actions, in the order the conclusion screen's
+		// layout fixes for #65, #74 and #75.
+		if hint := m.declinesHint(); hint != "" {
+			b.WriteString(warnSt.Render(hint) + "\n\n")
+		}
+		if raised > 0 {
 			noun := "Comments"
 			if raised == 1 {
 				noun = "Comment"
 			}
-			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n\n")
 			// Plain text, not the accent the hand-off line carries: looking over what
 			// you raised is an invitation, handing off is the deliberate act.
 			b.WriteString("Press l to see your " + noun + ".\n\n")
-		} else {
-			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
 		}
 	}
 	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
@@ -1935,28 +1948,7 @@ func (m model) brief() string {
 	}
 
 	if len(m.view.Dispositions) > 0 {
-		b.WriteString(labelSt.Render("Since the last round") + "\n")
-		for _, disposition := range m.view.Dispositions {
-			var mark string
-			switch disposition.Status {
-			case "declined":
-				mark = warnSt.Render("  ✗ declined")
-			case "answered":
-				mark = accentSt.Render("  ↩ answered")
-			default:
-				mark = addSt.Render("  ✓ addressed")
-			}
-			b.WriteString(mark + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.CommentID, disposition.Location)) + "\n")
-			b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
-			// Required for answered and declined, optional for addressed.
-			if disposition.Response != "" {
-				b.WriteString("      " + dimSt.Render("agent: ") + wrap(disposition.Response) + "\n")
-			}
-		}
-		if len(m.declinedDispositions()) > 0 {
-			b.WriteString("\n" + dimSt.Render("  press R to re-raise a declined Comment") + "\n")
-		}
-		b.WriteString("\n")
+		b.WriteString(m.sinceTheLastRound(m.viewport.Width))
 	}
 
 	b.WriteString(labelSt.Render("Under review") + "\n")

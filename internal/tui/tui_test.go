@@ -859,7 +859,7 @@ func TestOverviewShowsAnsweredCommentsWithTheirResponse(t *testing.T) {
 
 	out := m.brief()
 
-	if !strings.Contains(out, "answered") || strings.Count(out, "addressed") != 1 {
+	if !strings.Contains(out, "Answered (1)") || !strings.Contains(out, "Addressed (1)") {
 		t.Errorf("expected one addressed and one answered item, got:\n%s", out)
 	}
 	for _, response := range []string{"the upstream SLA is 5s", "capped at 3"} {
