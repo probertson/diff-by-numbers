@@ -912,6 +912,9 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 // openList shows the Comment list unfiltered and from the top, remembering the
 // screen to return to when it closes.
 func (m *model) openList(from mode) {
+	// The list has no status row, so a message still standing from a Step would
+	// go unread here and be waiting again on the way back.
+	m.status = ""
 	m.commentFilter = commentFilter{}
 	m.commentCursor = 0
 	m.listReturn = from
@@ -1598,6 +1601,8 @@ func (m model) headerLine() string {
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
+	case m.mode == modeDone:
+		return headerSt.Render("dbn — "+m.doneHeading()) + dimSt.Render(m.coverageSuffix())
 	case m.pastTheLastStep():
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
@@ -1622,6 +1627,17 @@ func (m model) pastTheLastStep() bool {
 		return m.noteReturn == modeList && m.listReturn == modeConclusion
 	}
 	return false
+}
+
+// doneHeading names the handed-off screen in the header, which otherwise falls
+// through to the Step the daemon is still parked on. The round is over either
+// way, but a Revision Round waiting is the start of the next one, so calling
+// that the end of anything would be wrong.
+func (m model) doneHeading() string {
+	if m.doneState() == doneRevision {
+		return "Revision Round"
+	}
+	return "End of review"
 }
 
 func (m model) coverageSuffix() string {

@@ -1160,3 +1160,44 @@ func TestTheHeaderStillNamesTheStepForAListOpenedFromOne(t *testing.T) {
 		t.Errorf("a list opened from a Step belongs to that Step, got:\n%s", m.headerLine())
 	}
 }
+
+// Folded into the epic at the final pause: two screens that still named a Step.
+
+func TestTheHeaderDoesNotNameAStepOnTheHandedOffScreen(t *testing.T) {
+	cases := []struct {
+		name string
+		view *daemon.ViewWire
+		want string
+	}{
+		{"handed off, waiting", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7, Finished: true}, "End of review"},
+		{"complete", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7, Finished: true, Concluded: true}, "End of review"},
+		{"revision round ready", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7}, "Revision Round"},
+	}
+
+	for _, c := range cases {
+		m := model{mode: modeDone, view: c.view, width: 100, height: 30, ready: true}
+
+		got := m.headerLine()
+
+		if strings.Contains(got, "Step 7 of 7") {
+			t.Errorf("%s: the handed-off screen is not a Step, got:\n%s", c.name, got)
+		}
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: expected %q in the header, got:\n%s", c.name, c.want, got)
+		}
+	}
+}
+
+func TestOpeningTheCommentListClearsTheStatusMessage(t *testing.T) {
+	m := model{
+		mode:   modeReview,
+		status: "Comment updated",
+		view:   &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2},
+	}
+
+	m.openList(modeReview)
+
+	if m.status != "" {
+		t.Errorf("the list has no status row, so a message must not survive the round trip, got %q", m.status)
+	}
+}
