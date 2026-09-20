@@ -950,3 +950,115 @@ func TestDeletingAnEditOpenedFromTheListClampsTheListCursor(t *testing.T) {
 		t.Errorf("deleting the last entry should leave the cursor on the new last entry, got %d", got)
 	}
 }
+
+// CL-2: the Comment list opens from the conclusion screen and returns to it.
+
+// concludingModel is a review sitting on the conclusion screen, rendered wide
+// enough that the footer does not wrap.
+func concludingModel(comments ...daemon.CommentWire) model {
+	return model{
+		mode: modeConclusion,
+		view: &daemon.ViewWire{
+			Posted: true, Position: 2, StepCount: 2,
+			Comments: comments,
+		},
+		width: 100, height: 30, ready: true,
+	}
+}
+
+func TestListOpensFromTheConclusionScreenUnfiltered(t *testing.T) {
+	for _, key := range []string{"l", "L"} {
+		m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+		m.commentFilter = commentFilter{active: true, file: "a.go", side: "after", line: 12}
+		m.commentCursor = 4
+
+		opened, _ := m.updateConclusion(key)
+		om := opened.(model)
+
+		if om.mode != modeList {
+			t.Errorf("%q on the conclusion screen should open the Comment list", key)
+		}
+		if om.commentFilter.active {
+			t.Errorf("%q should open the full list, not a filtered one", key)
+		}
+		if om.commentCursor != 0 {
+			t.Errorf("%q should open the list at the first entry, got %d", key, om.commentCursor)
+		}
+	}
+}
+
+func TestListOpensFromTheConclusionScreenWithNoComments(t *testing.T) {
+	m := concludingModel()
+
+	opened, _ := m.updateConclusion("l")
+	om := opened.(model)
+
+	if om.mode != modeList {
+		t.Fatal("l should open the list even with no Comments to show")
+	}
+	if !strings.Contains(om.View(), "No Comments to show.") {
+		t.Errorf("the empty list should show its empty state, got:\n%s", om.View())
+	}
+}
+
+func TestLeavingAListOpenedFromTheConclusionScreenReturnsToIt(t *testing.T) {
+	for _, key := range []string{"esc", "L", "q"} {
+		m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+		opened, _ := m.updateConclusion("l")
+
+		left, _ := opened.(model).updateList(key)
+		lm := left.(model)
+
+		if lm.mode != modeConclusion {
+			t.Errorf("%q should leave the list back to the conclusion screen, not a Step", key)
+		}
+		if lm.confirmingQuit {
+			t.Errorf("%q in the list closes the list, so it should not arm the quit heads-up", key)
+		}
+	}
+}
+
+func TestLeavingAListOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
+	m := model{
+		mode: modeList,
+		view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2, Comments: []daemon.CommentWire{{ID: 1, Step: 1, Note: "n"}}},
+	}
+
+	left, _ := m.updateList("esc")
+
+	if left.(model).mode != modeReview {
+		t.Error("a list opened from a Step should still leave to the Step")
+	}
+}
+
+func TestEditingFromTheConclusionScreensListReturnsToTheListThenTheConclusionScreen(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n", Anchor: "code"})
+	m.client = client{base: acceptingServer(t).URL}
+	m.note = newNote(80)
+
+	opened, _ := m.updateConclusion("l")
+	editing, _ := opened.(model).updateList("e")
+	saved, _ := editing.(model).updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Fatal("saving should return to the conclusion screen's list")
+	}
+
+	left, _ := sm.updateList("esc")
+
+	if left.(model).mode != modeConclusion {
+		t.Error("leaving that list should return to the conclusion screen, never a Step")
+	}
+}
+
+func TestConclusionFooterOffersTheListAndHandOff(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+
+	out := m.View()
+
+	want := keybar("← back", "g Overview", "l list", "h hand off", "q exit")
+	if !strings.Contains(out, want) {
+		t.Errorf("expected the conclusion footer %q, got:\n%s", want, out)
+	}
+}

@@ -127,7 +127,11 @@ type model struct {
 	// opened on a Step, modeList when it was opened from the List. Its zero value
 	// is modeReview, which is where every exit went before the List could be an
 	// origin.
-	noteReturn    mode
+	noteReturn mode
+	// listReturn is where leaving the Comment list goes: modeReview when it was
+	// opened from a Step, modeConclusion when it was opened from the conclusion
+	// screen. Zero value modeReview, as above.
+	listReturn    mode
 	reraiseCursor int // selected row among declined dispositions
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
@@ -569,9 +573,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.refresh()
 			}
 		case "l", "L":
-			m.commentFilter = commentFilter{}
-			m.mode = modeList
-			m.commentCursor = 0
+			m.openList(modeReview)
 			return m, nil
 		case "R":
 			if len(m.declinedDispositions()) == 0 {
@@ -664,9 +666,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
+					m.openList(modeReview)
 					m.commentFilter = commentFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
-					m.commentCursor = 0
-					m.mode = modeList
 				}
 				return m, nil
 			case "c":
@@ -812,7 +813,7 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "L", "q":
 		m.commentFilter = commentFilter{}
-		m.mode = modeReview
+		m.mode = m.listReturn
 		return m, nil
 	case "up", "k":
 		if m.commentCursor > 0 {
@@ -891,6 +892,11 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		m.client.intent("/goto/0")
 		m.mode = modeReview
 		return m, m.refresh()
+	case "l", "L":
+		// The full list, whatever the Reviewer was last filtered to on a Step: from
+		// here they are looking over everything they raised, not one line of it.
+		m.openList(modeConclusion)
+		return m, nil
 	case "h", "H":
 		m.client.intent("/finish")
 		m.mode = modeDone
@@ -901,6 +907,15 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		return m.quit()
 	}
 	return m, nil
+}
+
+// openList shows the Comment list unfiltered and from the top, remembering the
+// screen to return to when it closes.
+func (m *model) openList(from mode) {
+	m.commentFilter = commentFilter{}
+	m.commentCursor = 0
+	m.listReturn = from
+	m.mode = modeList
 }
 
 // quit is q's shared behaviour in both modeReview and modeConclusion: arm the
@@ -1041,7 +1056,7 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeConclusion:
 		body = m.conclusionView()
-		persistent = keybar("← back", "g Overview", "q exit")
+		persistent = keybar("← back", "g Overview", "l list", "h hand off", "q exit")
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
