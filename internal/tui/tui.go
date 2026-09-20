@@ -1598,13 +1598,30 @@ func (m model) headerLine() string {
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
-	case m.mode == modeConclusion:
+	case m.pastTheLastStep():
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
 		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) + dimSt.Render(m.coverageSuffix())
 	}
+}
+
+// pastTheLastStep reports whether the Reviewer is on the conclusion screen or on
+// a screen they reached from it. The daemon never leaves the last Step while the
+// conclusion screen shows, so the Step position alone would have the header
+// announce a Step the Reviewer is not on — the Comment list opened from here
+// would read "Step 7 of 7" while showing the Comments of the whole review.
+func (m model) pastTheLastStep() bool {
+	switch m.mode {
+	case modeConclusion:
+		return true
+	case modeList:
+		return m.listReturn == modeConclusion
+	case modeNote:
+		return m.noteReturn == modeList && m.listReturn == modeConclusion
+	}
+	return false
 }
 
 func (m model) coverageSuffix() string {

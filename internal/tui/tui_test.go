@@ -1130,3 +1130,33 @@ func TestConclusionViewDropsThePromptWhenTheLastCommentIsWithdrawn(t *testing.T)
 		t.Errorf("withdrawing the last Comment should take the prompt with it, got:\n%s", m.conclusionView())
 	}
 }
+
+func TestTheHeaderStaysEndOfReviewOnScreensOpenedFromTheConclusionScreen(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n", Anchor: "code"})
+	m.note = newNote(80)
+
+	opened, _ := m.updateConclusion("l")
+	om := opened.(model)
+
+	if !strings.Contains(om.headerLine(), "End of review") {
+		t.Errorf("the list opened from the conclusion screen is not a Step, got:\n%s", om.headerLine())
+	}
+
+	editing, _ := om.updateList("e")
+
+	if got := editing.(model).headerLine(); !strings.Contains(got, "End of review") {
+		t.Errorf("editing from that list is not a Step either, got:\n%s", got)
+	}
+}
+
+func TestTheHeaderStillNamesTheStepForAListOpenedFromOne(t *testing.T) {
+	m := model{
+		view:  &daemon.ViewWire{Posted: true, Position: 2, StepCount: 7, Comments: []daemon.CommentWire{{ID: 1, Step: 2, Note: "n"}}},
+		width: 100, height: 30, ready: true,
+	}
+	m.openList(modeReview)
+
+	if !strings.Contains(m.headerLine(), "Step 2 of 7") {
+		t.Errorf("a list opened from a Step belongs to that Step, got:\n%s", m.headerLine())
+	}
+}
