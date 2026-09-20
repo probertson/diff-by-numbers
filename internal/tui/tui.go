@@ -203,9 +203,15 @@ type model struct {
 	// by position, so returning to one finds it as it was. It is forgotten when a
 	// different Walkthrough arrives.
 	leftSteps map[int]leftStep
-	width     int
-	height    int
-	ready     bool
+	// wrapAll turns the Step pane's soft-wrap on for every line rather than the
+	// cursor's alone (#77), so a long removal and the addition replacing it can be
+	// read side by side. Wrapping is purely how the code is drawn, so it belongs
+	// to the TUI, holds for the whole review rather than one Step, and starts off
+	// again on the next launch.
+	wrapAll bool
+	width   int
+	height  int
+	ready   bool
 }
 
 // leftStep is how the Reviewer left a Step: the row the cursor was on and the
@@ -674,6 +680,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "down", "j":
 				m.noteBoundary(m.cursor.move(1))
+				return m, nil
+			case "w":
+				// Wrapping is only how the code is drawn, so the toggle holds for the
+				// whole review rather than this Step, and the cursor does not move.
+				m.wrapAll = !m.wrapAll
+				m.status = ""
 				return m, nil
 			case "shift+up":
 				if !interactive {
@@ -1147,7 +1159,7 @@ func (m model) View() string {
 		}
 	default:
 		if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo())
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo(), m.wrapAll)
 		} else {
 			body = m.viewport.View()
 		}
@@ -1219,7 +1231,7 @@ func (m model) modeKeys() string {
 		return ""
 	}
 	if m.cursor.sel >= 0 {
-		return keybar("↑/↓ extend", "y copy", "c comment", "<esc> stop selecting")
+		return keybar("↑/↓ extend", "y copy", "c comment", m.wrapToggleKey(), "<esc> stop selecting")
 	}
 	tokens := []string{"↑/↓ move"}
 	line := m.cursor.lines[m.cursor.cursor]
@@ -1236,7 +1248,18 @@ func (m model) modeKeys() string {
 			tokens = append(tokens, "x expand")
 		}
 	}
+	tokens = append(tokens, m.wrapToggleKey())
 	return keybar(tokens...)
+}
+
+// wrapToggleKey names what w will do next, so the label is the outcome rather
+// than the state. It is offered while selecting too, since comparing a long
+// removal with its replacement is exactly when a selection is being made.
+func (m model) wrapToggleKey() string {
+	if m.wrapAll {
+		return "w wrap cursor line only"
+	}
+	return "w wrap all lines"
 }
 
 // deleteConfirmPrompt is the inline y/n guard the edit screen and the List both
