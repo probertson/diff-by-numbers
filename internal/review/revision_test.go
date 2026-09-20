@@ -300,7 +300,7 @@ func TestADeclinedCommentCanBeReRaised(t *testing.T) {
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined, Response: "intended"}}))
 
-	comment, err := session.ReRaise(1)
+	comment, err := session.ReRaise(1, "")
 
 	if err != nil {
 		t.Fatalf("expected to re-raise a declined Comment, got %v", err)
@@ -350,7 +350,7 @@ func TestOnlyADeclinedCommentCanBeReRaised(t *testing.T) {
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}))
 
-	_, err := session.ReRaise(1)
+	_, err := session.ReRaise(1, "")
 
 	assertRejected(t, err, review.RejectedNoSuchComment)
 }
@@ -379,4 +379,102 @@ func TestAFailedSnapshotPreMarksNothing(t *testing.T) {
 	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
+}
+
+// roundWith opens a Revision Round whose single previous Comment got status.
+func roundWith(t *testing.T, status review.DispositionStatus) *review.Session {
+	t.Helper()
+	session, deriver := finishRound1WithComment(t)
+	deriver.lines = changedApp(1, 4)
+	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+		[]review.Disposition{{CommentID: 1, Status: status, Response: "because"}}))
+	return session
+}
+
+func TestAReRaisedCommentNamesTheResolutionItDisputes(t *testing.T) {
+	session := roundWith(t, review.DispositionDeclined)
+
+	comment, err := session.ReRaise(1, "")
+
+	if err != nil {
+		t.Fatalf("expected to re-raise, got %v", err)
+	}
+	if comment.ReRaisedFrom != 1 {
+		t.Errorf("expected the re-raise to point back at Comment 1, got %d", comment.ReRaisedFrom)
+	}
+}
+
+func TestAnAnsweredCommentCanBeReRaisedToo(t *testing.T) {
+	// The code a question was about often is not in the next round, so re-raising
+	// — which carries the Anchor — is the only way to follow up in place.
+	session := roundWith(t, review.DispositionAnswered)
+
+	_, err := session.ReRaise(1, "")
+
+	if err != nil {
+		t.Fatalf("expected an answered Comment to be re-raisable, got %v", err)
+	}
+}
+
+func TestTheSameResolutionCannotBeReRaisedTwice(t *testing.T) {
+	session := roundWith(t, review.DispositionDeclined)
+	if _, err := session.ReRaise(1, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := session.ReRaise(1, "")
+
+	assertRejected(t, err, review.RejectedAlreadyReRaised)
+	if len(session.Comments()) != 1 {
+		t.Errorf("a refused re-raise must not add a duplicate, got %d Comments", len(session.Comments()))
+	}
+}
+
+func TestWithdrawingAReRaiseMakesTheResolutionRaisableAgain(t *testing.T) {
+	session := roundWith(t, review.DispositionDeclined)
+	first, err := session.ReRaise(1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := session.WithdrawComment(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	again, err := session.ReRaise(1, "")
+
+	if err != nil {
+		t.Fatalf("withdrawing the re-raise should free the resolution, got %v", err)
+	}
+	if again.ReRaisedFrom != 1 {
+		t.Errorf("the second re-raise should point back too, got %d", again.ReRaisedFrom)
+	}
+}
+
+func TestAReRaiseCarriesTheReviewersFollowUpWhenTheyWroteOne(t *testing.T) {
+	session := roundWith(t, review.DispositionDeclined)
+
+	withFollowUp, err := session.ReRaise(1, "I still think this is wrong, because …")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withFollowUp.Note != "I still think this is wrong, because …" {
+		t.Errorf("expected the Reviewer's own words, got %q", withFollowUp.Note)
+	}
+	if withFollowUp.Anchor.Location() == "" {
+		t.Error("a re-raise still carries the original Anchor, which is what puts it in place")
+	}
+}
+
+func TestAReRaiseWithNoFollowUpKeepsTheOriginalNote(t *testing.T) {
+	session := roundWith(t, review.DispositionDeclined)
+
+	comment, err := session.ReRaise(1, "")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comment.Note != "please fix line 2" {
+		t.Errorf("expected the original note carried over, got %q", comment.Note)
+	}
 }

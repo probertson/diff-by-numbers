@@ -114,8 +114,12 @@ func (c client) reopen() {
 	c.intent("/reopen")
 }
 
-func (c client) reraise(id int) bool {
-	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "text/plain", nil)
+// reraise pushes back on a resolution, carrying whatever the Reviewer wrote in
+// the note editor — the original wording where they left it alone, a follow-up
+// or a counter-argument where they did not.
+func (c client) reraise(id int, note string) bool {
+	body, _ := json.Marshal(map[string]any{"note": note})
+	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
@@ -182,6 +186,7 @@ type model struct {
 	pendingSel       selectedRun   // the selection awaiting a note
 	pendingCode      string        // the code being commented on, shown above the note input
 	editingID        int           // >0 when editing an existing Comment rather than adding
+	reraisingID      int           // >0 when the editor is composing a push-back on that resolution (#80)
 	confirmingDelete bool          // an inline y/n delete confirm is armed (edit screen or List)
 	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
 	commentFilter    commentFilter // when active, the List shows only the Comments on one line
@@ -193,8 +198,12 @@ type model struct {
 	// listReturn is where leaving the Comment list goes: modeReview when it was
 	// opened from a Step, modeConclusion when it was opened from the conclusion
 	// screen. Zero value modeReview, as above.
-	listReturn    mode
-	reraiseCursor int // selected row among declined dispositions
+	listReturn mode
+	// reraiseReturn is where leaving the re-raise picker goes: modeReview when R
+	// was pressed on the Overview, modeConclusion when it was the last chance
+	// before the hand-off. Zero value modeReview, as above.
+	reraiseReturn mode
+	reraiseCursor int // selected row among the resolutions still open to push-back
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -203,9 +212,15 @@ type model struct {
 	// by position, so returning to one finds it as it was. It is forgotten when a
 	// different Walkthrough arrives.
 	leftSteps map[int]leftStep
-	width     int
-	height    int
-	ready     bool
+	// wrapAll turns the Step pane's soft-wrap on for every line rather than the
+	// cursor's alone (#77), so a long removal and the addition replacing it can be
+	// read side by side. Wrapping is purely how the code is drawn, so it belongs
+	// to the TUI, holds for the whole review rather than one Step, and starts off
+	// again on the next launch.
+	wrapAll bool
+	width   int
+	height  int
+	ready   bool
 }
 
 // leftStep is how the Reviewer left a Step: the row the cursor was on and the
@@ -651,11 +666,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openList(modeReview)
 			return m, nil
 		case "R":
-			if len(m.declinedDispositions()) == 0 {
-				m.status = "no declined Comments to re-raise"
+			if len(m.reRaisableDispositions()) == 0 {
+				// Two different nothings: the agent turned nothing down, or the
+				// Reviewer has already pushed back on everything it did.
+				if len(m.disputable()) == 0 {
+					m.status = "no declined or answered Comments to re-raise"
+				} else {
+					m.status = "every declined or answered Comment is already re-raised"
+				}
 				return m, nil
 			}
 			m.reraiseCursor = 0
+			m.reraiseReturn = modeReview
 			m.mode = modeReraise
 			return m, nil
 		case "h", "H":
@@ -674,6 +696,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "down", "j":
 				m.noteBoundary(m.cursor.move(1))
+				return m, nil
+			case "w":
+				// Wrapping is only how the code is drawn, so the toggle holds for the
+				// whole review rather than this Step, and the cursor does not move.
+				m.wrapAll = !m.wrapAll
+				m.status = ""
 				return m, nil
 			case "shift+up":
 				if !interactive {
@@ -817,6 +845,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			m.editingID = 0
+			m.reraisingID = 0
 			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, nil
@@ -830,7 +859,17 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			note := m.note.Value()
 			status := ""
-			if note != "" {
+			switch {
+			// A re-raise sends whatever is in the box, empty included: the Reviewer
+			// picked a resolution to push back on, and clearing the pre-filled text
+			// means "as it stood", not "never mind" — esc is how you take it back.
+			case m.reraisingID > 0:
+				if m.client.reraise(m.reraisingID, note) {
+					status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", m.reraisingID)
+				} else {
+					status = "could not re-raise the Comment"
+				}
+			case note != "":
 				if m.editingID > 0 {
 					if m.client.editComment(m.editingID, note) {
 						status = "Comment updated"
@@ -851,6 +890,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = status
 			m.editingID = 0
+			m.reraisingID = 0
 			m.cursor.sel = -1
 			m.mode = m.noteReturn
 			m.note.Blur()
@@ -923,10 +963,10 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
-	declined := m.declinedDispositions()
+	offered := m.reRaisableDispositions()
 	switch key {
 	case "esc", "q", "R":
-		m.mode = modeReview
+		m.mode = m.reraiseReturn
 		return m, nil
 	case "up", "k":
 		if m.reraiseCursor > 0 {
@@ -934,20 +974,27 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.reraiseCursor < len(declined)-1 {
+		if m.reraiseCursor < len(offered)-1 {
 			m.reraiseCursor++
 		}
 		return m, nil
 	case "enter":
-		if m.reraiseCursor < len(declined) {
-			disposition := declined[m.reraiseCursor]
-			if m.client.reraise(disposition.CommentID) {
-				m.status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", disposition.CommentID)
-			} else {
-				m.status = "could not re-raise the Comment"
-			}
-			m.mode = modeReview
-			return m, m.refresh()
+		if m.reraiseCursor < len(offered) {
+			// The note editor opens over the original wording rather than sending it
+			// straight back: the Reviewer read the agent's reasoning, and a push-back
+			// that answers it lands better than the same sentence repeated (#80).
+			disposition := offered[m.reraiseCursor]
+			m.reraisingID = disposition.CommentID
+			// Back to wherever R was pressed, not to a Step: the Reviewer who pushed
+			// back from the conclusion screen was on their way out, not in.
+			m.noteReturn = m.reraiseReturn
+			m.editingID = 0
+			m.pendingCode = disposition.Anchor
+			m.note.SetValue(disposition.Note)
+			m.note.Focus()
+			m.setNoteHeight()
+			m.mode = modeNote
+			return m, textarea.Blink
 		}
 		return m, nil
 	}
@@ -971,6 +1018,17 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		// The full list, whatever the Reviewer was last filtered to on a Step: from
 		// here they are looking over everything they raised, not one line of it.
 		m.openList(modeConclusion)
+		return m, nil
+	case "R":
+		// This screen carries the count of what is still standing, so R has to work
+		// from here: it is the last chance to push back before the hand-off (#80).
+		if len(m.reRaisableDispositions()) == 0 {
+			m.status = "every declined or answered Comment is already re-raised"
+			return m, nil
+		}
+		m.reraiseCursor = 0
+		m.reraiseReturn = modeConclusion
+		m.mode = modeReraise
 		return m, nil
 	case "h", "H":
 		m.client.intent("/finish")
@@ -1085,11 +1143,54 @@ func (m model) declinedDispositions() []daemon.DispositionWire {
 	}
 	var out []daemon.DispositionWire
 	for _, disposition := range m.view.Dispositions {
-		if disposition.Status == "declined" {
+		if dispositionStatus(disposition) == "declined" {
 			out = append(out, disposition)
 		}
 	}
 	return out
+}
+
+// disputable is the previous round's resolutions the Reviewer can still push
+// back on: the ones the agent declined or only answered. An addressed Comment is
+// left out — the code moved, and there is fresh code to comment on instead.
+func (m model) disputable() []daemon.DispositionWire {
+	if m.view == nil {
+		return nil
+	}
+	var out []daemon.DispositionWire
+	for _, disposition := range m.view.Dispositions {
+		if status := dispositionStatus(disposition); status == "declined" || status == "answered" {
+			out = append(out, disposition)
+		}
+	}
+	return out
+}
+
+// reRaisableDispositions is what the picker offers: the disputable resolutions
+// that do not already have a Comment standing against them this round (#80).
+// Withdrawing that Comment puts its resolution back on the list.
+func (m model) reRaisableDispositions() []daemon.DispositionWire {
+	var out []daemon.DispositionWire
+	for _, disposition := range m.disputable() {
+		if _, ok := m.reRaiseOf(disposition.CommentID); !ok {
+			out = append(out, disposition)
+		}
+	}
+	return out
+}
+
+// reRaiseOf is the Comment standing against a previous round's resolution, if
+// the Reviewer has raised one this round.
+func (m model) reRaiseOf(commentID int) (daemon.CommentWire, bool) {
+	if m.view == nil {
+		return daemon.CommentWire{}, false
+	}
+	for _, comment := range m.view.Comments {
+		if comment.ReRaisedFrom == commentID {
+			return comment, true
+		}
+	}
+	return daemon.CommentWire{}, false
 }
 
 var (
@@ -1147,7 +1248,7 @@ func (m model) View() string {
 		}
 	default:
 		if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo())
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo(), m.wrapAll)
 		} else {
 			body = m.viewport.View()
 		}
@@ -1210,8 +1311,10 @@ func (m model) modeKeys() string {
 	}
 	if m.view.Position == 0 {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
-		if len(m.declinedDispositions()) > 0 {
-			tokens = append(tokens, "R re-raise a decline")
+		// Offered only while something is still open: once every decline and
+		// answer has been pushed back on, R has nothing left to do (#80).
+		if len(m.reRaisableDispositions()) > 0 {
+			tokens = append(tokens, "R re-raise a decline or answer")
 		}
 		return keybar(tokens...)
 	}
@@ -1219,7 +1322,7 @@ func (m model) modeKeys() string {
 		return ""
 	}
 	if m.cursor.sel >= 0 {
-		return keybar("↑/↓ extend", "y copy", "c comment", "<esc> stop selecting")
+		return keybar("↑/↓ extend", "y copy", "c comment", m.wrapToggleKey(), "<esc> stop selecting")
 	}
 	tokens := []string{"↑/↓ move"}
 	line := m.cursor.lines[m.cursor.cursor]
@@ -1236,7 +1339,18 @@ func (m model) modeKeys() string {
 			tokens = append(tokens, "x expand")
 		}
 	}
+	tokens = append(tokens, m.wrapToggleKey())
 	return keybar(tokens...)
+}
+
+// wrapToggleKey names what w will do next, so the label is the outcome rather
+// than the state. It is offered while selecting too, since comparing a long
+// removal with its replacement is exactly when a selection is being made.
+func (m model) wrapToggleKey() string {
+	if m.wrapAll {
+		return "w wrap cursor line only"
+	}
+	return "w wrap all lines"
 }
 
 // deleteConfirmPrompt is the inline y/n guard the edit screen and the List both
@@ -1304,7 +1418,7 @@ const noteMaxHeight = 10
 func (m *model) setNoteHeight() {
 	codeLines := 1 // the "lines %d-%d" placeholder shown when there is no anchor
 	if m.pendingCode != "" {
-		codeLines = lipgloss.Height(wrapTo(m.pendingCode, m.width))
+		codeLines = len(renderAnchorRows(m.pendingCode, m.width))
 	}
 	// The fixed single-line rows around the input: the header and its blank line,
 	// the title and its blank line, the counter, and the keybar — six in all — plus
@@ -1323,7 +1437,7 @@ func (m model) noteView() string {
 	if code == "" {
 		code = dimSt.Render(pluralize(m.pendingSel.rows, "line"))
 	} else {
-		code = wrapTo(code, m.width) // the anchor's "Re: …" header is one long line
+		code = strings.Join(renderAnchorRows(code, m.width), "\n")
 	}
 	title := "New Comment"
 	if m.editingID > 0 {
@@ -1336,55 +1450,110 @@ func (m model) noteView() string {
 	return labelSt.Render(title) + "\n\n" + code + "\n" + m.note.View() + "\n" + counter
 }
 
+// listItemIndent is how far the Comment list and the re-raise picker indent an
+// item's body under its heading. It is both the padding drawn and the width the
+// body loses, so the two cannot drift apart.
+const listItemIndent = 5
+
 func (m model) listView() string {
 	list := m.filteredComments()
 	if len(list) == 0 {
 		return dimSt.Render("No Comments to show.")
 	}
-	var b strings.Builder
 	title := pluralize(len(list), "Comment")
 	if m.commentFilter.active {
 		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "Comment"), m.commentFilter.file, m.commentFilter.line)
 	}
-	b.WriteString(labelSt.Render(title) + "\n\n")
+	items := make([][]string, 0, len(list))
 	for i, comment := range list {
-		cursor := "  "
-		if i == m.commentCursor {
-			cursor = accentSt.Render("▸ ")
-		}
-		where := fmt.Sprintf("Step %d", comment.Step)
-		if comment.Step == 0 {
-			where = "re-raised" // carried over from a previous round, not tied to a current Step
-		}
-		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(comment.Location)))
-		for _, line := range strings.Split(strings.TrimRight(comment.Anchor, "\n"), "\n") {
-			b.WriteString("     " + dimSt.Render(line) + "\n")
-		}
-		for _, line := range strings.Split(wrapTo(comment.Note, m.width-5), "\n") {
-			b.WriteString("     " + line + "\n")
-		}
-		b.WriteString("\n")
+		items = append(items, m.commentItem(i, comment))
 	}
-	return b.String()
+	return m.windowedList(title, items, m.commentCursor)
+}
+
+// commentItem draws one Comment of the list: its heading, as much of its Anchor
+// as the cap allows, its own text, and the blank row that sets it off from the
+// next — the whitespace that was missing when every item ran together (#75).
+func (m model) commentItem(i int, comment daemon.CommentWire) []string {
+	cursor := "  "
+	if i == m.commentCursor {
+		cursor = accentSt.Render("▸ ")
+	}
+	where := fmt.Sprintf("Step %d", comment.Step)
+	if comment.ReRaised() {
+		where = "re-raised"
+	}
+	rows := []string{fmt.Sprintf("%s%s  %s", cursor, where, dimSt.Render(comment.Location))}
+
+	// An item's body is indented under its heading, so it has that much less
+	// width to wrap in.
+	indent := strings.Repeat(" ", listItemIndent)
+	body := m.width - listItemIndent
+	quote, omitted := capAnchorRows(comment.Anchor, listAnchorCap)
+	for _, line := range renderAnchorRows(quote, body) {
+		rows = append(rows, indent+dimSt.Render(line))
+	}
+	if omitted > 0 {
+		rows = append(rows, indent+dimSt.Render(fmt.Sprintf("… %d more lines", omitted)))
+	}
+	for _, line := range strings.Split(wrapTo(comment.Note, body), "\n") {
+		rows = append(rows, indent+line)
+	}
+	return append(rows, "")
 }
 
 func (m model) reraiseView() string {
-	declined := m.declinedDispositions()
-	if len(declined) == 0 {
-		return dimSt.Render("No declined Comments to re-raise.")
+	offered := m.reRaisableDispositions()
+	if len(offered) == 0 {
+		return dimSt.Render("No declined or answered Comments to re-raise.")
 	}
-	var b strings.Builder
-	b.WriteString(labelSt.Render("Re-raise a declined Comment") + "\n\n")
-	for i, disposition := range declined {
-		cursor := "  "
-		if i == m.reraiseCursor {
-			cursor = accentSt.Render("▸ ")
+	items := make([][]string, 0, len(offered))
+	for i, disposition := range offered {
+		items = append(items, m.declinedItem(i, disposition))
+	}
+	return m.windowedList("Re-raise a declined or answered Comment", items, m.reraiseCursor)
+}
+
+// declinedItem draws one resolution of the re-raise picker: what the Reviewer
+// asked and what the agent said back, which is what they weigh before pushing.
+func (m model) declinedItem(i int, disposition daemon.DispositionWire) []string {
+	cursor := "  "
+	if i == m.reraiseCursor {
+		cursor = accentSt.Render("▸ ")
+	}
+	indent := strings.Repeat(" ", listItemIndent)
+	body := m.width - listItemIndent
+	rows := []string{fmt.Sprintf("%s#%d  %s", cursor, disposition.CommentID, dimSt.Render(disposition.Location))}
+	rows = append(rows, indentedField(indent, "you asked: ", disposition.Note, body)...)
+	said := "agent declined: "
+	if dispositionStatus(disposition) == "answered" {
+		said = "agent answered: "
+	}
+	rows = append(rows, indentedField(indent, said, disposition.Response, body)...)
+	return append(rows, "")
+}
+
+// indentedField draws a labelled line of an item's body, wrapped so a long note
+// takes the rows the window thinks it does rather than reflowing in the terminal.
+// On a terminal too narrow to hold the label the dim styling is dropped rather
+// than misapplied: the label has wrapped, so it is no longer a prefix of the row.
+func indentedField(indent, label, text string, width int) []string {
+	var rows []string
+	for i, line := range strings.Split(wrapTo(label+text, width), "\n") {
+		if i == 0 && strings.HasPrefix(line, label) {
+			line = dimSt.Render(label) + line[len(label):]
 		}
-		b.WriteString(fmt.Sprintf("%s#%d  %s\n", cursor, disposition.CommentID, dimSt.Render(disposition.Location)))
-		b.WriteString("     " + dimSt.Render("you asked: ") + disposition.Note + "\n")
-		b.WriteString("     " + dimSt.Render("agent declined: ") + disposition.Response + "\n\n")
+		rows = append(rows, indent+line)
 	}
-	return b.String()
+	return rows
+}
+
+// windowedList is the frame both the Comment list and the re-raise picker sit
+// in: a title that stays put, and the items windowed on the cursor beneath it
+// (#78). The title and the blank row under it are the two the items do not get.
+func (m model) windowedList(title string, items [][]string, cursor int) string {
+	const titleRows = 2
+	return labelSt.Render(title) + "\n\n" + windowItems(items, cursor, m.bodyHeight()-titleRows)
 }
 
 // doneView is the handed-off screen, with three faces the reviewer can be on
@@ -1408,18 +1577,68 @@ func (m model) doneView() string {
 		if summary := m.dispositionSummary(); summary != "" {
 			inner.WriteString(summary + "\n")
 		}
+		// A decline, or an answer that did not settle it, is what the Reviewer may
+		// want to argue with — and nothing on the way in said the argument was
+		// available (#75, widened to answers by #80).
+		if len(m.disputable()) > 0 {
+			inner.WriteString("You can re-raise a decline or an answer with R.\n")
+		}
 		inner.WriteString(accentSt.Render("Press enter to review it."))
 		return revisionBoxStyle.Render(inner.String()) + "\n"
 	default: // doneWaiting
-		seen, flagged := m.stepCounts()
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review handed off") + "\n\n")
-		b.WriteString(fmt.Sprintf("%s seen, %d flagged, %s raised.\n\n",
-			pluralize(seen, "Step"), flagged, pluralize(len(m.view.Comments), "Comment")))
-		b.WriteString(dimSt.Render("Tell your agent you are done; it will collect the Comments and open a Revision Round.") + "\n")
+		b.WriteString(m.stepsSeenLine() + "\n\n")
+		// A bordered call-out rather than the dim line it replaces: the count is
+		// the one thing on this screen the Reviewer must not forget before telling
+		// the agent they are done. The text is wrapped to what the border and
+		// padding leave, so the box stays inside the terminal.
+		inner := m.width - revisionBoxStyle.GetHorizontalFrameSize()
+		b.WriteString(revisionBoxStyle.Render(wrapTo(m.commentsWaitingCallOut(), inner)) + "\n\n")
 		b.WriteString(dimSt.Render("Or press r to resume your review.") + "\n")
 		return b.String()
 	}
+}
+
+// stepsSeenLine reports how much of the Walkthrough the Reviewer got through.
+// Step statuses are exclusive — a flagged Step is one they saw and raised a
+// Comment on — so the two are added rather than printed side by side, which read
+// as a counting bug (#74). With nothing left unseen the total stands alone.
+func (m model) stepsSeenLine() string {
+	seen, flagged := m.stepCounts()
+	viewed := seen + flagged
+	total := m.view.StepCount
+	if viewed >= total {
+		return fmt.Sprintf("%s seen.", pluralize(total, "Step"))
+	}
+	return fmt.Sprintf("%d of %s seen (%d unseen).", viewed, pluralize(total, "Step"), total-viewed)
+}
+
+// commentsWaitingCallOut is the sentence in the handed-off screen's box: how
+// much is waiting for the agent, and what to do about it. "Across N Steps"
+// counts flagged Steps, so re-raised Comments — which belong to no current Step
+// — are named separately; with only those there is no Step span to give.
+func (m model) commentsWaitingCallOut() string {
+	_, flagged := m.stepCounts()
+	raised := len(m.view.Comments)
+	reRaised := 0
+	for _, comment := range m.view.Comments {
+		if comment.ReRaised() {
+			reRaised++
+		}
+	}
+	count := pluralize(raised, "Comment")
+	if reRaised > 0 {
+		count += fmt.Sprintf(" (%d re-raised)", reRaised)
+	}
+	if flagged > 0 {
+		count += " across " + pluralize(flagged, "Step")
+	}
+	verb := "are"
+	if raised == 1 {
+		verb = "is"
+	}
+	return fmt.Sprintf("%s %s waiting for your agent — tell it you're done and it will collect them.", count, verb)
 }
 
 // stepCounts tallies how many Steps the reviewer saw and flagged, for the
@@ -1442,7 +1661,7 @@ func (m model) stepCounts() (seen, flagged int) {
 func (m model) dispositionSummary() string {
 	counts := map[string]int{}
 	for _, disposition := range m.view.Dispositions {
-		counts[disposition.Status]++
+		counts[dispositionStatus(disposition)]++
 	}
 	var parts []string
 	for _, status := range []string{"addressed", "answered", "declined"} {
@@ -1461,21 +1680,33 @@ func (m model) dispositionSummary() string {
 }
 
 // conclusionView is the pre-hand-off on-ramp reached by advancing past the last
-// Step: a light summary and the deliberate hand-off action, with "End of review"
-// carried by the header the way "Overview" is at the other end.
+// Step: the status first, then the actions, with "End of review" carried by the
+// header the way "Overview" is at the other end.
 func (m model) conclusionView() string {
 	var b strings.Builder
 	if m.view != nil {
-		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
-			pluralize(len(m.view.Comments), "Comment"), pluralize(m.view.StepCount, "Step")))
-		// Plain text, not the accent the hand-off line carries: looking over what
-		// you raised is an invitation, handing off is the deliberate act. With
-		// nothing raised there is nothing to look over, so the line goes entirely.
-		if raised := len(m.view.Comments); raised > 0 {
+		// The count carries the accent on a line of its own rather than sitting
+		// mid-sentence: it is the one thing that must register before the hand-off
+		// (#74). With nothing raised the hand-off is simply the end, and the
+		// invitation to look over what you raised goes with the count.
+		raised := len(m.view.Comments)
+		if raised > 0 {
+			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n\n")
+		} else {
+			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
+		}
+		// The status first, then the actions, in the order the conclusion screen's
+		// layout fixes for #65, #74 and #75.
+		if hint := m.declinesHint(); hint != "" {
+			b.WriteString(warnSt.Render(hint) + "\n\n")
+		}
+		if raised > 0 {
 			noun := "Comments"
 			if raised == 1 {
 				noun = "Comment"
 			}
+			// Plain text, not the accent the hand-off line carries: looking over what
+			// you raised is an invitation, handing off is the deliberate act.
 			b.WriteString("Press l to see your " + noun + ".\n\n")
 		}
 	}
@@ -1728,10 +1959,14 @@ const nbsp = "\u00a0"
 // inside each label are made non-breaking so a label like "g Brief" never
 // splits across a wrap.
 func keybar(tokens ...string) string {
+	// Substituted into a slice of its own: the parameter aliases the caller's
+	// slice whenever a token list is spread into it, and a caller that reads its
+	// list back must not find non-breaking spaces in it.
+	labels := make([]string, len(tokens))
 	for i, t := range tokens {
-		tokens[i] = strings.ReplaceAll(t, " ", nbsp)
+		labels[i] = strings.ReplaceAll(t, " ", nbsp)
 	}
-	return strings.Join(tokens, "  ·  ")
+	return strings.Join(labels, "  ·  ")
 }
 
 // jumpHint labels the number-jump with the real Step count, and says how to
@@ -1809,28 +2044,7 @@ func (m model) brief() string {
 	}
 
 	if len(m.view.Dispositions) > 0 {
-		b.WriteString(labelSt.Render("Since the last round") + "\n")
-		for _, disposition := range m.view.Dispositions {
-			var mark string
-			switch disposition.Status {
-			case "declined":
-				mark = warnSt.Render("  ✗ declined")
-			case "answered":
-				mark = accentSt.Render("  ↩ answered")
-			default:
-				mark = addSt.Render("  ✓ addressed")
-			}
-			b.WriteString(mark + dimSt.Render(fmt.Sprintf("  #%d  %s", disposition.CommentID, disposition.Location)) + "\n")
-			b.WriteString("      " + dimSt.Render("you asked: ") + wrap(disposition.Note) + "\n")
-			// Required for answered and declined, optional for addressed.
-			if disposition.Response != "" {
-				b.WriteString("      " + dimSt.Render("agent: ") + wrap(disposition.Response) + "\n")
-			}
-		}
-		if len(m.declinedDispositions()) > 0 {
-			b.WriteString("\n" + dimSt.Render("  press R to re-raise a declined Comment") + "\n")
-		}
-		b.WriteString("\n")
+		b.WriteString(m.sinceTheLastRound(m.viewport.Width))
 	}
 
 	b.WriteString(labelSt.Render("Under review") + "\n")

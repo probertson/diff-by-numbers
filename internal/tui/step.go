@@ -339,16 +339,19 @@ func leadingSpaces(s string) int {
 	return len(s) - len(strings.TrimLeft(s, " "))
 }
 
-// wrapRunes hard-wraps a plain (ANSI-free) string so the line under the cursor
-// can be read in full where a single row would clip it. The first row gets first
-// cells and every continuation gets rest, which is narrower by the hanging
-// indent the caller will prepend. It caps the result at maxRows chunks; when the
-// text overruns that cap the last chunk is truncated with an ellipsis exactly as
-// a single clipped line is, so an enormous line cannot grow the pane without
-// bound. It wraps on runes rather than words: code has no reliable word
-// boundaries, and a full row is easier to read back against the original than a
-// ragged one.
-func wrapRunes(s string, first, rest, maxRows int) []string {
+// wrapCode soft-wraps a plain (ANSI-free) line of code so the line under the
+// cursor can be read in full where a single row would clip it. The first row
+// gets first cells and every continuation gets rest, which is narrower by the
+// hanging indent the caller will prepend. It caps the result at maxRows chunks;
+// when the text overruns that cap the last chunk is truncated with an ellipsis
+// exactly as a single clipped line is, so an enormous line cannot grow the pane
+// without bound.
+//
+// Rows break on spaces only (#73). Code has no other reliable word boundary, and
+// breaking inside an identifier is what made a wrapped line hard to read back
+// against the original. A token with no room anywhere hard-breaks at the row
+// edge rather than leaving a ragged gap first.
+func wrapCode(s string, first, rest, maxRows int) []string {
 	if first < 1 || rest < 1 || maxRows < 1 {
 		return []string{truncateTo(s, first)}
 	}
@@ -363,22 +366,69 @@ func wrapRunes(s string, first, rest, maxRows int) []string {
 			// The last row allowed, with more text than fits: clip the remainder.
 			return append(chunks, truncateTo(string(r), w))
 		}
-		n := w
-		if n > len(r) {
-			n = len(r)
-		}
+		n := runesForRow(r, w, rest)
 		chunks = append(chunks, string(r[:n]))
-		r = r[n:]
 		// A break landing inside a run of spaces — gofmt's end-of-line comment
 		// alignment, say — would otherwise carry that padding onto the next row and
 		// start it at an arbitrary column. Drop it: at a wrap point it is layout,
 		// not content, and keeping it is what made the indent look random.
-		for len(r) > 0 && r[0] == ' ' {
-			r = r[1:]
-		}
+		r = r[skipSpaces(r, n):]
 		w = rest
 	}
 	return chunks
+}
+
+// skipSpaces reports the first index at or after i that is not a space, or the
+// length of r if there is none.
+func skipSpaces(r []rune, i int) int {
+	for i < len(r) && r[i] == ' ' {
+		i++
+	}
+	return i
+}
+
+// runesForRow reports how many runes of r belong on a row width cells wide,
+// given that the row after it is nextWidth cells wide. It prefers the last space
+// that fits, and falls back to the row edge in the two cases where a space would
+// not help: the token the break would push down is too long for the next row
+// anyway and the row edge falls inside it, and the only space available is
+// inside the line's own leading indent.
+func runesForRow(r []rune, width, nextWidth int) int {
+	if len(r) <= width {
+		return len(r)
+	}
+	indent := skipSpaces(r, 0)
+	brk := -1
+	for i := width; i > indent; i-- {
+		if r[i] == ' ' {
+			brk = i
+			break
+		}
+	}
+	if brk < 0 {
+		// Either the row edge is inside a token, or the whole row is the line's own
+		// indent — which the caller's hanging indent keeps narrower than the row.
+		return width
+	}
+	// Step back over the whole run of spaces, so the row does not end in padding.
+	// The run cannot reach the indent, whose next rune is by definition not a space.
+	for brk > 0 && r[brk-1] == ' ' {
+		brk--
+	}
+	// The token that a break here would move down: if it will not fit on the next
+	// row either, filling this one costs nothing and wastes no cells — but only
+	// while the row edge falls inside the token. Where a run of alignment padding
+	// pushes the token past the edge, filling would spend the row on blanks, so
+	// the break stands and the token hard-breaks from the next row instead.
+	start := skipSpaces(r, brk)
+	end := start
+	for end < len(r) && r[end] != ' ' {
+		end++
+	}
+	if end-start > nextWidth && width > start {
+		return width
+	}
+	return brk
 }
 
 // renderStep draws the Step with the cursor and selection, windowed to height
@@ -386,7 +436,7 @@ func wrapRunes(s string, first, rest, maxRows int) []string {
 // overflows the terminal. ackCommentCounts counts the Comments raised in each
 // Acknowledgement's files, so a point made in acknowledged code stays visible
 // when it is collapsed.
-func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo bool) string {
+func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo, wrapAll bool) string {
 	wrap := func(text string) string {
 		if width > 1 {
 			return lipgloss.NewStyle().Width(width).Render(text)
@@ -440,14 +490,26 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	// past the cap its last row ends in an ellipsis. The cursor line is reserved its
 	// full (capped) height and is never clipped by the window: context shrinks to
 	// make room, absorbed into the "more above/below" counts.
-	cursorCap := available / 2
-	if cursorCap < 3 {
-		cursorCap = 3
+	wrapCap := available / 2
+	if wrapCap < 3 {
+		wrapCap = 3
 	}
-	if cursorCap > available {
-		cursorCap = available
+	if wrapCap > available {
+		wrapCap = available
 	}
-	rows := paneRows(step, cur, commented, ackCommentCounts, width, cursorCap, showRepo)
+	if wrapAll {
+		// Every line wraps in full, so nothing is compared against a clipped tail
+		// (#77). The half-pane cap existed to stop one line crowding out the rest;
+		// with every line wrapping, the window is what keeps them in proportion.
+		//
+		// A line is still capped one row past the pane: the cursor moves by source
+		// line, so no line can ever show more rows than the pane has, and the row
+		// past it is what tells the window there is more below. Without a cap a
+		// single generated line would be wrapped and styled in full on every
+		// keystroke, for rows that could never be drawn.
+		wrapCap = available + 1
+	}
+	rows := paneRows(step, cur, commented, ackCommentCounts, width, wrapCap, showRepo, wrapAll)
 
 	curFirst, curLast := -1, -1
 	for ri, row := range rows {
@@ -468,19 +530,30 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	// short terminal shows code rather than arrows and nothing.
 	const indicatorRows = 3
 	overflow := len(rows) > available
-	showIndicators := overflow && available >= cursorHeight+indicatorRows
+	// The cursor line is reserved its full height, so the window never clips it.
+	// Once every line wraps (#77) a single line can be taller than the whole pane;
+	// then it reserves what the pane has, is held to its first row, and the rest is
+	// clipped behind the downward marker.
+	reserved := cursorHeight
+	if reserved > available {
+		reserved = max(1, available-indicatorRows)
+	}
+	showIndicators := overflow && available >= reserved+indicatorRows
 	budget := available
 	if showIndicators {
 		budget -= indicatorRows
 	}
-	if budget < cursorHeight {
-		budget = cursorHeight
+	if budget < reserved {
+		budget = reserved
 	}
 
 	// Centre the window on the cursor, then make room for the headers that give
 	// its top row context — the file it is in and, inside acknowledged code, the
 	// Acknowledgement's claim — since the rows that drew them have scrolled off.
-	start := curFirst - (budget-cursorHeight)/2
+	start := curFirst
+	if budget > cursorHeight {
+		start = curFirst - (budget-cursorHeight)/2
+	}
 	if start < 0 {
 		start = 0
 	}
@@ -505,8 +578,15 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		}
 		start += cut
 		end -= over - cut
-		if end <= curLast {
-			end = curLast + 1
+		// Keep the cursor line in the window: all of it where the rows the headers
+		// left stretch that far, and at least its first row where they do not. The
+		// headers can eat the whole budget on a very short pane, so the floor is
+		// what stops the window inverting.
+		if want := min(curLast+1, start+budget-len(sticky), len(rows)); end < want {
+			end = want
+		}
+		if end <= start {
+			end = min(start+1, len(rows))
 		}
 	}
 	// A scroll indicator already sets the pane off from the explanation, so a
@@ -588,7 +668,7 @@ func countLines(cur stepCursor, rows []paneRow) int {
 // paneRows draws every row of a Step's pane, in order: the Step's own Excerpts,
 // then each Acknowledgement — its stop, and then either its manifest or, expanded,
 // the code it stands in for, drawn exactly as narrated code is.
-func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, cursorCap int, showRepo bool) []paneRow {
+func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, wrapCap int, showRepo, wrapAll bool) []paneRow {
 	var rows []paneRow
 	decor := func(text, fileHeader, ackHeader string) {
 		rows = append(rows, paneRow{text: text, line: -1, blank: text == "", fileHeader: fileHeader, ackHeader: ackHeader})
@@ -648,17 +728,17 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			continue
 		}
 		file := cur.excerptOf(step, line).File
-		for _, text := range codeRows(cur, i, commented[commentKey(file, line.side, line.number)], width, cursorCap) {
+		for _, text := range codeRows(cur, i, commented[commentKey(file, line.side, line.number)], width, wrapCap, wrapAll) {
 			rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 		}
 	}
 	return rows
 }
 
-// codeRows draws one line of code: a single truncated row, or — under the cursor
-// — the line soft-wrapped in place (#26) so its tail is readable without
-// scrolling, capped at cursorCap rows.
-func codeRows(cur stepCursor, i int, hasComment bool, width, cursorCap int) []string {
+// codeRows draws one line of code: a single truncated row, or — under the cursor,
+// or on every line once wrapAll is on (#77) — the line soft-wrapped in place
+// (#26) so its tail is readable without scrolling, capped at wrapCap rows.
+func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAll bool) []string {
 	line := cur.lines[i]
 	sign := " "
 	if line.changed {
@@ -676,7 +756,7 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, cursorCap int) []st
 	isCursor := i == cur.cursor
 
 	rows := []string{truncateTo(gutter+text, width-2)} // leave room for the caret
-	if isCursor {
+	if isCursor || wrapAll {
 		// Continuation rows carry a blank gutter — the missing line number is itself
 		// the continuation signal — plus a hanging indent, so they sit under the
 		// line's own first character and a wrapped statement reads as one indented
@@ -689,7 +769,7 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, cursorCap int) []st
 		}
 		restWidth := textWidth - hang
 		if textWidth >= 1 && restWidth >= 1 {
-			chunks := wrapRunes(text, textWidth, restWidth, cursorCap)
+			chunks := wrapCode(text, textWidth, restWidth, wrapCap)
 			if len(chunks) > 1 {
 				indent := strings.Repeat(" ", lipgloss.Width(gutter)+hang)
 				rows = []string{gutter + chunks[0]}

@@ -60,7 +60,7 @@ func TestAnAcknowledgementOnlyStepStartsOnItsStop(t *testing.T) {
 	step.Excerpts = nil
 
 	cur := newStepCursor(step, nil)
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
 
 	if len(cur.lines) != 1 || cur.lines[0].kind != kindStop {
 		t.Fatalf("expected a single stop to rest on, got %+v", cur.lines)
@@ -78,7 +78,7 @@ func TestAnExpandedAcknowledgementRendersInlineAsRealCode(t *testing.T) {
 	step := ackStep()
 	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: ackExpansion()})
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
 
 	for _, want := range []string{"narrated", "Acknowledged", "── gen.go", "old generated", "new generated", "── logo.png", "binary file"} {
 		if !strings.Contains(out, want) {
@@ -155,7 +155,7 @@ func TestTheAcknowledgementHeaderStaysOnScreenInsideItsCode(t *testing.T) {
 	cur.cursor = len(cur.lines) - 1
 	const height = 20
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, height, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, height, false, false)
 
 	if got := lipgloss.Height(out); got > height {
 		t.Errorf("the pane is %d rows, over the %d given", got, height)
@@ -178,7 +178,7 @@ func TestACollapsedAcknowledgementCountsItsComments(t *testing.T) {
 	step := ackStep()
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, []int{1}, 80, 40, false)
+	out := renderStep(step, cur, map[string]bool{}, []int{1}, 80, 40, false, false)
 
 	if !strings.Contains(lineWith(t, out, "Acknowledged"), "1 Comment") {
 		t.Errorf("expected the stop to count its Comment:\n%s", out)
