@@ -123,7 +123,16 @@ type model struct {
 	confirmingDelete bool          // an inline y/n delete confirm is armed (edit screen or List)
 	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
 	commentFilter    commentFilter // when active, the List shows only the Comments on one line
-	reraiseCursor    int           // selected row among declined dispositions
+	// noteReturn is where leaving the edit screen goes: modeReview when it was
+	// opened on a Step, modeList when it was opened from the List. Its zero value
+	// is modeReview, which is where every exit went before the List could be an
+	// origin.
+	noteReturn mode
+	// listReturn is where leaving the Comment list goes: modeReview when it was
+	// opened from a Step, modeConclusion when it was opened from the conclusion
+	// screen. Zero value modeReview, as above.
+	listReturn    mode
+	reraiseCursor int // selected row among declined dispositions
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -564,9 +573,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.refresh()
 			}
 		case "l", "L":
-			m.commentFilter = commentFilter{}
-			m.mode = modeList
-			m.commentCursor = 0
+			m.openList(modeReview)
 			return m, nil
 		case "R":
 			if len(m.declinedDispositions()) == 0 {
@@ -649,6 +656,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 0:
 					m.status = "no Comment on this line to edit"
 				case 1:
+					m.noteReturn = modeReview
 					m.editingID = here[0].ID
 					m.pendingCode = here[0].Anchor
 					m.note.SetValue(here[0].Note)
@@ -658,9 +666,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textarea.Blink
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
+					m.openList(modeReview)
 					m.commentFilter = commentFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
-					m.commentCursor = 0
-					m.mode = modeList
 				}
 				return m, nil
 			case "c":
@@ -678,6 +685,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.editingID = 0 // c always adds a fresh comment, never edits
+				m.noteReturn = modeReview
 				m.mode = modeNote
 				m.note.SetValue("")
 				m.note.Focus()
@@ -713,10 +721,18 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 				id := m.editingID
 				m.confirmingDelete = false
 				m.editingID = 0
-				m.mode = modeReview // matches esc — origin (Step or List) is not tracked
+				m.mode = m.noteReturn // matches esc: back to wherever the edit began
 				m.note.Blur()
 				m.client.withdraw(id)
-				m.status = "Comment deleted"
+				if m.noteReturn == modeList {
+					// The List has no status row, so a message set here would go
+					// unseen and then surface on the next Step. The List is also one
+					// entry shorter now, which can leave the cursor past its end.
+					m.status = ""
+					m.clampCommentCursor(len(m.filteredComments()) - 1)
+				} else {
+					m.status = "Comment deleted"
+				}
 				return m, m.refresh()
 			case confirmCancel:
 				m.confirmingDelete = false // cancel back into editing, note intact
@@ -726,7 +742,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			m.editingID = 0
-			m.mode = modeReview
+			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, nil
 		case "ctrl+d":
@@ -738,22 +754,30 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			note := m.note.Value()
+			status := ""
 			if note != "" {
 				if m.editingID > 0 {
 					if m.client.editComment(m.editingID, note) {
-						m.status = "Comment updated"
+						status = "Comment updated"
 					} else {
-						m.status = "could not update the Comment"
+						status = "could not update the Comment"
 					}
 				} else if m.client.raiseComment(m.pendingSel, note) {
-					m.status = "Comment added"
+					status = "Comment added"
 				} else {
-					m.status = "could not add the Comment"
+					status = "could not add the Comment"
 				}
 			}
+			if m.noteReturn == modeList {
+				// The List has no status row, so the message would go unseen and
+				// then surface on the next Step. Clearing rather than skipping the
+				// assignment also takes down anything left over from before.
+				status = ""
+			}
+			m.status = status
 			m.editingID = 0
 			m.cursor.sel = -1
-			m.mode = modeReview
+			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, m.refresh()
 		case "ctrl+j", "alt+enter", "shift+enter":
@@ -789,7 +813,7 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "L", "q":
 		m.commentFilter = commentFilter{}
-		m.mode = modeReview
+		m.mode = m.listReturn
 		return m, nil
 	case "up", "k":
 		if m.commentCursor > 0 {
@@ -809,6 +833,7 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	case "e", "enter":
 		if m.commentCursor < len(list) {
 			comment := list[m.commentCursor]
+			m.noteReturn = modeList
 			m.editingID = comment.ID
 			m.pendingCode = comment.Anchor
 			m.note.SetValue(comment.Note)
@@ -867,6 +892,11 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		m.client.intent("/goto/0")
 		m.mode = modeReview
 		return m, m.refresh()
+	case "l", "L":
+		// The full list, whatever the Reviewer was last filtered to on a Step: from
+		// here they are looking over everything they raised, not one line of it.
+		m.openList(modeConclusion)
+		return m, nil
 	case "h", "H":
 		m.client.intent("/finish")
 		m.mode = modeDone
@@ -877,6 +907,18 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		return m.quit()
 	}
 	return m, nil
+}
+
+// openList shows the Comment list unfiltered and from the top, remembering the
+// screen to return to when it closes.
+func (m *model) openList(from mode) {
+	// The list has no status row, so a message still standing from a Step would
+	// go unread here and be waiting again on the way back.
+	m.status = ""
+	m.commentFilter = commentFilter{}
+	m.commentCursor = 0
+	m.listReturn = from
+	m.mode = modeList
 }
 
 // quit is q's shared behaviour in both modeReview and modeConclusion: arm the
@@ -1017,7 +1059,7 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeConclusion:
 		body = m.conclusionView()
-		persistent = keybar("← back", "g Overview", "q exit")
+		persistent = keybar("← back", "g Overview", "l list", "h hand off", "q exit")
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
@@ -1351,6 +1393,16 @@ func (m model) conclusionView() string {
 	if m.view != nil {
 		b.WriteString(fmt.Sprintf("You raised %s across %s.\n\n",
 			pluralize(len(m.view.Comments), "Comment"), pluralize(m.view.StepCount, "Step")))
+		// Plain text, not the accent the hand-off line carries: looking over what
+		// you raised is an invitation, handing off is the deliberate act. With
+		// nothing raised there is nothing to look over, so the line goes entirely.
+		if raised := len(m.view.Comments); raised > 0 {
+			noun := "Comments"
+			if raised == 1 {
+				noun = "Comment"
+			}
+			b.WriteString("Press l to see your " + noun + ".\n\n")
+		}
 	}
 	b.WriteString(accentSt.Render("Press h to hand off to your agent.") + "\n")
 	return b.String()
@@ -1387,6 +1439,18 @@ func (m model) filteredComments() []daemon.CommentWire {
 		}
 	}
 	return out
+}
+
+// clampCommentCursor pulls the List's cursor back onto a real entry after the
+// List has lost one, given the number of entries it will have once the refresh
+// lands. An emptied List leaves the cursor at 0, where its empty state shows.
+func (m *model) clampCommentCursor(length int) {
+	if m.commentCursor >= length {
+		m.commentCursor = length - 1
+	}
+	if m.commentCursor < 0 {
+		m.commentCursor = 0
+	}
 }
 
 // commentsAtCursor returns every Comment anchored over the cursor's line.
@@ -1537,13 +1601,43 @@ func (m model) headerLine() string {
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
-	case m.mode == modeConclusion:
+	case m.mode == modeDone:
+		return headerSt.Render("dbn — "+m.doneHeading()) + dimSt.Render(m.coverageSuffix())
+	case m.pastTheLastStep():
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
 		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) + dimSt.Render(m.coverageSuffix())
 	}
+}
+
+// pastTheLastStep reports whether the Reviewer is on the conclusion screen or on
+// a screen they reached from it. The daemon never leaves the last Step while the
+// conclusion screen shows, so the Step position alone would have the header
+// announce a Step the Reviewer is not on — the Comment list opened from here
+// would read "Step 7 of 7" while showing the Comments of the whole review.
+func (m model) pastTheLastStep() bool {
+	switch m.mode {
+	case modeConclusion:
+		return true
+	case modeList:
+		return m.listReturn == modeConclusion
+	case modeNote:
+		return m.noteReturn == modeList && m.listReturn == modeConclusion
+	}
+	return false
+}
+
+// doneHeading names the handed-off screen in the header, which otherwise falls
+// through to the Step the daemon is still parked on. The round is over either
+// way, but a Revision Round waiting is the start of the next one, so calling
+// that the end of anything would be wrong.
+func (m model) doneHeading() string {
+	if m.doneState() == doneRevision {
+		return "Revision Round"
+	}
+	return "End of review"
 }
 
 func (m model) coverageSuffix() string {

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -801,5 +803,401 @@ func TestListViewWrapsLongNotes(t *testing.T) {
 
 	if over := widestLine(out); over > width {
 		t.Errorf("a Comment note is %d cells wide, over the %d list — it did not wrap:\n%s", over, width, out)
+	}
+}
+
+// CL-1: the edit screen returns to wherever it was opened from.
+
+// acceptingServer answers every request with 200, so a save in the editor
+// reports success and sets the status message the Step path is meant to keep.
+func acceptingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// listEditModel is the editor as the List opens it: an existing Comment loaded,
+// with the List recorded as where to go back to.
+func listEditModel(t *testing.T, comments ...daemon.CommentWire) model {
+	t.Helper()
+	m := model{
+		client:     client{base: acceptingServer(t).URL},
+		mode:       modeNote,
+		noteReturn: modeList,
+		editingID:  comments[0].ID,
+		note:       newNote(80),
+		view:       &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1, Comments: comments},
+	}
+	m.note.SetValue(comments[0].Note)
+	return m
+}
+
+func TestSavingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+	m.note.SetValue("edited")
+
+	saved, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Error("saving an edit opened from the List should return to the List, not the Step")
+	}
+	if sm.status != "" {
+		t.Errorf("the List shows no status row, so the List path must set none, got %q", sm.status)
+	}
+}
+
+func TestCancellingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+
+	cancelled, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if cancelled.(model).mode != modeList {
+		t.Error("cancelling an edit opened from the List should return to the List, not the Step")
+	}
+}
+
+func TestDeletingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+	m.confirmingDelete = true
+
+	deleted, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	dm := deleted.(model)
+
+	if dm.mode != modeList {
+		t.Error("deleting an edit opened from the List should return to the List, not the Step")
+	}
+	if dm.status != "" {
+		t.Errorf("the List shows no status row, so the List path must set none, got %q", dm.status)
+	}
+}
+
+func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *testing.T) {
+	filter := commentFilter{active: true, file: "a.go", side: "after", line: 12}
+	m := model{
+		client:        client{base: acceptingServer(t).URL},
+		mode:          modeList,
+		commentFilter: filter,
+		note:          newNote(80),
+		view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1, Comments: []daemon.CommentWire{{
+			ID: 3, Step: 1, Note: "n", Anchor: "code", Location: "a.go:12",
+			File:     "a.go",
+			Segments: []daemon.SegmentWire{{Side: "after", FirstLine: 12, LastLine: 12}},
+		}}},
+	}
+
+	editing, _ := m.updateList("e")
+	saved, _ := editing.(model).updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Fatal("saving should return to the List")
+	}
+	if sm.commentFilter != filter {
+		t.Errorf("the filtered List should still be filtered to the same line, got %+v", sm.commentFilter)
+	}
+}
+
+func TestAnEditOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
+	base := func() model {
+		m := model{
+			client:    client{base: acceptingServer(t).URL},
+			mode:      modeNote,
+			editingID: 7,
+			note:      newNote(80),
+			view:      &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1},
+		}
+		m.note.SetValue("n")
+		return m
+	}
+
+	saved, _ := base().updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	if sm := saved.(model); sm.mode != modeReview {
+		t.Error("saving an edit opened from a Step should still return to the Step")
+	} else if sm.status != "Comment updated" {
+		t.Errorf("the Step path keeps its status message, got %q", sm.status)
+	}
+
+	cancelled, _ := base().updateNote(tea.KeyMsg{Type: tea.KeyEsc})
+	if cancelled.(model).mode != modeReview {
+		t.Error("cancelling an edit opened from a Step should still return to the Step")
+	}
+
+	armed := base()
+	armed.confirmingDelete = true
+	deleted, _ := armed.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if dm := deleted.(model); dm.mode != modeReview {
+		t.Error("deleting an edit opened from a Step should still return to the Step")
+	} else if dm.status != "Comment deleted" {
+		t.Errorf("the Step path keeps its status message, got %q", dm.status)
+	}
+}
+
+func TestDeletingAnEditOpenedFromTheListClampsTheListCursor(t *testing.T) {
+	m := listEditModel(t,
+		daemon.CommentWire{ID: 1, Step: 1, Note: "one"},
+		daemon.CommentWire{ID: 2, Step: 1, Note: "two"},
+		daemon.CommentWire{ID: 3, Step: 1, Note: "three"},
+	)
+	m.editingID = 3
+	m.commentCursor = 2
+	m.confirmingDelete = true
+
+	deleted, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	if got := deleted.(model).commentCursor; got != 1 {
+		t.Errorf("deleting the last entry should leave the cursor on the new last entry, got %d", got)
+	}
+}
+
+// CL-2: the Comment list opens from the conclusion screen and returns to it.
+
+// concludingModel is a review sitting on the conclusion screen, rendered wide
+// enough that the footer does not wrap.
+func concludingModel(comments ...daemon.CommentWire) model {
+	return model{
+		mode: modeConclusion,
+		view: &daemon.ViewWire{
+			Posted: true, Position: 2, StepCount: 2,
+			Comments: comments,
+		},
+		width: 100, height: 30, ready: true,
+	}
+}
+
+func TestListOpensFromTheConclusionScreenUnfiltered(t *testing.T) {
+	for _, key := range []string{"l", "L"} {
+		m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+		m.commentFilter = commentFilter{active: true, file: "a.go", side: "after", line: 12}
+		m.commentCursor = 4
+
+		opened, _ := m.updateConclusion(key)
+		om := opened.(model)
+
+		if om.mode != modeList {
+			t.Errorf("%q on the conclusion screen should open the Comment list", key)
+		}
+		if om.commentFilter.active {
+			t.Errorf("%q should open the full list, not a filtered one", key)
+		}
+		if om.commentCursor != 0 {
+			t.Errorf("%q should open the list at the first entry, got %d", key, om.commentCursor)
+		}
+	}
+}
+
+func TestListOpensFromTheConclusionScreenWithNoComments(t *testing.T) {
+	m := concludingModel()
+
+	opened, _ := m.updateConclusion("l")
+	om := opened.(model)
+
+	if om.mode != modeList {
+		t.Fatal("l should open the list even with no Comments to show")
+	}
+	if !strings.Contains(om.View(), "No Comments to show.") {
+		t.Errorf("the empty list should show its empty state, got:\n%s", om.View())
+	}
+}
+
+func TestLeavingAListOpenedFromTheConclusionScreenReturnsToIt(t *testing.T) {
+	for _, key := range []string{"esc", "L", "q"} {
+		m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+		opened, _ := m.updateConclusion("l")
+
+		left, _ := opened.(model).updateList(key)
+		lm := left.(model)
+
+		if lm.mode != modeConclusion {
+			t.Errorf("%q should leave the list back to the conclusion screen, not a Step", key)
+		}
+		if lm.confirmingQuit {
+			t.Errorf("%q in the list closes the list, so it should not arm the quit heads-up", key)
+		}
+	}
+}
+
+func TestLeavingAListOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
+	m := model{
+		mode: modeList,
+		view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2, Comments: []daemon.CommentWire{{ID: 1, Step: 1, Note: "n"}}},
+	}
+
+	left, _ := m.updateList("esc")
+
+	if left.(model).mode != modeReview {
+		t.Error("a list opened from a Step should still leave to the Step")
+	}
+}
+
+func TestEditingFromTheConclusionScreensListReturnsToTheListThenTheConclusionScreen(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n", Anchor: "code"})
+	m.client = client{base: acceptingServer(t).URL}
+	m.note = newNote(80)
+
+	opened, _ := m.updateConclusion("l")
+	editing, _ := opened.(model).updateList("e")
+	saved, _ := editing.(model).updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Fatal("saving should return to the conclusion screen's list")
+	}
+
+	left, _ := sm.updateList("esc")
+
+	if left.(model).mode != modeConclusion {
+		t.Error("leaving that list should return to the conclusion screen, never a Step")
+	}
+}
+
+func TestConclusionFooterOffersTheListAndHandOff(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
+
+	out := m.View()
+
+	want := keybar("← back", "g Overview", "l list", "h hand off", "q exit")
+	if !strings.Contains(out, want) {
+		t.Errorf("expected the conclusion footer %q, got:\n%s", want, out)
+	}
+}
+
+// CL-3: the conclusion screen invites the Reviewer to look over what they raised.
+
+func TestConclusionViewPromptsForTheListBetweenTheSummaryAndTheHandOff(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}, {ID: 2}},
+	}}
+
+	out := m.conclusionView()
+
+	prompt := strings.Index(out, "Press l to see your Comments.")
+	if prompt < 0 {
+		t.Fatalf("expected the plural prompt, got:\n%s", out)
+	}
+	if summary := strings.Index(out, "You raised"); prompt < summary {
+		t.Errorf("the prompt belongs below the summary, got:\n%s", out)
+	}
+	if handOff := strings.Index(out, "Press h to hand off"); prompt > handOff {
+		t.Errorf("the prompt belongs above the hand-off line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "\n\nPress l to see your Comments.\n\n") {
+		t.Errorf("the prompt should have a blank line above and below it, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewPromptsInTheSingularForOneComment(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}},
+	}}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "Press l to see your Comment.") {
+		t.Errorf("one Comment should read in the singular, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewOmitsThePromptWithNoComments(t *testing.T) {
+	m := model{view: &daemon.ViewWire{StepCount: 3}}
+
+	out := m.conclusionView()
+
+	if strings.Contains(out, "Press l") {
+		t.Errorf("with nothing raised there is nothing to look over, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Press h to hand off") {
+		t.Errorf("the hand-off line stays whatever the count, got:\n%s", out)
+	}
+}
+
+func TestConclusionViewDropsThePromptWhenTheLastCommentIsWithdrawn(t *testing.T) {
+	m := model{view: &daemon.ViewWire{
+		StepCount: 3,
+		Comments:  []daemon.CommentWire{{ID: 1}},
+	}}
+	if !strings.Contains(m.conclusionView(), "Press l") {
+		t.Fatal("expected the prompt while a Comment stands")
+	}
+
+	// The refreshed view the daemon sends back after the withdrawal.
+	m.view = &daemon.ViewWire{StepCount: 3}
+
+	if strings.Contains(m.conclusionView(), "Press l") {
+		t.Errorf("withdrawing the last Comment should take the prompt with it, got:\n%s", m.conclusionView())
+	}
+}
+
+func TestTheHeaderStaysEndOfReviewOnScreensOpenedFromTheConclusionScreen(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n", Anchor: "code"})
+	m.note = newNote(80)
+
+	opened, _ := m.updateConclusion("l")
+	om := opened.(model)
+
+	if !strings.Contains(om.headerLine(), "End of review") {
+		t.Errorf("the list opened from the conclusion screen is not a Step, got:\n%s", om.headerLine())
+	}
+
+	editing, _ := om.updateList("e")
+
+	if got := editing.(model).headerLine(); !strings.Contains(got, "End of review") {
+		t.Errorf("editing from that list is not a Step either, got:\n%s", got)
+	}
+}
+
+func TestTheHeaderStillNamesTheStepForAListOpenedFromOne(t *testing.T) {
+	m := model{
+		view:  &daemon.ViewWire{Posted: true, Position: 2, StepCount: 7, Comments: []daemon.CommentWire{{ID: 1, Step: 2, Note: "n"}}},
+		width: 100, height: 30, ready: true,
+	}
+	m.openList(modeReview)
+
+	if !strings.Contains(m.headerLine(), "Step 2 of 7") {
+		t.Errorf("a list opened from a Step belongs to that Step, got:\n%s", m.headerLine())
+	}
+}
+
+// Folded into the epic at the final pause: two screens that still named a Step.
+
+func TestTheHeaderDoesNotNameAStepOnTheHandedOffScreen(t *testing.T) {
+	cases := []struct {
+		name string
+		view *daemon.ViewWire
+		want string
+	}{
+		{"handed off, waiting", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7, Finished: true}, "End of review"},
+		{"complete", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7, Finished: true, Concluded: true}, "End of review"},
+		{"revision round ready", &daemon.ViewWire{Posted: true, Position: 7, StepCount: 7}, "Revision Round"},
+	}
+
+	for _, c := range cases {
+		m := model{mode: modeDone, view: c.view, width: 100, height: 30, ready: true}
+
+		got := m.headerLine()
+
+		if strings.Contains(got, "Step 7 of 7") {
+			t.Errorf("%s: the handed-off screen is not a Step, got:\n%s", c.name, got)
+		}
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: expected %q in the header, got:\n%s", c.name, c.want, got)
+		}
+	}
+}
+
+func TestOpeningTheCommentListClearsTheStatusMessage(t *testing.T) {
+	m := model{
+		mode:   modeReview,
+		status: "Comment updated",
+		view:   &daemon.ViewWire{Posted: true, Position: 1, StepCount: 2},
+	}
+
+	m.openList(modeReview)
+
+	if m.status != "" {
+		t.Errorf("the list has no status row, so a message must not survive the round trip, got %q", m.status)
 	}
 }
