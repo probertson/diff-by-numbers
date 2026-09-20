@@ -1369,34 +1369,46 @@ func (m model) listView() string {
 	if len(list) == 0 {
 		return dimSt.Render("No Comments to show.")
 	}
-	var b strings.Builder
 	title := pluralize(len(list), "Comment")
 	if m.commentFilter.active {
 		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "Comment"), m.commentFilter.file, m.commentFilter.line)
 	}
-	b.WriteString(labelSt.Render(title) + "\n\n")
+	items := make([][]string, 0, len(list))
 	for i, comment := range list {
-		cursor := "  "
-		if i == m.commentCursor {
-			cursor = accentSt.Render("▸ ")
-		}
-		where := fmt.Sprintf("Step %d", comment.Step)
-		if comment.ReRaised() {
-			where = "re-raised"
-		}
-		b.WriteString(fmt.Sprintf("%s%s  %s\n", cursor, where, dimSt.Render(comment.Location)))
-		// An item's body is indented under its heading, so it has that much less
-		// width to wrap in.
-		indent := strings.Repeat(" ", listItemIndent)
-		for _, line := range renderAnchorRows(comment.Anchor, m.width-listItemIndent) {
-			b.WriteString(indent + dimSt.Render(line) + "\n")
-		}
-		for _, line := range strings.Split(wrapTo(comment.Note, m.width-listItemIndent), "\n") {
-			b.WriteString(indent + line + "\n")
-		}
-		b.WriteString("\n")
+		items = append(items, m.commentItem(i, comment))
 	}
-	return b.String()
+	return m.windowedList(title, items, m.commentCursor)
+}
+
+// commentItem draws one Comment of the list: its heading, as much of its Anchor
+// as the cap allows, its own text, and the blank row that sets it off from the
+// next — the whitespace that was missing when every item ran together (#75).
+func (m model) commentItem(i int, comment daemon.CommentWire) []string {
+	cursor := "  "
+	if i == m.commentCursor {
+		cursor = accentSt.Render("▸ ")
+	}
+	where := fmt.Sprintf("Step %d", comment.Step)
+	if comment.ReRaised() {
+		where = "re-raised"
+	}
+	rows := []string{fmt.Sprintf("%s%s  %s", cursor, where, dimSt.Render(comment.Location))}
+
+	// An item's body is indented under its heading, so it has that much less
+	// width to wrap in.
+	indent := strings.Repeat(" ", listItemIndent)
+	body := m.width - listItemIndent
+	quote, omitted := capAnchorRows(comment.Anchor, listAnchorCap)
+	for _, line := range renderAnchorRows(quote, body) {
+		rows = append(rows, indent+dimSt.Render(line))
+	}
+	if omitted > 0 {
+		rows = append(rows, indent+dimSt.Render(fmt.Sprintf("… %d more lines", omitted)))
+	}
+	for _, line := range strings.Split(wrapTo(comment.Note, body), "\n") {
+		rows = append(rows, indent+line)
+	}
+	return append(rows, "")
 }
 
 func (m model) reraiseView() string {
@@ -1404,18 +1416,49 @@ func (m model) reraiseView() string {
 	if len(declined) == 0 {
 		return dimSt.Render("No declined Comments to re-raise.")
 	}
-	var b strings.Builder
-	b.WriteString(labelSt.Render("Re-raise a declined Comment") + "\n\n")
+	items := make([][]string, 0, len(declined))
 	for i, disposition := range declined {
-		cursor := "  "
-		if i == m.reraiseCursor {
-			cursor = accentSt.Render("▸ ")
-		}
-		b.WriteString(fmt.Sprintf("%s#%d  %s\n", cursor, disposition.CommentID, dimSt.Render(disposition.Location)))
-		b.WriteString("     " + dimSt.Render("you asked: ") + disposition.Note + "\n")
-		b.WriteString("     " + dimSt.Render("agent declined: ") + disposition.Response + "\n\n")
+		items = append(items, m.declinedItem(i, disposition))
 	}
-	return b.String()
+	return m.windowedList("Re-raise a declined Comment", items, m.reraiseCursor)
+}
+
+// declinedItem draws one decline of the re-raise picker: what the Reviewer asked
+// and what the agent said back, which is what they weigh before pushing.
+func (m model) declinedItem(i int, disposition daemon.DispositionWire) []string {
+	cursor := "  "
+	if i == m.reraiseCursor {
+		cursor = accentSt.Render("▸ ")
+	}
+	indent := strings.Repeat(" ", listItemIndent)
+	body := m.width - listItemIndent
+	rows := []string{fmt.Sprintf("%s#%d  %s", cursor, disposition.CommentID, dimSt.Render(disposition.Location))}
+	rows = append(rows, indentedField(indent, "you asked: ", disposition.Note, body)...)
+	rows = append(rows, indentedField(indent, "agent declined: ", disposition.Response, body)...)
+	return append(rows, "")
+}
+
+// indentedField draws a labelled line of an item's body, wrapped so a long note
+// takes the rows the window thinks it does rather than reflowing in the terminal.
+// On a terminal too narrow to hold the label the dim styling is dropped rather
+// than misapplied: the label has wrapped, so it is no longer a prefix of the row.
+func indentedField(indent, label, text string, width int) []string {
+	var rows []string
+	for i, line := range strings.Split(wrapTo(label+text, width), "\n") {
+		if i == 0 && strings.HasPrefix(line, label) {
+			line = dimSt.Render(label) + line[len(label):]
+		}
+		rows = append(rows, indent+line)
+	}
+	return rows
+}
+
+// windowedList is the frame both the Comment list and the re-raise picker sit
+// in: a title that stays put, and the items windowed on the cursor beneath it
+// (#78). The title and the blank row under it are the two the items do not get.
+func (m model) windowedList(title string, items [][]string, cursor int) string {
+	const titleRows = 2
+	return labelSt.Render(title) + "\n\n" + windowItems(items, cursor, m.bodyHeight()-titleRows)
 }
 
 // doneView is the handed-off screen, with three faces the reviewer can be on

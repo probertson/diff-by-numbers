@@ -927,7 +927,7 @@ func TestListViewWrapsLongNotes(t *testing.T) {
 	// A long Comment note used to print raw, running off the right edge.
 	const width = 50
 	m := model{
-		width: width,
+		width: width, height: 40, // tall enough that the window shows the whole item
 		view: &daemon.ViewWire{
 			Comments: []daemon.CommentWire{{
 				ID: 1, Step: 1, Location: "a.go:1-2 (new)", Anchor: "+ 1 | x",

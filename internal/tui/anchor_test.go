@@ -170,8 +170,8 @@ func TestTheCommentModalAndTheListDrawAnAnchorTheSameWay(t *testing.T) {
 	modal := model{width: width, note: newNote(width), pendingCode: anchor}
 	// The list indents each anchor row five cells, so it has five fewer to wrap in.
 	list := model{
-		width: width + 5,
-		view:  &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 1, Step: 1, Anchor: anchor, Note: "n"}}},
+		width: width + listItemIndent, height: 40,
+		view: &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 1, Step: 1, Anchor: anchor, Note: "n"}}},
 	}
 
 	modalOut, listOut := modal.noteView(), list.listView()
