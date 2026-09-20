@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -801,5 +803,150 @@ func TestListViewWrapsLongNotes(t *testing.T) {
 
 	if over := widestLine(out); over > width {
 		t.Errorf("a Comment note is %d cells wide, over the %d list — it did not wrap:\n%s", over, width, out)
+	}
+}
+
+// CL-1: the edit screen returns to wherever it was opened from.
+
+// acceptingServer answers every request with 200, so a save in the editor
+// reports success and sets the status message the Step path is meant to keep.
+func acceptingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// listEditModel is the editor as the List opens it: an existing Comment loaded,
+// with the List recorded as where to go back to.
+func listEditModel(t *testing.T, comments ...daemon.CommentWire) model {
+	t.Helper()
+	m := model{
+		client:     client{base: acceptingServer(t).URL},
+		mode:       modeNote,
+		noteReturn: modeList,
+		editingID:  comments[0].ID,
+		note:       newNote(80),
+		view:       &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1, Comments: comments},
+	}
+	m.note.SetValue(comments[0].Note)
+	return m
+}
+
+func TestSavingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+	m.note.SetValue("edited")
+
+	saved, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Error("saving an edit opened from the List should return to the List, not the Step")
+	}
+	if sm.status != "" {
+		t.Errorf("the List shows no status row, so the List path must set none, got %q", sm.status)
+	}
+}
+
+func TestCancellingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+
+	cancelled, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if cancelled.(model).mode != modeList {
+		t.Error("cancelling an edit opened from the List should return to the List, not the Step")
+	}
+}
+
+func TestDeletingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
+	m := listEditModel(t, daemon.CommentWire{ID: 3, Step: 1, Note: "n"})
+	m.confirmingDelete = true
+
+	deleted, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	dm := deleted.(model)
+
+	if dm.mode != modeList {
+		t.Error("deleting an edit opened from the List should return to the List, not the Step")
+	}
+	if dm.status != "" {
+		t.Errorf("the List shows no status row, so the List path must set none, got %q", dm.status)
+	}
+}
+
+func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *testing.T) {
+	filter := commentFilter{active: true, file: "a.go", side: "after", line: 12}
+	m := model{
+		client:        client{base: acceptingServer(t).URL},
+		mode:          modeList,
+		commentFilter: filter,
+		note:          newNote(80),
+		view: &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1, Comments: []daemon.CommentWire{{
+			ID: 3, Step: 1, Note: "n", Anchor: "code", Location: "a.go:12",
+			File:     "a.go",
+			Segments: []daemon.SegmentWire{{Side: "after", FirstLine: 12, LastLine: 12}},
+		}}},
+	}
+
+	editing, _ := m.updateList("e")
+	saved, _ := editing.(model).updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	sm := saved.(model)
+
+	if sm.mode != modeList {
+		t.Fatal("saving should return to the List")
+	}
+	if sm.commentFilter != filter {
+		t.Errorf("the filtered List should still be filtered to the same line, got %+v", sm.commentFilter)
+	}
+}
+
+func TestAnEditOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
+	base := func() model {
+		m := model{
+			client:    client{base: acceptingServer(t).URL},
+			mode:      modeNote,
+			editingID: 7,
+			note:      newNote(80),
+			view:      &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1},
+		}
+		m.note.SetValue("n")
+		return m
+	}
+
+	saved, _ := base().updateNote(tea.KeyMsg{Type: tea.KeyEnter})
+	if sm := saved.(model); sm.mode != modeReview {
+		t.Error("saving an edit opened from a Step should still return to the Step")
+	} else if sm.status != "Comment updated" {
+		t.Errorf("the Step path keeps its status message, got %q", sm.status)
+	}
+
+	cancelled, _ := base().updateNote(tea.KeyMsg{Type: tea.KeyEsc})
+	if cancelled.(model).mode != modeReview {
+		t.Error("cancelling an edit opened from a Step should still return to the Step")
+	}
+
+	armed := base()
+	armed.confirmingDelete = true
+	deleted, _ := armed.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if dm := deleted.(model); dm.mode != modeReview {
+		t.Error("deleting an edit opened from a Step should still return to the Step")
+	} else if dm.status != "Comment deleted" {
+		t.Errorf("the Step path keeps its status message, got %q", dm.status)
+	}
+}
+
+func TestDeletingAnEditOpenedFromTheListClampsTheListCursor(t *testing.T) {
+	m := listEditModel(t,
+		daemon.CommentWire{ID: 1, Step: 1, Note: "one"},
+		daemon.CommentWire{ID: 2, Step: 1, Note: "two"},
+		daemon.CommentWire{ID: 3, Step: 1, Note: "three"},
+	)
+	m.editingID = 3
+	m.commentCursor = 2
+	m.confirmingDelete = true
+
+	deleted, _ := m.updateNote(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	if got := deleted.(model).commentCursor; got != 1 {
+		t.Errorf("deleting the last entry should leave the cursor on the new last entry, got %d", got)
 	}
 }

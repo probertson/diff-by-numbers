@@ -123,7 +123,12 @@ type model struct {
 	confirmingDelete bool          // an inline y/n delete confirm is armed (edit screen or List)
 	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
 	commentFilter    commentFilter // when active, the List shows only the Comments on one line
-	reraiseCursor    int           // selected row among declined dispositions
+	// noteReturn is where leaving the edit screen goes: modeReview when it was
+	// opened on a Step, modeList when it was opened from the List. Its zero value
+	// is modeReview, which is where every exit went before the List could be an
+	// origin.
+	noteReturn    mode
+	reraiseCursor int // selected row among declined dispositions
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -649,6 +654,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 0:
 					m.status = "no Comment on this line to edit"
 				case 1:
+					m.noteReturn = modeReview
 					m.editingID = here[0].ID
 					m.pendingCode = here[0].Anchor
 					m.note.SetValue(here[0].Note)
@@ -678,6 +684,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.editingID = 0 // c always adds a fresh comment, never edits
+				m.noteReturn = modeReview
 				m.mode = modeNote
 				m.note.SetValue("")
 				m.note.Focus()
@@ -713,10 +720,18 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 				id := m.editingID
 				m.confirmingDelete = false
 				m.editingID = 0
-				m.mode = modeReview // matches esc — origin (Step or List) is not tracked
+				m.mode = m.noteReturn // matches esc: back to wherever the edit began
 				m.note.Blur()
 				m.client.withdraw(id)
-				m.status = "Comment deleted"
+				if m.noteReturn == modeList {
+					// The List has no status row, so a message set here would go
+					// unseen and then surface on the next Step. The List is also one
+					// entry shorter now, which can leave the cursor past its end.
+					m.status = ""
+					m.clampCommentCursor(len(m.filteredComments()) - 1)
+				} else {
+					m.status = "Comment deleted"
+				}
 				return m, m.refresh()
 			case confirmCancel:
 				m.confirmingDelete = false // cancel back into editing, note intact
@@ -726,7 +741,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc":
 			m.editingID = 0
-			m.mode = modeReview
+			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, nil
 		case "ctrl+d":
@@ -738,22 +753,30 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			note := m.note.Value()
+			status := ""
 			if note != "" {
 				if m.editingID > 0 {
 					if m.client.editComment(m.editingID, note) {
-						m.status = "Comment updated"
+						status = "Comment updated"
 					} else {
-						m.status = "could not update the Comment"
+						status = "could not update the Comment"
 					}
 				} else if m.client.raiseComment(m.pendingSel, note) {
-					m.status = "Comment added"
+					status = "Comment added"
 				} else {
-					m.status = "could not add the Comment"
+					status = "could not add the Comment"
 				}
 			}
+			if m.noteReturn == modeList {
+				// The List has no status row, so the message would go unseen and
+				// then surface on the next Step. Clearing rather than skipping the
+				// assignment also takes down anything left over from before.
+				status = ""
+			}
+			m.status = status
 			m.editingID = 0
 			m.cursor.sel = -1
-			m.mode = modeReview
+			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, m.refresh()
 		case "ctrl+j", "alt+enter", "shift+enter":
@@ -809,6 +832,7 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	case "e", "enter":
 		if m.commentCursor < len(list) {
 			comment := list[m.commentCursor]
+			m.noteReturn = modeList
 			m.editingID = comment.ID
 			m.pendingCode = comment.Anchor
 			m.note.SetValue(comment.Note)
@@ -1387,6 +1411,18 @@ func (m model) filteredComments() []daemon.CommentWire {
 		}
 	}
 	return out
+}
+
+// clampCommentCursor pulls the List's cursor back onto a real entry after the
+// List has lost one, given the number of entries it will have once the refresh
+// lands. An emptied List leaves the cursor at 0, where its empty state shows.
+func (m *model) clampCommentCursor(length int) {
+	if m.commentCursor >= length {
+		m.commentCursor = length - 1
+	}
+	if m.commentCursor < 0 {
+		m.commentCursor = 0
+	}
 }
 
 // commentsAtCursor returns every Comment anchored over the cursor's line.
