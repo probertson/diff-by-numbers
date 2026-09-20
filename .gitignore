@@ -37,3 +37,9 @@ go.work.sum
 
 # GoReleaser output
 /dist/
+
+# Claude Code: per-machine settings, and the worktrees background agents run in.
+# Deliberately not the whole directory — a shared .claude/settings.json or
+# .claude/agents/ belongs in the repository.
+/.claude/settings.local.json
+/.claude/worktrees/
