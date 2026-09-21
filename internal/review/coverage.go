@@ -67,6 +67,12 @@ type Derivation struct {
 	// the agent name a line nobody needs to be told to read, and they cost
 	// nothing against a Step's budget.
 	Whitespace []ChangedLine
+	// Renames maps each rename git found, source path to destination, including
+	// renames that also carry edits — which are not Opaque Changes, so nothing
+	// else in the derivation records where they came from. Every atom of a
+	// renamed file is attributed to the destination, so this is the only thing
+	// that can make the source path mean anything.
+	Renames map[string]string
 	// Base is the resolved merge-base the Change Set was derived from. A
 	// Revision Round compares it with the previous round's: when it has moved,
 	// the branch was rebased under the review and old-side lines no longer sit
@@ -107,10 +113,18 @@ type ledger struct {
 	// whitespace is the subset of lines holding nothing but whitespace, as a set
 	// because both the absorption pass and the budget ask about one line at a time.
 	whitespace map[ChangedLine]bool
+	// renames maps each rename's source path to its destination, keyed by
+	// repository, so normalisation can read the source as an alias for the
+	// destination every atom of the file was derived under.
+	renames map[fileRef]string
 }
 
 func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
-	l := ledger{bases: map[string]string{}, whitespace: map[ChangedLine]bool{}}
+	l := ledger{
+		bases:      map[string]string{},
+		whitespace: map[ChangedLine]bool{},
+		renames:    map[fileRef]string{},
+	}
 	for _, repository := range changeSet.Repositories {
 		derivation, err := deriver.Derive(repository)
 		if err != nil {
@@ -121,6 +135,9 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		l.correspondences = append(l.correspondences, derivation.Correspondences...)
 		for _, line := range derivation.Whitespace {
 			l.whitespace[line] = true
+		}
+		for source, destination := range derivation.Renames {
+			l.renames[fileRef{repository.Root, filepath.Clean(source)}] = filepath.Clean(destination)
 		}
 		if derivation.Base != "" {
 			l.bases[repository.Root] = derivation.Base
@@ -135,13 +152,19 @@ func (a Acknowledgement) covers(repository, file string) bool {
 	if a.Repository != repository {
 		return false
 	}
-	target := filepath.Clean(file)
 	for _, f := range a.Files {
-		if filepath.Clean(f) == target {
+		if samePath(f, file) {
 			return true
 		}
 	}
 	return false
+}
+
+// samePath reports whether two paths name the same file. Paths arrive from git
+// and from the Authoring Agent, which writes them as it would in a shell, so
+// "./x" and "x" have to read as one file.
+func samePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 // stepCoversLine reports whether a Step accounts for a Changed Line, whether by
@@ -215,6 +238,18 @@ func (l ledger) accountedFor(line ChangedLine, steps []Step, preShown map[Change
 	return anyStep(steps, func(s Step) bool { return stepCoversLine(s, line) })
 }
 
+// renamedTo gives the destination path of a rename, when the name given is its
+// source and means nothing else. A freed-up path can be reused by a new file the
+// same branch created; when it is, it carries atoms of its own and the name means
+// that file, so no alias applies and both have to be accounted for separately.
+func (l ledger) renamedTo(repository, file string) (string, bool) {
+	destination, ok := l.renames[fileRef{repository, filepath.Clean(file)}]
+	if !ok || l.fileHasChange(repository, file) {
+		return "", false
+	}
+	return destination, true
+}
+
 // validateAcknowledgements refuses an Acknowledgement that claims a file with no
 // changes: a claim that accounts for nothing is a confusion, and left unchecked
 // would let one gesture at coverage it does not provide.
@@ -236,14 +271,13 @@ func (l ledger) validateAcknowledgements(steps []Step) *Rejection {
 // fileHasChange reports whether a file has any atom in the ledger — a Changed
 // Line or an Opaque Change.
 func (l ledger) fileHasChange(repository, file string) bool {
-	target := filepath.Clean(file)
 	for _, line := range l.lines {
-		if line.Repository == repository && filepath.Clean(line.File) == target {
+		if line.Repository == repository && samePath(line.File, file) {
 			return true
 		}
 	}
 	for _, opaque := range l.opaque {
-		if opaque.Repository == repository && filepath.Clean(opaque.File) == target {
+		if opaque.Repository == repository && samePath(opaque.File, file) {
 			return true
 		}
 	}
@@ -399,10 +433,9 @@ func (l ledger) total() int { return len(l.lines) + len(l.opaque) }
 // changedLinesFor returns the Changed Lines of a single file, so an
 // Acknowledgement can report how many it claims and expand into them on demand.
 func (l ledger) changedLinesFor(repository, file string) []ChangedLine {
-	target := filepath.Clean(file)
 	var out []ChangedLine
 	for _, line := range l.lines {
-		if line.Repository == repository && filepath.Clean(line.File) == target {
+		if line.Repository == repository && samePath(line.File, file) {
 			out = append(out, line)
 		}
 	}
@@ -411,9 +444,8 @@ func (l ledger) changedLinesFor(repository, file string) []ChangedLine {
 
 // opaqueFor returns the Opaque Change of a file, if it has one.
 func (l ledger) opaqueFor(repository, file string) (OpaqueChange, bool) {
-	target := filepath.Clean(file)
 	for _, opaque := range l.opaque {
-		if opaque.Repository == repository && filepath.Clean(opaque.File) == target {
+		if opaque.Repository == repository && samePath(opaque.File, file) {
 			return opaque, true
 		}
 	}

@@ -16,9 +16,14 @@ const (
 
 // changedOn is a run of Changed Lines on one side of the shared test file.
 func changedOn(side review.Side, first, last int) []review.ChangedLine {
+	return changedFile(testFile, side, first, last)
+}
+
+// changedFile is a run of Changed Lines on one side of a named file.
+func changedFile(file string, side review.Side, first, last int) []review.ChangedLine {
 	var lines []review.ChangedLine
 	for n := first; n <= last; n++ {
-		lines = append(lines, lineAt(side, n))
+		lines = append(lines, review.ChangedLine{Repository: testRepository, File: file, Side: side, Line: n})
 	}
 	return lines
 }

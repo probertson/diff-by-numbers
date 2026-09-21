@@ -107,6 +107,16 @@ pure rename carrying no content delta. Accounted for by the Coverage Ledger alon
 Changed Lines, since it would otherwise be invisible to the completeness guarantee.
 _Avoid_: binary change, non-text change
 
+**Rename Alias**:
+A renamed file's *source* path — the name it had at the merge-base — standing for
+its *destination*, the name it has now. Every atom of a renamed file is derived
+under the destination, so an Acknowledgement or an old-side Excerpt written about
+the name the file came from would otherwise account for nothing. dbn resolves the
+source to the destination when a Walkthrough is posted, and the Reviewer sees the
+destination throughout. The alias lapses when the branch reused the freed-up name
+for a new file: that name carries atoms of its own, so it means that file.
+_Avoid_: move, moved, old name, path mapping
+
 **Acknowledgement**:
 The Authoring Agent's declaration that a set of changes is mechanical and need not be
 read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of

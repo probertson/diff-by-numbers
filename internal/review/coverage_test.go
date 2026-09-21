@@ -15,6 +15,8 @@ type fixedDeriver struct {
 	// whitespace names which of the lines hold nothing but whitespace. git knows
 	// this because it has the text; the core is told.
 	whitespace []review.ChangedLine
+	// renames maps source path to destination for the moves git detected.
+	renames map[string]string
 }
 
 func (d fixedDeriver) Derive(repo review.Repository) (review.Derivation, error) {
@@ -27,6 +29,7 @@ func (d fixedDeriver) Derive(repo review.Repository) (review.Derivation, error) 
 		Lines:      inRepository(d.lines, repo.Root),
 		Opaque:     opaque,
 		Whitespace: inRepository(d.whitespace, repo.Root),
+		Renames:    d.renames,
 	}, nil
 }
 

@@ -10,22 +10,75 @@ import "sort"
 // correspondence.go).
 func normalize(steps []Step, l ledger, preShown map[ChangedLine]bool) []Step {
 	out := copySteps(steps)
+	// Renaming first: absorption groups Excerpts by the file they show, so the
+	// aliases have to be resolved before anything is grouped by path.
+	aliasRenames(out, l)
 	absorbWhitespace(out, l, preShown)
 	return out
 }
 
-// copySteps deep-copies the Excerpts, so normalisation never writes through to
-// the Walkthrough the caller handed in. A post that is then rejected must leave
-// the agent's own value exactly as it sent it.
+// aliasRenames rewrites a rename's source path to its destination, which is the
+// path every atom of the file was derived under. Writing about a rename under the
+// name the file came from is the natural thing to do and accounted for nothing.
+//
+// Only the old side of an Excerpt is aliased. A new-side range names the working
+// tree, where the source path no longer exists — if it does exist, it is a
+// different file, and renamedTo declines to alias it.
+func aliasRenames(steps []Step, l ledger) {
+	if len(l.renames) == 0 {
+		return
+	}
+	for i := range steps {
+		for j := range steps[i].Excerpts {
+			excerpt := &steps[i].Excerpts[j]
+			if excerpt.Side != OldSide {
+				continue
+			}
+			if destination, ok := l.renamedTo(excerpt.Repository, excerpt.File); ok {
+				excerpt.File = destination
+			}
+		}
+		aliasAcknowledged(steps[i].Acknowledgements, l)
+	}
+}
+
+// aliasAcknowledged resolves each claimed path and drops the duplicates that
+// leaves behind: an agent covering its bases lists both ends of a rename, which
+// is one file and must appear once in the manifest.
+func aliasAcknowledged(acknowledgements []Acknowledgement, l ledger) {
+	for i, acknowledgement := range acknowledgements {
+		files := make([]string, 0, len(acknowledgement.Files))
+		claimed := map[string]bool{}
+		for _, file := range acknowledgement.Files {
+			if destination, ok := l.renamedTo(acknowledgement.Repository, file); ok {
+				file = destination
+			}
+			if claimed[file] {
+				continue
+			}
+			claimed[file] = true
+			files = append(files, file)
+		}
+		acknowledgements[i].Files = files
+	}
+}
+
+// copySteps deep-copies everything normalisation rewrites, so it never writes
+// through to the Walkthrough the caller handed in. A post that is then rejected
+// must leave the agent's own value exactly as it sent it, and keeping that
+// guarantee here means no later pass has to remember to make its own copy.
 func copySteps(steps []Step) []Step {
 	out := make([]Step, len(steps))
 	copy(out, steps)
 	for i, step := range steps {
-		if len(step.Excerpts) == 0 {
-			continue
+		if len(step.Excerpts) > 0 {
+			out[i].Excerpts = make([]Excerpt, len(step.Excerpts))
+			copy(out[i].Excerpts, step.Excerpts)
 		}
-		out[i].Excerpts = make([]Excerpt, len(step.Excerpts))
-		copy(out[i].Excerpts, step.Excerpts)
+		if len(step.Acknowledgements) > 0 {
+			out[i].Acknowledgements = make([]Acknowledgement, len(step.Acknowledgements))
+			copy(out[i].Acknowledgements, step.Acknowledgements)
+		}
 	}
 	return out
 }

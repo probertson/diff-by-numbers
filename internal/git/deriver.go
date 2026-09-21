@@ -141,6 +141,12 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 		if blk == nil {
 			return
 		}
+		if blk.rename && blk.oldPath != "" && blk.newPath != "" {
+			if result.Renames == nil {
+				result.Renames = map[string]string{}
+			}
+			result.Renames[blk.oldPath] = blk.newPath
+		}
 		if !blk.hadHunk {
 			if opaque, ok := blk.opaque(root); ok {
 				result.Opaque = append(result.Opaque, opaque)
@@ -175,6 +181,12 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 			blk.newModeValue = strings.TrimSpace(line[len("new mode "):])
 		case strings.HasPrefix(line, "rename from "):
 			blk.rename = true
+			// git names both ends of a rename unambiguously here, which the
+			// "diff --git a/OLD b/NEW" header does not: it is split on the first
+			// " b/", and a source path containing that sequence is cut in the
+			// wrong place. The source is a coverage-bearing key, so take it from
+			// the line that cannot be misread.
+			blk.oldPath = strings.TrimSpace(line[len("rename from "):])
 		case strings.HasPrefix(line, "rename to "):
 			blk.rename = true
 			blk.newPath = strings.TrimSpace(line[len("rename to "):])

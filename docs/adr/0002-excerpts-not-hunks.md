@@ -55,3 +55,24 @@ only, never ordering, grouping or size": the budget has always been counted from
 ledger-derived lines, and what ADR-0003 forbids is a mechanism that *forces* an
 arbitrary boundary. Exempting whitespace only relaxes the pressure, and stops
 dbn's own widening from being what pushes a Step over.
+
+## Amendment (#86): a rename's source path is an alias for its destination
+
+git attributes every atom of a renamed file to the path it was renamed *to*, so an
+Acknowledgement or an old-side Excerpt written about the path the file came *from*
+accounted for nothing and came back refused. Writing about a rename under the old
+name is the natural thing to do, and the refusal said only that the file had no
+changes. dbn now resolves a source path to its destination in the same post-time
+pass as #85's widening.
+
+This goes further than that widening, which only ever adds lines: aliasing replaces
+a value the agent authored, so the limits matter more. Only the *old* side of an
+Excerpt is aliased, because a source path names the merge-base and a new-side range
+names the working tree, where the name either does not exist or belongs to
+something else. And the alias lapses entirely when the branch reused the freed-up
+name for a new file: that path then carries atoms of its own, and dbn takes the
+agent at its word rather than guessing which file was meant. Both ends of a rename
+listed in one Acknowledgement fold into one entry, because they are one file.
+
+Nothing is hidden by this. The Reviewer sees the destination path everywhere, as
+before, carrying git's own "renamed from …" detail.

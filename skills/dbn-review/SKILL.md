@@ -64,6 +64,11 @@ one git hunk. Plan them so:
   to show a **standalone deletion** — removed code that nothing replaced — with
   your explanation of why it went. (A bulk, mechanical removal can stay an
   Acknowledgement instead; your call per case, exactly as for additions.)
+- **Either path of a renamed file works.** dbn derives a renamed file's changes
+  under its new path, but an Acknowledgement or an `old`-side Excerpt may name
+  the path it came from — listing both is fine too. The Reviewer sees the new
+  path either way. The exception is a path the same branch reused for a new
+  file: that name now means the new file, so cover the two separately.
 - **One Step may span several files** if one idea touches several.
 - **Prefer more, smaller Steps.** A Step should be comprehensible at a glance —
   don't make the reviewer hold two functions in their head at once. Because an
