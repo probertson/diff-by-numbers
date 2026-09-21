@@ -12,9 +12,9 @@ side terminal and raises **Comments** (requests for a change, or questions); you
 collect those and post a **Revision Round**. You never block waiting — you post,
 end your turn, and pick the results up later.
 
-The dbn daemon exposes three MCP tools: `post_walkthrough`, `fetch_results`, and
-`conclude`. If they are not available, dbn's MCP server is not registered — see
-the project README for the one-time setup. (You do not need to start anything
+The dbn daemon exposes four MCP tools: `describe_changes`, `post_walkthrough`,
+`fetch_results`, and `conclude`. If they are not available, dbn's MCP server is
+not registered — see the project README for the one-time setup. (You do not need to start anything
 first: registering the shim is enough. It starts the daemon on demand the moment
 your session connects.)
 
@@ -29,6 +29,21 @@ cannot drift from itself — read them there rather than from anything written
 here.
 
 ## Planning a Walkthrough
+
+**Start with `describe_changes`**, giving it the same `repositories` you will
+post. It returns dbn's own account of the change set, worked out exactly as a
+post is checked:
+- each file's status (`renamed` files say where they came from),
+- the Changed Line ranges your Excerpts must cover,
+- the `modifications` whose removed lines ride along when you show their
+  replacement.
+
+Plan your Excerpts from these ranges, not from `git diff`, which misses what
+dbn counts (untracked files, renames) and cannot know what a Revision Round has
+already shown. It changes nothing, so call it as often as you like: before
+planning, and again before a Revision Round, when it also gives the
+`pre_marked_new`/`pre_marked_old` ranges you need not cover and how many lines
+are `still_to_cover`.
 
 A Walkthrough is a **Brief** followed by ordered **Steps**.
 

@@ -121,6 +121,14 @@ whitespace-only line standing on its own is covered like any other change, becau
 dbn never counts a line as accounted for without showing it.
 _Avoid_: exemption, skip, ignore, whitespace-insensitive, trim
 
+**Modification**:
+One edit that replaced lines, as git derived it: the before-side it removed paired
+with the after-side that took its place. The agent reads modifications from
+`describe_changes` to plan coverage, since showing a modification's after-side
+also shows, and covers, the lines it removed. It never authors against one
+(ADR-0002).
+_Avoid_: hunk, change block
+
 **Opaque Change**:
 A change with no line-level representation — a modified binary file, a mode change, a
 pure rename carrying no content delta. Accounted for by the Coverage Ledger alongside

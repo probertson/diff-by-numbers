@@ -138,11 +138,6 @@ type fetchResult struct {
 }
 
 func (w wireWalkthrough) toDomain() review.Walkthrough {
-	repositories := make([]review.Repository, 0, len(w.Repositories))
-	for _, r := range w.Repositories {
-		repositories = append(repositories, review.Repository{Root: r.Root, Base: r.Base})
-	}
-
 	steps := make([]review.Step, 0, len(w.Steps))
 	for _, s := range w.Steps {
 		excerpts := make([]review.Excerpt, 0, len(s.Excerpts))
@@ -190,7 +185,7 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 				Citation: w.Brief.Provenance.Citation,
 			},
 		},
-		ChangeSet:    review.ChangeSet{Repositories: repositories},
+		ChangeSet:    toChangeSet(w.Repositories),
 		Steps:        steps,
 		Dispositions: dispositions,
 		Label:        w.Label,
@@ -219,6 +214,92 @@ func toFetchResult(r review.Results, message string) fetchResult {
 	}
 	for _, sr := range r.StepReports {
 		out.Steps = append(out.Steps, stepReportWire{Number: sr.Number, Name: sr.Name, Status: string(sr.Status)})
+	}
+	return out
+}
+
+type describeInput struct {
+	Repositories []wireRepository `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_walkthrough"`
+}
+
+// lineRangeWire is an inclusive [first, last] pair: compact, since a large
+// Change Set describes hundreds of them.
+type lineRangeWire [2]int
+
+type modificationWire struct {
+	Old lineRangeWire `json:"old" jsonschema:"The before-side lines this edit removed"`
+	New lineRangeWire `json:"new" jsonschema:"The after-side lines that replaced them. Showing any of these with a new-side Excerpt draws the removed lines beside them"`
+}
+
+type fileChangesWire struct {
+	Path          string             `json:"path"`
+	Status        string             `json:"status" jsonschema:"'added', 'modified', 'deleted', 'renamed' (see from), 'binary' or 'mode'. A binary, mode or edit-free renamed file has no lines: account for it with an Acknowledgement"`
+	From          string             `json:"from,omitempty" jsonschema:"Where the file was renamed from. Set whenever git detected a rename, including on a binary or mode change that was also renamed"`
+	NewRanges     []lineRangeWire    `json:"new_ranges,omitempty" jsonschema:"The after-side Changed Lines, as [first, last] pairs: what new-side Excerpts must cover"`
+	OldRanges     []lineRangeWire    `json:"old_ranges,omitempty" jsonschema:"The before-side Changed Lines, as [first, last] pairs. Those inside a modification are covered by showing its new side; the rest need an old-side Excerpt"`
+	Modifications []modificationWire `json:"modifications,omitempty" jsonschema:"Each edit that replaced lines, pairing what it removed with what replaced it"`
+	PreMarkedNew  []lineRangeWire    `json:"pre_marked_new,omitempty" jsonschema:"In a Revision Round, after-side ranges the Reviewer has already read and the next post need not cover"`
+	PreMarkedOld  []lineRangeWire    `json:"pre_marked_old,omitempty" jsonschema:"In a Revision Round, before-side ranges the Reviewer has already read and the next post need not cover"`
+	PreMarked     bool               `json:"pre_marked,omitempty" jsonschema:"In a Revision Round, set on a binary, mode or edit-free renamed file the Reviewer has already seen and the next post need not acknowledge again"`
+}
+
+type repositoryChangesWire struct {
+	Root      string            `json:"root"`
+	MergeBase string            `json:"merge_base" jsonschema:"The commit the Change Set is derived from: the merge-base of base and HEAD"`
+	Files     []fileChangesWire `json:"files"`
+}
+
+type describeResult struct {
+	Repositories  []repositoryChangesWire `json:"repositories,omitempty"`
+	RevisionRound bool                    `json:"revision_round" jsonschema:"Whether your next post would be a Revision Round, scoped against what the Reviewer has already read"`
+	StillToCover  *int                    `json:"still_to_cover,omitempty" jsonschema:"In a Revision Round, how many Changed Lines the next post must still account for once the pre-marked ones are set aside. It counts every one, on both sides: removed lines that ride along with a modification's new side, and blank lines dbn absorbs, are included, so it is a measure of what is left rather than of what you must excerpt"`
+	Problems      []problemWire           `json:"problems,omitempty" jsonschema:"Why the Change Set could not be described, e.g. a base that does not resolve"`
+}
+
+func toChangeSet(repositories []wireRepository) review.ChangeSet {
+	out := make([]review.Repository, 0, len(repositories))
+	for _, r := range repositories {
+		out = append(out, review.Repository{Root: r.Root, Base: r.Base})
+	}
+	return review.ChangeSet{Repositories: out}
+}
+
+func toDescribeResult(d review.ChangeDescription) describeResult {
+	out := describeResult{RevisionRound: d.RevisionRound}
+	if d.RevisionRound {
+		still := d.StillToCover
+		out.StillToCover = &still
+	}
+	for _, repository := range d.Repositories {
+		wire := repositoryChangesWire{Root: repository.Root, MergeBase: repository.MergeBase, Files: []fileChangesWire{}}
+		for _, file := range repository.Files {
+			fileWire := fileChangesWire{
+				Path:         file.Path,
+				Status:       string(file.Status),
+				From:         file.From,
+				NewRanges:    toRangeWires(file.NewRanges),
+				OldRanges:    toRangeWires(file.OldRanges),
+				PreMarkedNew: toRangeWires(file.PreMarkedNew),
+				PreMarkedOld: toRangeWires(file.PreMarkedOld),
+				PreMarked:    file.PreMarked,
+			}
+			for _, m := range file.Modifications {
+				fileWire.Modifications = append(fileWire.Modifications, modificationWire{
+					Old: lineRangeWire{m.Old.First, m.Old.Last},
+					New: lineRangeWire{m.New.First, m.New.Last},
+				})
+			}
+			wire.Files = append(wire.Files, fileWire)
+		}
+		out.Repositories = append(out.Repositories, wire)
+	}
+	return out
+}
+
+func toRangeWires(ranges []review.LineRange) []lineRangeWire {
+	var out []lineRangeWire
+	for _, r := range ranges {
+		out = append(out, lineRangeWire{r.First, r.Last})
 	}
 	return out
 }

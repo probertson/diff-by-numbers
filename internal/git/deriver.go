@@ -76,6 +76,7 @@ type block struct {
 	rename           bool
 	oldMode, newMode bool
 	newModeValue     string
+	added, deleted   bool
 }
 
 // opaque reports the Opaque Change a hunk-less block represents, if any. A block
@@ -141,6 +142,22 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 		if blk == nil {
 			return
 		}
+		// The path comes from the ---/+++ headers where there are any, since the
+		// "diff --git" line can be split in the wrong place; an empty file has no
+		// such headers, and no Changed Lines either.
+		path := file
+		switch {
+		case blk.added:
+			if path == "" {
+				path = blk.newPath
+			}
+			result.Added = append(result.Added, path)
+		case blk.deleted:
+			if path == "" {
+				path = blk.oldPath
+			}
+			result.Deleted = append(result.Deleted, path)
+		}
 		if blk.rename && blk.oldPath != "" && blk.newPath != "" {
 			if result.Renames == nil {
 				result.Renames = map[string]string{}
@@ -174,6 +191,10 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 			blk = &block{}
 			blk.oldPath, blk.newPath = parseDiffGitPaths(line)
 			file = ""
+		case strings.HasPrefix(line, "new file mode "):
+			blk.added = true
+		case strings.HasPrefix(line, "deleted file mode "):
+			blk.deleted = true
 		case strings.HasPrefix(line, "old mode "):
 			blk.oldMode = true
 		case strings.HasPrefix(line, "new mode "):

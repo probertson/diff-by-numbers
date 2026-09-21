@@ -133,3 +133,22 @@ file. It is not content and cannot be quoted: it carries no code, the cursor
 passes over it, and an Anchor drops it rather than quoting it as source. It exists
 because the alternative — an after-side with nothing to read it against and no
 explanation of why — is worse than a row saying where to look.
+
+## Amendment (#87): the agent may read the Change Set's shape, and still authors only ranges
+
+Agents found the ranges to excerpt by running `git diff -U0` themselves and reading hunk
+boundaries off it before every post. That duplicated dbn's derivation and got it subtly
+wrong: renames, untracked files, and in a Revision Round everything pre-marking had already
+set aside. `describe_changes` answers the same question from the ledger a post is checked
+against. Per file, it gives:
+- the status,
+- the Changed Line ranges,
+- the **modifications**: each edit's removed lines paired with the lines that replaced them.
+
+That last one is the cross-side correspondence this ADR keeps out of the agent's hands, and
+the earlier amendments say the agent never sees it. It is shown now because it decides
+coverage: an old-side line inside a modification is covered by showing its new side, and
+one outside needs an old-side Excerpt. An agent that cannot see which is which either
+over-excerpts removals or has its post refused. It is information to plan with, not a
+unit to author against. Excerpts are still arbitrary Side-qualified ranges of the agent's
+choosing, and nothing it posts names a modification.

@@ -81,6 +81,12 @@ type Derivation struct {
 	// renamed file is attributed to the destination, so this is the only thing
 	// that can make the source path mean anything.
 	Renames map[string]string
+	// Added and Deleted name the files git reports as new or as gone. Which
+	// sides of a file carry Changed Lines cannot say this — a file that only
+	// gained lines is still one that was modified — so it is recorded where git
+	// states it.
+	Added   []string
+	Deleted []string
 	// Base is the resolved merge-base the Change Set was derived from. A
 	// Revision Round compares it with the previous round's: when it has moved,
 	// the branch was rebased under the review and old-side lines no longer sit
@@ -125,6 +131,9 @@ type ledger struct {
 	// repository, so normalisation can read the source as an alias for the
 	// destination every atom of the file was derived under.
 	renames map[fileRef]string
+	// fileStatus records the files git reported as new or as gone. Every other
+	// file with atoms was modified, renamed, or is an Opaque Change.
+	fileStatus map[fileRef]FileStatus
 	// preShown and preShownOpaque are the atoms a Revision Round has already
 	// shown. They live on the ledger because that is what ADR-0007 pre-marks:
 	// every question the ledger answers — is this accounted for, how much new
@@ -148,6 +157,7 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		bases:      map[string]string{},
 		whitespace: map[ChangedLine]bool{},
 		renames:    map[fileRef]string{},
+		fileStatus: map[fileRef]FileStatus{},
 	}
 	for _, repository := range changeSet.Repositories {
 		derivation, err := deriver.Derive(repository)
@@ -162,6 +172,12 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		}
 		for source, destination := range derivation.Renames {
 			l.renames[fileRef{repository.Root, filepath.Clean(source)}] = filepath.Clean(destination)
+		}
+		for _, file := range derivation.Added {
+			l.fileStatus[fileRef{repository.Root, filepath.Clean(file)}] = FileAdded
+		}
+		for _, file := range derivation.Deleted {
+			l.fileStatus[fileRef{repository.Root, filepath.Clean(file)}] = FileDeleted
 		}
 		if derivation.Base != "" {
 			l.bases[repository.Root] = derivation.Base

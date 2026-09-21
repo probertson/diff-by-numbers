@@ -541,6 +541,16 @@ func (d *Daemon) mcpServer() *mcp.Server {
 	}, d.postWalkthrough)
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name: "describe_changes",
+		Description: "Describe the changes under review as dbn derives them, without posting: per " +
+			"file, its status and the Changed Line ranges a Walkthrough must cover, and the edits " +
+			"whose removed lines ride along with their replacement. It is worked out exactly as " +
+			"post_walkthrough checks coverage, including what a Revision Round has already shown, " +
+			"so plan Excerpts from it rather than from git diff. It changes nothing; call it " +
+			"before planning a Walkthrough and again before a Revision Round.",
+	}, d.describeChanges)
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name: "fetch_results",
 		Description: "Ask how the review went. Returns immediately whether or not the Reviewer " +
 			"has handed off; it never waits. Call it once the Reviewer says they are done. " +
@@ -578,6 +588,21 @@ func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in w
 		return nil, postResult{}, err
 	}
 	return nil, postResult{Accepted: true, ReviewID: d.session.ReviewID(), Message: postedMessage(d.session.LastPost(), d.port)}, nil
+}
+
+func (d *Daemon) describeChanges(_ context.Context, _ *mcp.CallToolRequest, in describeInput) (*mcp.CallToolResult, describeResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	description, err := d.session.DescribeChanges(toChangeSet(in.Repositories))
+	if err != nil {
+		var rejection *review.Rejection
+		if errors.As(err, &rejection) {
+			return nil, describeResult{Problems: problemsOf(rejection)}, nil
+		}
+		return nil, describeResult{}, err
+	}
+	return nil, toDescribeResult(description), nil
 }
 
 func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in concludeInput) (*mcp.CallToolResult, concludeResult, error) {

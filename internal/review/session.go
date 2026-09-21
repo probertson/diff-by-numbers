@@ -136,10 +136,21 @@ func (s *Session) Post(w Walkthrough) error {
 			"a Walkthrough is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
 			s.id, s.id)
 	}
-	if s.walkthrough != nil && s.finished && !s.concluded {
-		return s.accept(w, &earlierRound{state: s.latest, comments: s.comments}, false)
+	return s.accept(w, s.nextAnswering(), false)
+}
+
+// nextAnswering is the earlier round the next accepted post would answer: the
+// round just handed off, or — while one is under review — whatever that one
+// answers, which is what its Replacement answers too. After a conclusion, or
+// with nothing posted, the next post starts a new review and answers nothing.
+func (s *Session) nextAnswering() *earlierRound {
+	switch {
+	case s.walkthrough == nil || s.concluded:
+		return nil
+	case s.finished:
+		return &earlierRound{state: s.latest, comments: s.comments}
 	}
-	return s.accept(w, nil, false)
+	return s.answering
 }
 
 // Replace puts a Walkthrough in place of the one under review, for when the
@@ -160,7 +171,7 @@ func (s *Session) Replace(id string, w Walkthrough) error {
 		return reject(RejectedWalkthroughFinished,
 			"this round is handed off; post a Revision Round instead")
 	}
-	return s.accept(w, s.answering, true)
+	return s.accept(w, s.nextAnswering(), true)
 }
 
 // earlierRound is what a Revision Round answers to: the round before it, as it
@@ -179,34 +190,14 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 		return rejection
 	}
 
-	// The snapshot is taken before anything else reads the working tree. It is
-	// what the round will be shown from, so it is also what the post is checked
-	// against: every Excerpt an accepted Walkthrough names is one its own
-	// snapshot can show. (The Change Set is still derived from the working tree
-	// a moment later; see #104.) It is also what the next Revision Round is
-	// scoped against, and it is kept only once the post is accepted.
-	var snapshots map[string]string
-	if snapshotter, ok := s.deriver.(Snapshotter); ok {
-		snapshots = snapshotAll(snapshotter, w.ChangeSet)
-	}
-
 	// Stage 1 stops at the first failure. Derivation needs a well-formed
 	// Walkthrough, and every stage-2 check needs the ledger, so anything they
-	// might say without these would be guesswork.
-	ledger, err := buildLedger(w.ChangeSet, s.deriver)
-	if err != nil {
-		return reject(RejectedDerivationFailed,
-			"could not derive the changes under review: %v", err)
-	}
-	round := Round{Snapshots: snapshots, Bases: ledger.bases}
-
-	// What a Revision Round has already shown is worked out here rather than
-	// among the checks, and marked on the ledger itself: normalisation and every
-	// stage-2 check asks its questions of the round's scope, not of the raw
-	// Change Set. It is always the earlier accepted round that decides this —
-	// never a Walkthrough being replaced, which the Reviewer may not have read.
-	if earlier != nil {
-		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, round, earlier.state))
+	// might say without these would be guesswork. The round's snapshot is
+	// always taken: it is what the round will be shown from, and it is kept only
+	// once the post is accepted.
+	ledger, round, rejection := s.scopedLedger(w.ChangeSet, earlier, true)
+	if rejection != nil {
+		return rejection
 	}
 
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
@@ -283,6 +274,39 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 	}
 	s.concluded = false
 	return nil
+}
+
+// scopedLedger derives a Change Set and marks on it what the earlier round has
+// already shown. It is the one path by which a post and describe_changes see a
+// Change Set, which is what keeps them from disagreeing.
+//
+// The snapshot is taken before anything else reads the working tree. It is what
+// a posted round is shown from, so it is also what the post is checked against:
+// every Excerpt an accepted Walkthrough names is one its own snapshot can show.
+// (The Change Set is still derived from the working tree a moment later; see
+// #104.) It is also what pre-marking maps through. A caller with neither use for
+// it — a description of a first round — passes snapshot false and writes no
+// tree.
+//
+// What a Revision Round has already shown is marked on the ledger itself, so
+// normalisation and every check ask their questions of the round's scope, not of
+// the raw Change Set. It is always the earlier accepted round that decides this —
+// never a Walkthrough being replaced, which the Reviewer may not have read.
+func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bool) (ledger, Round, *Rejection) {
+	var round Round
+	if snapshotter, ok := s.deriver.(Snapshotter); ok && snapshot {
+		round.Snapshots = snapshotAll(snapshotter, set)
+	}
+	l, err := buildLedger(set, s.deriver)
+	if err != nil {
+		return ledger{}, Round{}, reject(RejectedDerivationFailed,
+			"could not derive the changes under review: %v", err)
+	}
+	round.Bases = l.bases
+	if earlier != nil {
+		l = l.withPreMarking(s.preMarkUnchanged(l, set, round, earlier.state))
+	}
+	return l, round, nil
 }
 
 // moveTo places the Reviewer at a position and records a Step as seen. It is the
