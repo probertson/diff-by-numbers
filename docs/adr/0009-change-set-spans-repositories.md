@@ -1,6 +1,6 @@
 # A Change Set spans repositories, and dbn never assumes the session root is one
 
-The Change Set under review is a *list* of repositories, each with its own range. Excerpts
+The Change Set under review is a *list* of repositories, each with its own base ref. Excerpts
 are qualified by repository, coverage aggregates across all of them, and each repository
 carries its own default branch. The Authoring Agent names the repositories in the Walkthrough
 payload; dbn never runs git in the working directory and never scans for repositories.

@@ -55,7 +55,7 @@ func pushbackModel(t *testing.T, dispositions []daemon.DispositionWire, comments
 				ProvenanceKind: "stated", ProvenanceCitation: "c"},
 			Dispositions: dispositions,
 			Comments:     comments,
-			Repositories: []daemon.RepositoryWire{{Root: "repo", Range: "main"}},
+			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
 			StepNames:    []string{"one"},
 			Seen:         []bool{false},
 		},

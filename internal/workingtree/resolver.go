@@ -1,5 +1,5 @@
 // Package workingtree reads Excerpt content off disk. It is the file-reading
-// half of the git adapter: the review core names ranges, this resolves them
+// half of the git adapter: the review core names base refs, this resolves them
 // against what is actually in the working tree, so nothing the Reviewer sees
 // was supplied by the agent.
 package workingtree
@@ -20,7 +20,7 @@ type fileRef struct{ repository, file string }
 
 // Resolver reads Excerpt content: the after-side from the working tree, and the
 // before-side from git's object store at each repository's merge-base. It learns
-// those ranges from the Change Set when a Walkthrough is posted.
+// those base refs from the Change Set when a Walkthrough is posted.
 //
 // The before-side is an immutable committed blob at a fixed merge-base, so both the
 // merge-base and the before-side file content are cached for the life of the
@@ -29,25 +29,25 @@ type fileRef struct{ repository, file string }
 // posted, and caching the base at post time also keeps it consistent with the
 // baseline the Coverage Ledger was derived from.
 type Resolver struct {
-	ranges map[string]string    // repository root -> range ref
-	bases  map[string]string    // repository root -> merge-base revision
-	before map[fileRef][]string // (repository, file) -> before-side lines at the base
+	baseRefs   map[string]string    // repository root -> the base ref as given
+	mergeBases map[string]string    // repository root -> the merge-base that ref resolves to
+	before     map[fileRef][]string // (repository, file) -> before-side lines at the base
 }
 
 func NewResolver() *Resolver {
 	return &Resolver{}
 }
 
-// UseChangeSet records each repository's range so the before-side can be read from
+// UseChangeSet records each repository's base ref so the before-side can be read from
 // the right merge-base, and clears the caches from any previous Walkthrough. It is
-// called when a Walkthrough is posted (the core hands ranges to the resolver via
+// called when a Walkthrough is posted (the core hands base refs to the resolver via
 // the ChangeSetAware capability).
 func (r *Resolver) UseChangeSet(cs review.ChangeSet) {
-	r.ranges = map[string]string{}
-	r.bases = map[string]string{}
+	r.baseRefs = map[string]string{}
+	r.mergeBases = map[string]string{}
 	r.before = map[fileRef][]string{}
 	for _, repo := range cs.Repositories {
-		r.ranges[repo.Root] = repo.Range
+		r.baseRefs[repo.Root] = repo.Base
 	}
 }
 
@@ -80,19 +80,19 @@ func (r *Resolver) Resolve(e review.Excerpt) ([]review.Line, error) {
 // repository and the before-side file content per file so a repeated render does
 // not re-shell to git for content that cannot change.
 func (r *Resolver) resolveBefore(e review.Excerpt) ([]review.Line, error) {
-	rangeRef, ok := r.ranges[e.Repository]
+	baseRef, ok := r.baseRefs[e.Repository]
 	if !ok {
-		return nil, fmt.Errorf("the before-side of %s cannot be read: no range is known for %s", e.File, e.Repository)
+		return nil, fmt.Errorf("the before-side of %s cannot be read: no base ref is known for %s", e.File, e.Repository)
 	}
 
-	base, ok := r.bases[e.Repository]
+	base, ok := r.mergeBases[e.Repository]
 	if !ok {
-		resolved, err := git.MergeBase(e.Repository, rangeRef)
+		resolved, err := git.MergeBase(e.Repository, baseRef)
 		if err != nil {
 			return nil, err
 		}
 		base = resolved
-		r.bases[e.Repository] = base
+		r.mergeBases[e.Repository] = base
 	}
 
 	key := fileRef{e.Repository, e.File}

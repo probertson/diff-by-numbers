@@ -28,7 +28,7 @@ type Resolver interface {
 
 // ChangeSetAware is an optional capability of a Resolver that reads the old side:
 // the before-side of a change lives in git at each repository's merge-base, which
-// needs that repository's range. The Session hands the resolver the Change Set
+// needs that repository's base ref. The Session hands the resolver the Change Set
 // when a Walkthrough is posted. A resolver that reads only the working tree (or a
 // test stub) need not implement it.
 type ChangeSetAware interface {

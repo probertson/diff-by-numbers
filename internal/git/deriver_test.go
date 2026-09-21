@@ -73,7 +73,7 @@ func TestDerivesAddedLinesFromAFeatureBranchPlusWorkingTree(t *testing.T) {
 	// An unstaged working-tree change on top.
 	write(t, root, "app.ts", "one\ntwo\nthree\nfour\nfive\n")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestDerivesDeletedLinesOnTheOldSide(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\nthree\n") // deleted "two" (old line 2)
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestDerivesAStagedNewFile(t *testing.T) {
 	write(t, root, "src/added.ts", "alpha\nbeta\n")
 	run(t, root, "add", ".") // staged, not committed
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestDerivesAStagedNewFile(t *testing.T) {
 func TestNoChangesYieldsNoChangedLines(t *testing.T) {
 	root := newRepo(t)
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestDerivesAWholeFileDeletionAsOldSideLines(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	run(t, root, "rm", "-q", "doomed.ts")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestDerivesAModifiedBinaryFileAsAnOpaqueChange(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	writeBytes(t, root, "logo.png", []byte{0x00, 0x01, 0x02, 0x00, 0xfe, 0x10})
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestDerivesAModeChangeAsAnOpaqueChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestDerivesAPureRenameAsAnOpaqueChange(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	run(t, root, "mv", "app.ts", "renamed.ts")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestDerivesANonASCIIPathLiterally(t *testing.T) {
 	write(t, root, "café.ts", "un\ndeux\n")
 	run(t, root, "add", ".")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestDerivesARenamedBinaryRecordingBothFacts(t *testing.T) {
 	run(t, root, "mv", "bin.dat", "renamed.dat")
 	writeBytes(t, root, "renamed.dat", changed)
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestDerivesARenamedBinaryRecordingBothFacts(t *testing.T) {
 func TestABadRangeIsAnError(t *testing.T) {
 	root := newRepo(t)
 
-	_, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "no-such-branch"})
+	_, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "no-such-branch"})
 
 	if err == nil {
 		t.Fatal("expected an error for a range that does not resolve")

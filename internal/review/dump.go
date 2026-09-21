@@ -25,7 +25,7 @@ func (s *Session) Dump() string {
 	}
 	out.WriteString("\n\nChange Set:\n")
 	for _, repository := range w.ChangeSet.Repositories {
-		fmt.Fprintf(&out, "  %s @ %s\n", repository.Root, repository.Range)
+		fmt.Fprintf(&out, "  %s @ %s\n", repository.Root, repository.Base)
 	}
 
 	fmt.Fprintf(&out, "\n%s:\n", pluralize(len(w.Steps), "Step"))

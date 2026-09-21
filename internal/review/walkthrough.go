@@ -78,10 +78,10 @@ type Step struct {
 }
 
 // Repository is one repository's contribution to a Change Set, carrying its own
-// range because default branches and conventions differ between repositories.
+// base ref because default branches and conventions differ between repositories.
 type Repository struct {
-	Root  string
-	Range string
+	Root string
+	Base string
 }
 
 // ChangeSet is the complete set of changes under review. It is a list because a

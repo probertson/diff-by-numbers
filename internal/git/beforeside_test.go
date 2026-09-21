@@ -30,7 +30,7 @@ func TestDerivesCrossSideCorrespondenceForEditsAndAdditions(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\nTWO\nthree\nfour\n") // line 2 edited, line 4 added
 
-	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatalf("derivation failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestDerivesADeletionAsAnOldOnlyCorrespondence(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\nthree\n") // line 2 removed
 
-	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatalf("derivation failed: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestDerivesCorrespondenceForARenamedAndEditedFile(t *testing.T) {
 	run(t, root, "mv", "app.ts", "renamed.ts")
 	write(t, root, "renamed.ts", "one\nTWO\nthree\n") // renamed and line 2 edited
 
-	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatalf("derivation failed: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestDerivesACorrespondencePerHunkInAMultiHunkFile(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "1\nTWO\n3\n4\nFIVE\n6\n") // two separate edits
 
-	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatalf("derivation failed: %v", err)
 	}

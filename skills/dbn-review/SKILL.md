@@ -88,8 +88,13 @@ by an Acknowledgement, which the reviewer can see and expand.
 
 ## Posting
 
+`base` is a single ref — a branch, tag or commit — not a range. dbn reviews
+everything from the merge-base of that ref and HEAD to the working tree,
+including uncommitted changes, so `HEAD~1..HEAD` is refused. For "the last
+commit", the base is `HEAD~1`.
+
 Call `post_walkthrough` once, complete. Name every repository under review in
-`repositories` (each with its own `range`, e.g. the default branch), then the
+`repositories` (each with its own `base` ref, e.g. the default branch), then the
 `brief` and the ordered `steps`. You may add an optional `label` — a short name
 like "auth refactor" — to help a reviewer tell several reviews apart.
 

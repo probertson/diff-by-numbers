@@ -66,7 +66,7 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 			},
 		},
 		"repositories": []any{
-			map[string]any{"root": root, "range": "main"},
+			map[string]any{"root": root, "base": "main"},
 		},
 		"steps": []any{
 			map[string]any{
@@ -188,4 +188,35 @@ func get(t *testing.T, url string) string {
 		t.Fatalf("could not read %s: %v", url, err)
 	}
 	return string(body)
+}
+
+// walkthroughWithRepository is the smallest valid post, with the repository
+// entry supplied by the caller so a test can vary just that.
+func walkthroughWithRepository(root string, repository map[string]any) map[string]any {
+	return map[string]any{
+		"brief": map[string]any{
+			"ask":        "ASK-tenant-scoping",
+			"approach":   "APPROACH-thread-the-id-through",
+			"provenance": map[string]any{"kind": "stated", "citation": "CITATION-session-51e67df2"},
+		},
+		"repositories": []any{repository},
+		"steps": []any{
+			map[string]any{
+				"name":        "NAME-the-change",
+				"explanation": "EXPLANATION-what-it-does",
+				"excerpts": []any{
+					map[string]any{
+						"repository": root, "file": "FILE-src/fetch.ts",
+						"side": "new", "first_line": 1, "last_line": 4,
+					},
+				},
+				"acknowledgements": []any{
+					map[string]any{
+						"repository": root, "files": []any{"LOCKFILE"},
+						"reason": "regenerated lockfile",
+					},
+				},
+			},
+		},
+	}
 }

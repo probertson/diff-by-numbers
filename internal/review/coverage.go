@@ -54,7 +54,7 @@ func (o OpaqueChange) String() string {
 	return fmt.Sprintf("%s (%s)", o.File, o.Kind)
 }
 
-// Derivation is everything git says changed in a repository's range: the Changed
+// Derivation is everything git says changed in a repository's Change Set: the Changed
 // Lines, the Opaque Changes that have no lines, and the cross-side Correspondences
 // that pair each edit's removed lines with the lines that replaced them.
 type Derivation struct {
@@ -68,7 +68,7 @@ type Derivation struct {
 	Base string
 }
 
-// Deriver produces the Changed Lines and Opaque Changes of a repository's range.
+// Deriver produces the Changed Lines and Opaque Changes of a repository's Change Set.
 // It is the half of the git adapter that answers "what actually changed", kept
 // behind an interface so the core performs no git of its own.
 type Deriver interface {

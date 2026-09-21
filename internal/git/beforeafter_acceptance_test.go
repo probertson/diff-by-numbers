@@ -25,7 +25,7 @@ func TestPointingAtTheAfterSideShowsTheBeforeEndToEnd(t *testing.T) {
 			Approach:   "Point at the after-side; the before rides along",
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session xyz"},
 		},
-		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Range: "main"}}},
+		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{
 			Name:        "The edit",
 			Explanation: "two became TWO",

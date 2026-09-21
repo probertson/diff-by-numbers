@@ -144,9 +144,8 @@ func validateChangeSet(c ChangeSet) *Rejection {
 				"repository root %q must be absolute; dbn does not resolve paths relative to its own working directory",
 				repository.Root)
 		}
-		if repository.Range == "" {
-			return reject(RejectedEmptyChangeSet,
-				"repository %q names no range, so the changes under review are undefined", repository.Root)
+		if rejection := validateBase(repository); rejection != nil {
+			return rejection
 		}
 	}
 	return nil
@@ -188,6 +187,33 @@ func validateFilePath(file, where string) *Rejection {
 	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return reject(RejectedMalformedStep,
 			"%s names %q, which escapes its repository", where, file)
+	}
+	return nil
+}
+
+// validateBase checks the ref a repository's Change Set runs from, before any
+// git call, so a malformed one is named for what it is rather than surfacing as
+// a raw merge-base error or a bare derivation_failed.
+//
+// The field is a base ref, not a range: dbn reviews from the merge-base of this
+// ref and HEAD to the working tree. Agents wrote "HEAD~1..HEAD" and "849fb87..HEAD"
+// into it, which git then read as a single ref of that name and failed to
+// resolve, saying nothing about the mistake.
+func validateBase(repository Repository) *Rejection {
+	if repository.Base == "" {
+		return reject(RejectedMalformedBase,
+			"repository %q names no base, so the changes under review are undefined; give a ref such as the default branch",
+			repository.Root)
+	}
+	// Two dots always mean a range and never a ref: git's own ref-format rules
+	// forbid consecutive dots in a branch or tag name, so this cannot catch a
+	// legitimate one. The revision forms agents reach for instead — HEAD~1,
+	// HEAD^, a SHA — have no dots at all.
+	if strings.Contains(repository.Base, "..") {
+		return reject(RejectedMalformedBase,
+			"base takes a single ref, not A..B; dbn reviews from the merge-base with HEAD to the working tree. "+
+				"For \"the last commit\", use HEAD~1. (repository %q gave %q)",
+			repository.Root, repository.Base)
 	}
 	return nil
 }

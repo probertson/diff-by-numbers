@@ -26,7 +26,7 @@ func TestEditingAFileMidReviewMakesItsStepStale(t *testing.T) {
 			Ask: "x", Approach: "y",
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"},
 		},
-		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Range: "main"}}},
+		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{
 			{Name: "app", Explanation: "app change", Excerpts: []review.Excerpt{{Repository: root, File: "app.ts", Side: review.NewSide, FirstLine: 1, LastLine: 4}}},
 			{Name: "other", Explanation: "other change", Excerpts: []review.Excerpt{{Repository: root, File: "other.ts", Side: review.NewSide, FirstLine: 1, LastLine: 2}}},

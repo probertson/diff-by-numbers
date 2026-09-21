@@ -30,7 +30,7 @@ func TestABranchOfMechanicalChangesCanCompleteAWalkthrough(t *testing.T) {
 	run(t, root, "rm", "-q", "longfile.ts")                                     // a long file deleted
 	writeBytes(t, root, "logo.png", []byte{0x00, 0x01, 0x02, 0x00, 0xfe, 0x10}) // binary touched
 
-	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	derivation, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatalf("derivation failed: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestABranchOfMechanicalChangesCanCompleteAWalkthrough(t *testing.T) {
 			Approach:   "One real code line; everything else is mechanical",
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
 		},
-		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Range: "main"}}},
+		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{
 			{
 				Name:        "The one real change",

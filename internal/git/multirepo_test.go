@@ -44,8 +44,8 @@ func TestAWalkthroughSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session x"},
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
-			{Root: portal, Range: "main"},
-			{Root: service, Range: "trunk"},
+			{Root: portal, Base: "main"},
+			{Root: service, Base: "trunk"},
 		}},
 		Steps: []review.Step{
 			{
@@ -90,8 +90,8 @@ func TestCoverageDistinguishesSameNamedFilesAcrossRepositories(t *testing.T) {
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"},
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
-			{Root: portal, Range: "main"},
-			{Root: service, Range: "trunk"},
+			{Root: portal, Base: "main"},
+			{Root: service, Base: "trunk"},
 		}},
 		Steps: []review.Step{{
 			Name: "Only the portal", Explanation: "misses the service entirely",

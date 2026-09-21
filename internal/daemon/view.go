@@ -60,8 +60,8 @@ type BriefWire struct {
 }
 
 type RepositoryWire struct {
-	Root  string `json:"root"`
-	Range string `json:"range"`
+	Root string `json:"root"`
+	Base string `json:"base"`
 }
 
 type CoverageWire struct {
@@ -189,7 +189,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 		})
 	}
 	for _, repository := range v.Repositories {
-		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Range: repository.Range})
+		wire.Repositories = append(wire.Repositories, RepositoryWire{Root: repository.Root, Base: repository.Base})
 	}
 	for _, disposition := range v.Dispositions {
 		comment := disposition.Comment

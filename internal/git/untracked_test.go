@@ -21,7 +21,7 @@ func TestAnUntrackedFileDerivesAsAddedChangedLines(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "notes.md", "alpha\nbeta\ngamma\n")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestAnIgnoredFileIsNotDerived(t *testing.T) {
 	run(t, root, "commit", "-qm", "ignore secrets")
 	write(t, root, "secret.txt", "do not review me\n")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestDerivingLeavesTheRealIndexByteForByteUnchanged(t *testing.T) {
 	write(t, root, "notes.md", "alpha\n")
 	before := readIndex(t, root)
 
-	if _, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"}); err != nil {
+	if _, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,7 +112,7 @@ func TestAnUntrackedBinaryDerivesAsAnOpaqueChange(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	writeBytes(t, root, "logo.png", []byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0x02, 0x00, 0xff})
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestAFileMovedWithoutGitDerivesAsOneRename(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	move(t, root, "app.ts", "renamed.ts")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestAFileMovedWithoutGitAndEditedReadsItsBeforeSideFromTheOldPath(t *testin
 	move(t, root, "app.ts", "renamed.ts")
 	write(t, root, "renamed.ts", "one\ntwo\nthree\nfour\n")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestUntrackedFilesAreDerivedInsideAGitWorktree(t *testing.T) {
 
 	before := readIndex(t, tree)
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: tree, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: tree, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func walkthroughCovering(root, file string, first, last int) review.Walkthrough 
 			Approach:   "One code change, one new file",
 			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
 		},
-		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Range: "main"}}},
+		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{
 			Name:        "The change",
 			Explanation: "the tracked edit",
@@ -311,7 +311,7 @@ func TestDerivingLeavesNoTemporaryFilesBehind(t *testing.T) {
 	before := countTempFiles(t)
 
 	for i := 0; i < 3; i++ {
-		if _, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"}); err != nil {
+		if _, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -331,7 +331,7 @@ func TestAMissingIndexFailsTheDerivationRatherThanStartingFromAnEmptyOne(t *test
 		t.Fatal(err)
 	}
 
-	_, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	_, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 
 	if err == nil {
 		t.Fatal("a missing index must fail the derivation, not be worked around")
@@ -351,7 +351,7 @@ func TestAnUntrackedFileWhoseNameLooksLikePathspecMagicIsStillDerived(t *testing
 		t.Skipf("this filesystem will not hold a file named ':notes.md': %v", err)
 	}
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 
 	if err != nil {
 		t.Fatalf("one oddly named file must not fail the whole derivation: %v", err)

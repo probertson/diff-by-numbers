@@ -2049,7 +2049,9 @@ func (m model) brief() string {
 
 	b.WriteString(labelSt.Render("Under review") + "\n")
 	for _, repository := range m.view.Repositories {
-		b.WriteString(fmt.Sprintf("  %s  (%s)\n", repository.Root, repository.Range))
+		// Named, not just parenthesised: a bare ref beside a path reads as a branch
+		// the work is on, when it is the ref the Change Set is measured from.
+		b.WriteString(fmt.Sprintf("  %s  (base: %s)\n", repository.Root, repository.Base))
 	}
 	b.WriteString("\n")
 

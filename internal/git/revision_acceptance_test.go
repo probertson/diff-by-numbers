@@ -27,7 +27,7 @@ func stepOver(root, file string, first, last int) review.Step {
 func roundOver(root string, steps []review.Step, dispositions []review.Disposition) review.Walkthrough {
 	return review.Walkthrough{
 		Brief:        review.Brief{Ask: "x", Approach: "y", Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"}},
-		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: root, Range: "main"}}},
+		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps:        steps,
 		Dispositions: dispositions,
 	}

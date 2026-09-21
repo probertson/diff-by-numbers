@@ -51,7 +51,7 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 			"ask": "rework the guard", "approach": "renamed it",
 			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
 		},
-		"repositories": []any{map[string]any{"root": root, "range": "main"}},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "Rework the guard", "explanation": "one line became another",
 			"excerpts": []any{map[string]any{
@@ -107,7 +107,7 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 			"ask": "rework the guard", "approach": "renamed it",
 			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
 		},
-		"repositories": []any{map[string]any{"root": root, "range": "main"}},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "Rework the guard", "explanation": "one line became another",
 			"excerpts": []any{map[string]any{
@@ -170,7 +170,7 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 			"ask": "rework the guard", "approach": "renamed it",
 			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
 		},
-		"repositories": []any{map[string]any{"root": root, "range": "main"}},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "Mechanical", "explanation": "a rename, nothing to read",
 			"acknowledgements": []any{map[string]any{

@@ -45,8 +45,8 @@ type wireStep struct {
 }
 
 type wireRepository struct {
-	Root  string `json:"root" jsonschema:"Absolute path to the repository root. Never assume the session's working directory is one"`
-	Range string `json:"range" jsonschema:"The range under review in this repository"`
+	Root string `json:"root" jsonschema:"Absolute path to the repository root. Never assume the session's working directory is one"`
+	Base string `json:"base" jsonschema:"A base ref (branch, tag or commit). dbn reviews everything from the merge-base of this ref and HEAD to the working tree, including uncommitted changes."`
 }
 
 type wireDisposition struct {
@@ -110,7 +110,7 @@ type fetchResult struct {
 func (w wireWalkthrough) toDomain() review.Walkthrough {
 	repositories := make([]review.Repository, 0, len(w.Repositories))
 	for _, r := range w.Repositories {
-		repositories = append(repositories, review.Repository{Root: r.Root, Range: r.Range})
+		repositories = append(repositories, review.Repository{Root: r.Root, Base: r.Base})
 	}
 
 	steps := make([]review.Step, 0, len(w.Steps))

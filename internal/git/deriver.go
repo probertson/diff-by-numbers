@@ -1,4 +1,4 @@
-// Package git derives the Changed Lines of a repository's range. It is the
+// Package git derives the Changed Lines of a repository's Change Set. It is the
 // "what actually changed" half of the git adapter, kept apart from the core so
 // the core runs no git of its own. It shells out to the git binary rather than
 // taking a git library dependency.
@@ -23,7 +23,7 @@ func NewDeriver() Deriver { return Deriver{} }
 // including staged and unstaged work, and never what the other branch did in the
 // meantime.
 func (Deriver) Derive(repo review.Repository) (review.Derivation, error) {
-	base, err := mergeBase(repo.Root, repo.Range)
+	base, err := mergeBase(repo.Root, repo.Base)
 	if err != nil {
 		return review.Derivation{}, err
 	}
@@ -46,13 +46,13 @@ func (Deriver) Derive(repo review.Repository) (review.Derivation, error) {
 	return derivation, nil
 }
 
-func mergeBase(root, rangeRef string) (string, error) {
-	if strings.TrimSpace(rangeRef) == "" {
-		return "", fmt.Errorf("no range given for %s", root)
+func mergeBase(root, baseRef string) (string, error) {
+	if strings.TrimSpace(baseRef) == "" {
+		return "", fmt.Errorf("no base ref given for %s", root)
 	}
-	out, err := runGit(root, "merge-base", rangeRef, "HEAD")
+	out, err := runGit(root, "merge-base", baseRef, "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("could not find the merge-base of %q and HEAD in %s: %w", rangeRef, root, err)
+		return "", fmt.Errorf("could not find the merge-base of %q and HEAD in %s: %w", baseRef, root, err)
 	}
 	return strings.TrimSpace(out), nil
 }

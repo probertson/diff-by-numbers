@@ -8,13 +8,13 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// MergeBase returns the merge-base of a repository's range with HEAD — the "before"
+// MergeBase returns the merge-base of a repository's base ref with HEAD — the "before"
 // revision of the changes under review, the same baseline the Changed Lines are
 // derived from. It is exported so a caller can resolve it once and cache it: the
 // before-side is an immutable committed blob, so nothing about it changes while a
 // Walkthrough is under review.
-func MergeBase(root, rangeRef string) (string, error) {
-	return mergeBase(root, rangeRef)
+func MergeBase(root, baseRef string) (string, error) {
+	return mergeBase(root, baseRef)
 }
 
 // ReadFileAt returns the full lines of a file as it stood at a revision, following
@@ -36,11 +36,11 @@ func ReadFileAt(root, rev, file string) ([]string, error) {
 }
 
 // ReadBefore returns the lines [first, last] of a file's before-side — the file as
-// it stood at the merge-base of the repository's range with HEAD. It reads from
-// git's object store, not the working tree, and refuses a range the before-side
+// it stood at the merge-base of the repository's base ref with HEAD. It reads from
+// git's object store, not the working tree, and refuses a line range the before-side
 // cannot satisfy rather than answering partially.
-func ReadBefore(root, rangeRef, file string, first, last int) ([]review.Line, error) {
-	base, err := MergeBase(root, rangeRef)
+func ReadBefore(root, baseRef, file string, first, last int) ([]review.Line, error) {
+	base, err := MergeBase(root, baseRef)
 	if err != nil {
 		return nil, err
 	}

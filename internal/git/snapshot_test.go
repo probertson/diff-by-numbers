@@ -75,7 +75,7 @@ func TestADerivationReportsTheMergeBaseItResolved(t *testing.T) {
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\ntwo\nthree\nfour\n")
 
-	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Range: "main"})
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}

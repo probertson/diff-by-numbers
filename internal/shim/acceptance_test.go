@@ -334,7 +334,7 @@ func minimalWalkthrough(root string) map[string]any {
 			"approach":   "approach",
 			"provenance": map[string]any{"kind": "stated", "citation": "session-x"},
 		},
-		"repositories": []any{map[string]any{"root": root, "range": "main"}},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{
 			map[string]any{
 				"name":        "the change",

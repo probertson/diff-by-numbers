@@ -70,10 +70,11 @@ Steps are ordered so each is comprehensible given only the Steps before it.
 _Avoid_: chunk, chunk set, section, slice
 
 **Change Set**:
-The complete set of changes under review. May span several repositories, each contributing
-its own range — by default everything that would ship, being the merge-base with that
-repository's default branch plus its working tree. Always named by the Authoring Agent,
-never discovered by dbn, which assumes nothing about the session's working directory.
+The complete set of changes under review. May span several repositories, each named by its
+own **base** ref — everything from the merge-base of that ref and HEAD to the working tree,
+so by default everything that would ship. The base is a single ref, never a range: dbn
+works out the merge-base itself. Always named by the Authoring Agent, never discovered by
+dbn, which assumes nothing about the session's working directory.
 _Avoid_: the diff, the changes, the branch
 
 **Excerpt**:

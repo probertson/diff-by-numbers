@@ -15,6 +15,9 @@ const (
 	RejectedNoWalkthrough RejectionReason = "no_walkthrough"
 	// RejectedEmptyChangeSet means there is nothing to review.
 	RejectedEmptyChangeSet RejectionReason = "empty_change_set"
+	// RejectedMalformedBase means a repository's base ref is missing, or is a
+	// range where a single ref belongs.
+	RejectedMalformedBase RejectionReason = "malformed_base"
 	// RejectedMalformedBrief means the Brief is missing something required.
 	RejectedMalformedBrief RejectionReason = "malformed_brief"
 	// RejectedMalformedStep means a Step is missing something required, or an

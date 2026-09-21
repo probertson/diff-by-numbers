@@ -103,7 +103,7 @@ func appStep(first, last int) review.Step {
 func appWalkthrough(steps []review.Step, dispositions []review.Disposition) review.Walkthrough {
 	return review.Walkthrough{
 		Brief:        review.Brief{Ask: "x", Approach: "y", Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"}},
-		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: revRepo, Range: "main"}}},
+		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: revRepo, Base: "main"}}},
 		Steps:        steps,
 		Dispositions: dispositions,
 	}

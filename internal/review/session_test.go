@@ -20,7 +20,7 @@ func validWalkthrough() review.Walkthrough {
 		},
 		ChangeSet: review.ChangeSet{
 			Repositories: []review.Repository{
-				{Root: "/repos/argus-portal", Range: "merge-base"},
+				{Root: "/repos/argus-portal", Base: "merge-base"},
 			},
 		},
 		Steps: []review.Step{
@@ -333,9 +333,8 @@ func TestAnExcerptFileInsideItsRepositoryIsAccepted(t *testing.T) {
 
 func TestAChangeSetNamingABlankOrRelativeRepositoryIsRejected(t *testing.T) {
 	cases := map[string]review.Repository{
-		"blank root":    {Root: "", Range: "merge-base"},
-		"relative root": {Root: "repos/argus-portal", Range: "merge-base"},
-		"blank range":   {Root: "/repos/argus-portal", Range: ""},
+		"blank root":    {Root: "", Base: "merge-base"},
+		"relative root": {Root: "repos/argus-portal", Base: "merge-base"},
 	}
 
 	for name, repository := range cases {
@@ -349,6 +348,51 @@ func TestAChangeSetNamingABlankOrRelativeRepositoryIsRejected(t *testing.T) {
 
 			assertRejected(t, err, review.RejectedEmptyChangeSet)
 		})
+	}
+}
+
+// The field is a base ref, not a range: dbn reviews from the merge-base of that
+// ref and HEAD to the working tree. Agents wrote "HEAD~1..HEAD" into it, which
+// git read as one ref of that name and failed to resolve — surfacing as a raw
+// merge-base error, or a bare derivation_failed, neither of which says what is
+// actually wrong. It is caught before any git call now.
+func TestABaseThatIsARangeIsRejectedForWhatItIs(t *testing.T) {
+	for _, base := range []string{"HEAD~1..HEAD", "849fb87..HEAD", "main...feature"} {
+		t.Run(base, func(t *testing.T) {
+			session := newSession()
+			walkthrough := validWalkthrough()
+			walkthrough.ChangeSet.Repositories[0].Base = base
+
+			err := session.Post(walkthrough)
+
+			assertRejected(t, err, review.RejectedMalformedBase)
+			assertDetailContains(t, err, "base takes a single ref, not A..B")
+			assertDetailContains(t, err, "use HEAD~1")
+		})
+	}
+}
+
+func TestAMissingBaseIsRejectedAsAMalformedBase(t *testing.T) {
+	session := newSession()
+	walkthrough := validWalkthrough()
+	walkthrough.ChangeSet.Repositories[0].Base = ""
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedMalformedBase)
+	assertDetailContains(t, err, "names no base")
+}
+
+// The check runs before any git call, so a deriver that would have failed is
+// never reached — the agent is told what is wrong with the ref, not what git
+// made of it.
+func TestAnOrdinaryRefStillDerives(t *testing.T) {
+	session := sessionDeriving(changed("src/fetch.ts", 20, 25))
+	walkthrough := validWalkthrough()
+	walkthrough.ChangeSet.Repositories[0].Base = "main"
+
+	if err := session.Post(walkthrough); err != nil {
+		t.Fatalf("a plain ref is exactly what base is for, got %v", err)
 	}
 }
 

@@ -21,7 +21,7 @@ func roundModel(width int, dispositions ...daemon.DispositionWire) model {
 				ProvenanceKind: "stated", ProvenanceCitation: "the session",
 			},
 			Dispositions: dispositions,
-			Repositories: []daemon.RepositoryWire{{Root: "repo", Range: "main"}},
+			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
 			StepNames:    []string{"one"},
 			Seen:         []bool{false},
 		},
