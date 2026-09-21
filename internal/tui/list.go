@@ -17,7 +17,10 @@ const listMarkerRows = 2
 // clipped behind the downward marker. The window is derived from the cursor on
 // every render rather than stored, so a resize needs no bookkeeping — the same
 // rule the Step pane follows.
-func windowItems(items [][]string, cursor, height int) string {
+// continues is what the ↓ marker says when the item under the cursor is itself
+// too tall for the window and clipped: it is not one of the items below, so it
+// is named apart from their count rather than counted among them.
+func windowItems(items [][]string, cursor, height, width int, continues string) string {
 	var rows []string
 	owner := []int{} // the item each row belongs to, for counting what is off-screen
 	// An item ends in a blank row that sets it off from the next. Losing that row
@@ -76,29 +79,53 @@ func windowItems(items [][]string, cursor, height int) string {
 
 	// An item is off-screen when any of its content is, so one straddling an edge
 	// is counted there: it is a Comment the Reviewer cannot read where they are.
+	// The item under the cursor never is. It is held to its top row, so only its
+	// tail can be clipped, and moving down would not reach that tail but leave
+	// it — so it is named apart rather than counted as one more below.
+	// The window never starts inside the cursor's item, so an item straddling
+	// the top edge is always another one.
 	above := owner[start]
 	if start > first[owner[start]] {
 		above++
 	}
-	below := len(items) - 1 - owner[end-1]
-	if end <= lastContent[owner[end-1]] {
+	lastShown := owner[end-1]
+	below := len(items) - 1 - lastShown
+	clipped := end <= lastContent[lastShown]
+	if clipped && lastShown != cursor {
 		below++
 	}
+	cursorClipped := clipped && lastShown == cursor
 
 	out := make([]string, 0, budget+listMarkerRows)
-	out = append(out, overflowMarker("↑", "above", above))
+	if !cursorClipped {
+		continues = ""
+	}
+	out = append(out, overflowMarker("↑", "above", above, "", width))
 	out = append(out, rows[start:end]...)
-	out = append(out, overflowMarker("↓", "below", below))
+	out = append(out, overflowMarker("↓", "below", below, continues, width))
 	return strings.Join(out, "\n")
 }
 
 // overflowMarker is one of the two rows saying how much of a list lies past the
-// window, or a blank row when nothing does.
-func overflowMarker(arrow, where string, n int) string {
-	if n == 0 {
+// window, and — at the bottom — that the item under the cursor carries on past
+// it. It is a blank row when there is nothing to say, and is clipped to width: a
+// marker that wrapped would take a row the window never counted.
+func overflowMarker(arrow, where string, n int, continues string, width int) string {
+	var parts []string
+	if n > 0 {
+		parts = append(parts, fmt.Sprintf("%d more %s", n, where))
+	}
+	if continues != "" {
+		parts = append(parts, continues)
+	}
+	if len(parts) == 0 {
 		return ""
 	}
-	return dimSt.Render(fmt.Sprintf("  %s %d more %s", arrow, n, where))
+	text := fmt.Sprintf("  %s %s", arrow, strings.Join(parts, " · "))
+	if width > 0 {
+		text = truncateTo(text, width)
+	}
+	return dimSt.Render(text)
 }
 
 // listAnchorCap is how many source lines of an Anchor the Comment list quotes

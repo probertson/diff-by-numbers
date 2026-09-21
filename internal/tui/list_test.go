@@ -137,8 +137,36 @@ func TestTheCommentListClipsAnItemTallerThanTheWindow(t *testing.T) {
 	if !strings.Contains(out, "Step 1") {
 		t.Errorf("an oversized item is held to its top row, got:\n%s", out)
 	}
-	if !strings.Contains(out, "more below") {
-		t.Errorf("what was clipped should be announced, got:\n%s", out)
+	if last := lastRow(out); last != "  ↓ 2 more below · this Comment continues — e to read it all" {
+		t.Errorf("expected the two other Comments counted and the clipped one announced apart, got %q", last)
+	}
+}
+
+func lastRow(out string) string {
+	rows := strings.Split(out, "\n")
+	return rows[len(rows)-1]
+}
+
+// The Comment under the cursor is never one of the Comments "below": a single
+// Comment too tall for the window said "1 more below" when there was nothing to
+// move to, and with a second Comment the count read 2.
+func TestAClippedCommentUnderTheCursorIsNotCountedAsMoreBelow(t *testing.T) {
+	for _, tc := range []struct {
+		comments int
+		want     string
+	}{
+		{1, "  ↓ this Comment continues — e to read it all"},
+		{2, "  ↓ 1 more below · this Comment continues — e to read it all"},
+	} {
+		m := tallListModel(tc.comments)
+		m.height = 14
+		m.view.Comments[0].Note = strings.Repeat("first ", 200)
+
+		out := m.listView()
+
+		if last := lastRow(out); last != tc.want {
+			t.Errorf("with %d Comments: expected %q, got %q", tc.comments, tc.want, last)
+		}
 	}
 }
 
@@ -191,5 +219,31 @@ func TestTheReRaisePickerIsWindowedToo(t *testing.T) {
 	}
 	if !strings.Contains(out, "more above") {
 		t.Errorf("expected an upward marker near the bottom of a long picker, got:\n%s", out)
+	}
+}
+
+func TestTheContinuesMarkerIsClippedToANarrowTerminal(t *testing.T) {
+	m := tallListModel(2)
+	m.width, m.height = 26, 14
+	m.view.Comments[0].Note = strings.Repeat("first ", 200)
+
+	out := m.listView()
+
+	if w := lipgloss.Width(lastRow(out)); w > m.width {
+		t.Errorf("a marker wider than the terminal wraps into a row the window never counted: %d > %d in %q", w, m.width, lastRow(out))
+	}
+}
+
+func TestAClippedCommentAwayFromTheCursorIsStillCountedBelow(t *testing.T) {
+	// The oversized Comment is the second one; the cursor is on the first. It is
+	// another Comment the Reviewer cannot read from here, so it is counted.
+	m := tallListModel(3)
+	m.height = 14
+	m.view.Comments[1].Note = strings.Repeat("second ", 200)
+
+	out := m.listView()
+
+	if last := lastRow(out); last != "  ↓ 2 more below" {
+		t.Errorf("expected the clipped second Comment counted with the third, got %q", last)
 	}
 }

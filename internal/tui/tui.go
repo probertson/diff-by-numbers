@@ -1507,7 +1507,9 @@ func (m model) listView() string {
 	for i, comment := range list {
 		items = append(items, m.commentItem(i, comment))
 	}
-	return m.windowedList(title, items, m.commentCursor)
+	// e opens the Comment under the cursor with its whole note and quote, which
+	// is where a Comment too tall for the list is read (#78).
+	return m.windowedList(title, items, m.commentCursor, "this Comment continues — e to read it all")
 }
 
 // commentItem draws one Comment of the list: its heading, as much of its Anchor
@@ -1550,7 +1552,7 @@ func (m model) reraiseView() string {
 	for i, disposition := range offered {
 		items = append(items, m.declinedItem(i, disposition))
 	}
-	return m.windowedList("Re-raise a declined or answered Comment", items, m.reraiseCursor)
+	return m.windowedList("Re-raise a declined or answered Comment", items, m.reraiseCursor, "this one continues")
 }
 
 // declinedItem draws one resolution of the re-raise picker: what the Reviewer
@@ -1590,9 +1592,9 @@ func indentedField(indent, label, text string, width int) []string {
 // windowedList is the frame both the Comment list and the re-raise picker sit
 // in: a title that stays put, and the items windowed on the cursor beneath it
 // (#78). The title and the blank row under it are the two the items do not get.
-func (m model) windowedList(title string, items [][]string, cursor int) string {
+func (m model) windowedList(title string, items [][]string, cursor int, continues string) string {
 	const titleRows = 2
-	return labelSt.Render(title) + "\n\n" + windowItems(items, cursor, m.bodyHeight()-titleRows)
+	return labelSt.Render(title) + "\n\n" + windowItems(items, cursor, m.bodyHeight()-titleRows, m.width, continues)
 }
 
 // doneView is the handed-off screen, with three faces the reviewer can be on
