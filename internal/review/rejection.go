@@ -57,6 +57,9 @@ const (
 	// that is not the one currently under review — including one that has been
 	// concluded, which is no longer under review at all.
 	RejectedUnknownReview RejectionReason = "unknown_review"
+	// RejectedNoPreviousRound means the Reviewer asked to compare a first round
+	// with the round before it, which does not exist.
+	RejectedNoPreviousRound RejectionReason = "no_previous_round"
 	// RejectedAlreadyReRaised means a resolution the Reviewer disputed already has
 	// a Comment standing against it this round, so re-raising again would only
 	// send the agent the same point twice.

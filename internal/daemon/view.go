@@ -117,6 +117,25 @@ type ViewWire struct {
 	Dispositions []DispositionWire `json:"dispositions,omitempty"`
 	// Replaced says the Walkthrough on screen replaced another in place.
 	Replaced bool `json:"replaced,omitempty"`
+	// Round is which round this is; PreviousRound the one it is compared with,
+	// 0 in a first round. SincePreviousRound says the code is shaded by what
+	// changed since then rather than since the merge-base.
+	Round              int  `json:"round"`
+	PreviousRound      int  `json:"previous_round,omitempty"`
+	SincePreviousRound bool `json:"since_previous_round,omitempty"`
+	// Withdrawn is what the previous round had and this one removed outright;
+	// UnchangedSincePrevious says, per Step, that nothing it shows changed since.
+	Withdrawn              []WithdrawalWire `json:"withdrawn,omitempty"`
+	UnchangedSincePrevious []bool           `json:"unchanged_since_previous,omitempty"`
+}
+
+// WithdrawalWire is a run of lines the previous round had and this one removed.
+type WithdrawalWire struct {
+	Repository    string   `json:"repository"`
+	File          string   `json:"file"`
+	After         int      `json:"after"`
+	PreviousFirst int      `json:"previous_first"`
+	Lines         []string `json:"lines"`
 }
 
 // SegmentWire is one side-qualified range of an Anchor's extent. An Anchor taken
@@ -217,6 +236,11 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Finished:  v.Finished,
 		Concluded: v.Concluded,
 		Replaced:  v.Replaced,
+
+		Round:                  v.Round,
+		PreviousRound:          v.PreviousRound,
+		SincePreviousRound:     v.SincePreviousRound,
+		UnchangedSincePrevious: v.UnchangedSincePrevious,
 	}
 	for _, st := range v.StepStatuses {
 		wire.StepStatuses = append(wire.StepStatuses, string(st))
@@ -247,6 +271,11 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Note:      comment.Note,
 			Location:  comment.Anchor.Location(),
 			Anchor:    comment.Anchor.Render(),
+		})
+	}
+	for _, w := range v.Withdrawn {
+		wire.Withdrawn = append(wire.Withdrawn, WithdrawalWire{
+			Repository: w.Repository, File: w.File, After: w.After, PreviousFirst: w.PreviousFirst, Lines: w.Lines,
 		})
 	}
 	if v.Step != nil {

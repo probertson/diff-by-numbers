@@ -1,7 +1,8 @@
 // The ports a Session reaches the git adapter through to scope a Revision
-// Round. The core holds no git knowledge of its own: it asks for a snapshot,
-// asks how two snapshots differ, and decides for itself what that means for
-// coverage. See ADR-0014.
+// Round, and to show the Reviewer what changed since the last one. The core
+// holds no git knowledge of its own: it asks for a snapshot, asks how two
+// snapshots differ, and decides for itself what that means — for coverage, and
+// for how the round is shaded (#44). See ADR-0014.
 package review
 
 // Position is where a line stood in one round's snapshot of the working tree.
@@ -26,6 +27,23 @@ type RoundMapping interface {
 	// its own: they are positions in the merge-base, so their numbers do not
 	// move, but the ledger files them under the file's *current* path.
 	PathIn(file string) string
+	// Edits lists what changed in a file between the two rounds, in file order:
+	// what a Revision Round shows the Reviewer when it shades a Step by what
+	// changed since the last round, rather than since the merge-base (#44).
+	Edits(file string) []RoundEdit
+	// Files names every file that differs between the two rounds, by its path
+	// in the later one — or in the earlier, for a file the later round no
+	// longer has, which nothing else would ever name.
+	Files() []string
+}
+
+// RoundEdit is one edit between two rounds: the lines of the earlier round it
+// replaced, and the lines of the later one that took their place. Either count
+// may be zero. A pure withdrawal has no new lines, and then NewFirst is the line
+// above the gap it left, as git reports it.
+type RoundEdit struct {
+	OldFirst, OldCount int
+	NewFirst, NewCount int
 }
 
 // Snapshotter is the optional capability that lets a Revision Round be scoped to

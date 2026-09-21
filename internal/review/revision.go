@@ -206,6 +206,12 @@ func (u unmovedSince) Touched(file string) bool { return u.forward.Touched(file)
 
 func (u unmovedSince) PathIn(file string) string { return u.forward.PathIn(file) }
 
+// Edits has nothing to report: this mapping stands for old-side positions in a
+// merge-base that has not moved.
+func (u unmovedSince) Edits(string) []RoundEdit { return nil }
+
+func (u unmovedSince) Files() []string { return nil }
+
 // resolveDispositions pairs each posted Disposition with the previous round's
 // Comment it names, and refuses a Revision Round that does not account for
 // every one — addressed, or answered or declined with a response.

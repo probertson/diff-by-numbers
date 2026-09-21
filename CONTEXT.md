@@ -182,6 +182,14 @@ hands a Walkthrough off having raised nothing. Lines it has already shown are pr
 coverage does not demand them again, and they cost nothing against a Step's budget.
 _Avoid_: fix pass, iteration, follow-up
 
+**Withdrawal**:
+A run of lines the previous round had that the Revision Round removed outright,
+with nothing in their place. No Changed Line can name one, since the lines were
+never in the merge-base and are no longer in the working tree. So dbn finds
+withdrawals by comparing the two rounds' snapshots, and always shows them to the
+Reviewer.
+_Avoid_: deletion (which is measured against the merge-base), revert
+
 **Replacement**:
 A Walkthrough the Authoring Agent posts in place of the one still under review,
 because the Reviewer asked for a change mid-round or the plan was wrong (ADR-0004).
@@ -200,13 +208,19 @@ _Avoid_: finish, finalize, submit, sign off, complete
 
 **Round Snapshot**:
 A git tree object recording each repository's working tree as it stood when a
-Walkthrough was accepted. It does two jobs. It is what the round's code is read
-from: the Reviewer sees, expands and anchors exactly what was posted, and a file
-edited since is *changed on disk*, flagged with a warning rather than hidden
-(ADR-0004). And a Revision Round is scoped by diffing the previous round's
-snapshot against the current one, so "already read" is decided by position
-rather than by line text (ADR-0014). Nothing is derived from a snapshot: the
-Change Set still comes from the working tree.
+Walkthrough was accepted. It does three jobs.
+- It is what the round's code is read from. The Reviewer sees, expands and
+  anchors exactly what was posted, and a file edited since is *changed on disk*,
+  flagged with a warning rather than hidden (ADR-0004).
+- A Revision Round is scoped by diffing the previous round's snapshot against
+  the current one, so "already read" is decided by position rather than by line
+  text (ADR-0014).
+- The same diff is what a Revision Round is shaded by: what changed since the
+  previous round, with its replaced and withdrawn lines read from that round's
+  snapshot (ADR-0014).
+
+The Change Set is not derived from a snapshot; it still comes from the working
+tree.
 _Avoid_: stash, checkpoint, baseline
 
 **Position**:

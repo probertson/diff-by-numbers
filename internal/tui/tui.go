@@ -683,6 +683,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l", "L":
 			m.openList(modeReview)
 			return m, nil
+		case "b":
+			// What the round is compared with is the whole review's choice, not
+			// one Step's, so it is the daemon's to hold (#57): the rows come
+			// back already shaded.
+			if m.view != nil && m.view.PreviousRound > 0 {
+				m.client.intent("/since-previous")
+				return m, m.refresh()
+			}
 		case "R":
 			if len(m.reRaisableDispositions()) == 0 {
 				// Two different nothings: the agent turned nothing down, or the
@@ -1334,6 +1342,9 @@ func (m model) modeKeys() string {
 		if len(m.reRaisableDispositions()) > 0 {
 			tokens = append(tokens, "R re-raise a decline or answer")
 		}
+		if m.view.PreviousRound > 0 {
+			tokens = append(tokens, m.comparisonKey())
+		}
 		return keybar(tokens...)
 	}
 	if !m.inStep() || len(m.cursor.lines) == 0 {
@@ -1358,6 +1369,9 @@ func (m model) modeKeys() string {
 		}
 	}
 	tokens = append(tokens, m.wrapToggleKey())
+	if m.view.PreviousRound > 0 {
+		tokens = append(tokens, m.comparisonKey())
+	}
 	return keybar(tokens...)
 }
 
@@ -1996,7 +2010,29 @@ func (m model) doneHeading() string {
 
 func (m model) coverageSuffix() string {
 	c := m.view.Coverage
-	return fmt.Sprintf("  ·  %d/%d changed lines seen", c.Seen, c.Total)
+	return fmt.Sprintf("  ·  %d/%d changed lines seen", c.Seen, c.Total) + m.comparisonSuffix()
+}
+
+// comparisonSuffix names what a Revision Round's code is shaded against (#44).
+// It never names the ref: that can be long, a SHA, or differ per repository, and
+// the Overview's "Under review" already gives it.
+func (m model) comparisonSuffix() string {
+	switch {
+	case m.view.PreviousRound == 0:
+		return ""
+	case m.view.SincePreviousRound:
+		return fmt.Sprintf("  ·  changes since round %d", m.view.PreviousRound)
+	}
+	return "  ·  all changes under review"
+}
+
+// comparisonKey offers the other comparison as what b will do next, like the
+// wrap toggle.
+func (m model) comparisonKey() string {
+	if m.view.SincePreviousRound {
+		return "b show all changes under review"
+	}
+	return fmt.Sprintf("b show only changes since round %d", m.view.PreviousRound)
 }
 
 const nbsp = "\u00a0"
@@ -2092,6 +2128,9 @@ func (m model) brief() string {
 	if len(m.view.Dispositions) > 0 {
 		b.WriteString(m.sinceTheLastRound(m.viewport.Width))
 	}
+	if len(m.view.Withdrawn) > 0 {
+		b.WriteString(m.withdrawnSince(m.viewport.Width))
+	}
 
 	b.WriteString(labelSt.Render("Under review") + "\n")
 	for _, repository := range m.view.Repositories {
@@ -2107,7 +2146,11 @@ func (m model) brief() string {
 		if i < len(m.view.Seen) && m.view.Seen[i] {
 			mark = "✓"
 		}
-		b.WriteString(fmt.Sprintf("  %s %2d. %s\n", dimSt.Render(mark), i+1, name))
+		unchanged := ""
+		if i < len(m.view.UnchangedSincePrevious) && m.view.UnchangedSincePrevious[i] {
+			unchanged = dimSt.Render(fmt.Sprintf(" unchanged since round %d", m.view.PreviousRound))
+		}
+		b.WriteString(fmt.Sprintf("  %s %2d. %s%s\n", dimSt.Render(mark), i+1, name, unchanged))
 	}
 	return b.String()
 }
@@ -2132,7 +2175,7 @@ func (m model) step() string {
 			gutter := gutterSt.Render(fmt.Sprintf("%5d │ ", line.Number))
 			if line.Changed {
 				sign, style := "+", addSt
-				if lineSide(line, excerpt) == "old" {
+				if removedSide(lineSide(line, excerpt)) {
 					sign, style = "-", delSt
 				}
 				b.WriteString(gutter + style.Render(sign+" "+line.Text) + "\n")

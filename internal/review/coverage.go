@@ -143,6 +143,24 @@ type ledger struct {
 	preShownOpaque map[fileRef]bool
 }
 
+// newSinceEarlier reports whether a Changed Line is new to this round: not one
+// the earlier round already had, which pre-marking records. For an old-side line
+// that means a deletion the earlier round did not have yet.
+func (l ledger) newSinceEarlier(line ChangedLine) bool {
+	return l.isChanged(line.Repository, line.File, line.Side, line.Line) && !l.preShown[line]
+}
+
+// deletedSinceEarlier reports whether an old-side Excerpt shows any deletion new
+// to this round.
+func (l ledger) deletedSinceEarlier(excerpt Excerpt) bool {
+	for n := excerpt.FirstLine; n <= excerpt.LastLine; n++ {
+		if l.newSinceEarlier(ChangedLine{Repository: excerpt.Repository, File: excerpt.File, Side: OldSide, Line: n}) {
+			return true
+		}
+	}
+	return false
+}
+
 // withPreMarking returns the ledger scoped to a Revision Round. The atoms are
 // unchanged; what the round has already shown is marked, so coverage does not
 // re-demand it and the budget does not count it.

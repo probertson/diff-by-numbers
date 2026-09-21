@@ -2,6 +2,7 @@ package review_test
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
@@ -56,10 +57,23 @@ func (d *roundDeriver) MapBetween(_, _, _ string) (review.RoundMapping, error) {
 }
 
 // fakeMapping reports the atoms a test named as touched, and everything else as
-// unmoved and in place.
+// unmoved and in place. edits is what a test says changed in each file between
+// the rounds, for the cases that shade by it.
 type fakeMapping struct {
 	touched map[string]bool
 	renamed map[string]string
+	edits   map[string][]review.RoundEdit
+}
+
+func (m fakeMapping) Edits(file string) []review.RoundEdit { return m.edits[file] }
+
+func (m fakeMapping) Files() []string {
+	var out []string
+	for file := range m.edits {
+		out = append(out, file)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (m fakeMapping) Lookup(file string, line int) (review.Position, bool) {

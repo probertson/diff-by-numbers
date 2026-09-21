@@ -36,6 +36,11 @@ type Side string
 const (
 	OldSide Side = "old"
 	NewSide Side = "new"
+	// PreviousSide qualifies a row read from the previous round's snapshot,
+	// drawn when a Revision Round is shaded by what moved since then (#44): a
+	// line that round had and this one replaced or withdrew. dbn draws these;
+	// an Excerpt never names one, and validation refuses it.
+	PreviousSide Side = "previous"
 )
 
 // Excerpt is a contiguous range of lines in one file of one repository that the

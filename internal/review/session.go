@@ -49,6 +49,14 @@ type Session struct {
 	// replaced records that the Walkthrough on screen replaced another in place,
 	// so a surface can tell the Reviewer why it changed under them.
 	replaced bool
+	// roundNumber counts the review's rounds: 1 for the first, one more for each
+	// Revision Round. A Replacement is the same round.
+	roundNumber int
+	// previous is the round the one on screen is compared with, or nil for a
+	// first round; showAll is the Reviewer choosing to see every change under
+	// review instead.
+	previous *previousRound
+	showAll  bool
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
@@ -248,6 +256,16 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 	s.latest = captureRound(ledger, round)
 	s.replaced = replacing
 	s.postings++
+	switch {
+	case replacing:
+	case earlier != nil:
+		s.roundNumber++
+	default:
+		s.roundNumber = 1
+	}
+	s.previous = s.comparedWith(earlier, round, w.ChangeSet)
+	s.settle(s.previous)
+	s.showAll = false
 
 	// A replacement keeps the Reviewer's Comments: each quotes its own code, so
 	// it stands without the Step it was raised on, which the replacement no

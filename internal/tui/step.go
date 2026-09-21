@@ -175,6 +175,10 @@ func (c *stepCursor) restore(spot codeLine) {
 	}
 }
 
+// removedSide reports whether a row on this side is a removal: from the
+// merge-base, or from the previous round a Revision Round is compared with.
+func removedSide(side string) bool { return side == "old" || side == "previous" }
+
 // lineSide is the side a rendered row belongs to: its own, since a new-side
 // Excerpt's lines are a unified diff mixing the after-side with the before-side it
 // replaced. It falls back to the Excerpt's side for a line that carries none.
@@ -788,7 +792,7 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 	sign := " "
 	if line.changed {
 		sign = "+"
-		if line.side == "old" {
+		if removedSide(line.side) {
 			sign = "-"
 		}
 	}

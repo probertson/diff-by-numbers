@@ -3,6 +3,7 @@ package git
 import (
 	"bufio"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
@@ -88,6 +89,28 @@ func (m Mapping) Touched(file string) bool {
 	return differs
 }
 
+// Edits lists the diff's hunks for a file, as round-to-round edits.
+func (m Mapping) Edits(file string) []review.RoundEdit {
+	var out []review.RoundEdit
+	for _, edit := range m.files[file].edits {
+		out = append(out, review.RoundEdit{
+			OldFirst: edit.oldFirst, OldCount: edit.oldCount,
+			NewFirst: edit.newFirst, NewCount: edit.newCount,
+		})
+	}
+	return out
+}
+
+// Files names every file git saw differ between the two trees, in path order.
+func (m Mapping) Files() []string {
+	out := make([]string, 0, len(m.files))
+	for file := range m.files {
+		out = append(out, file)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // PathIn returns the file's path in the earlier tree, following a rename.
 func (m Mapping) PathIn(file string) string {
 	mapped, ok := m.files[file]
@@ -115,6 +138,10 @@ func parseMapping(diff string) (Mapping, error) {
 
 	var path string
 	var current fileMapping
+	// The body lines still to come in the hunk being read. They are content,
+	// however much one looks like a header: a changed line whose text begins
+	// "++ " arrives as "+++ …".
+	var bodyLeft int
 	flush := func() {
 		if path == "" {
 			return
@@ -133,7 +160,10 @@ func parseMapping(diff string) (Mapping, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case bodyLeft > 0 && (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")):
+			bodyLeft--
 		case strings.HasPrefix(line, "diff --git "):
+			bodyLeft = 0
 			flush()
 			path, current = "", fileMapping{}
 			// A change with no hunks and no rename — a binary file, or a mode
@@ -169,6 +199,7 @@ func parseMapping(diff string) (Mapping, error) {
 				newFirst: newFirst, newCount: newCount,
 				oldFirst: oldFirst, oldCount: oldCount,
 			})
+			bodyLeft = oldCount + newCount
 		}
 	}
 	flush()

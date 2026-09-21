@@ -462,6 +462,7 @@ func (d *Daemon) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /advance", d.navHandler(func() error { return d.session.Advance() }))
+	mux.HandleFunc("POST /since-previous", d.navHandler(func() error { return d.session.ToggleSincePreviousRound() }))
 	mux.HandleFunc("POST /back", d.navHandler(func() error { return d.session.Back() }))
 	mux.HandleFunc("POST /goto/{n}", func(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(r.PathValue("n"))

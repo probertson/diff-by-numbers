@@ -1,6 +1,8 @@
 package git_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/git"
@@ -150,5 +152,84 @@ func TestTheLineAboveADeletionMapsToItself(t *testing.T) {
 	}
 	if at.Line != 1 {
 		t.Errorf("`one` sits above the deletion and did not move; got line %d", at.Line)
+	}
+}
+
+// The edits between two rounds are what a Revision Round shows the Reviewer when
+// it shades a Step by what changed since the last round (#44): each one says which
+// lines of the earlier tree it replaced, and with which lines of the later one.
+func TestTheMappingListsEachEditBetweenTheTrees(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "app.ts", "a\nb\nc\nd\ne\n")
+	from := snapshotOf(t, root)
+	write(t, root, "app.ts", "a\nB\nc\ne\nf\n") // b rewritten, d withdrawn, f added
+	to := snapshotOf(t, root)
+
+	edits := mapping(t, root, from, to).Edits("app.ts")
+
+	want := []review.RoundEdit{
+		{OldFirst: 2, OldCount: 1, NewFirst: 2, NewCount: 1},
+		{OldFirst: 4, OldCount: 1, NewFirst: 3, NewCount: 0},
+		{OldFirst: 5, OldCount: 0, NewFirst: 5, NewCount: 1},
+	}
+	if len(edits) != len(want) {
+		t.Fatalf("expected %d edits, got %+v", len(want), edits)
+	}
+	for i := range want {
+		if edits[i] != want[i] {
+			t.Errorf("edit %d: expected %+v, got %+v", i, want[i], edits[i])
+		}
+	}
+}
+
+func TestAnUntouchedFileHasNoEdits(t *testing.T) {
+	root := newRepo(t)
+	from := snapshotOf(t, root)
+	to := snapshotOf(t, root)
+
+	edits := mapping(t, root, from, to).Edits("app.ts")
+
+	if len(edits) != 0 {
+		t.Errorf("expected no edits, got %+v", edits)
+	}
+}
+
+// A changed line whose own text begins "++ " reaches the diff as "+++ …", the
+// shape of a file header. Read as one, it would retarget every later hunk of the
+// file to a path that does not exist.
+func TestAChangedLineShapedLikeAFileHeaderDoesNotRetargetTheMapping(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "doc.md", "one\ntwo\nthree\nfour\n")
+	from := snapshotOf(t, root)
+	write(t, root, "doc.md", "one\n++ b/ghost\nthree\nFOUR\n")
+	to := snapshotOf(t, root)
+
+	m := mapping(t, root, from, to)
+
+	if _, ok := m.Lookup("doc.md", 4); ok {
+		t.Error("expected doc.md line 4, edited, not to map back")
+	}
+	if m.Touched("ghost") {
+		t.Error("a line's text must not be read as a file header")
+	}
+}
+
+func TestTheMappingNamesAFileTheLaterTreeNoLongerHas(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "scratch.ts", "x\ny\n")
+	from := snapshotOf(t, root)
+	if err := os.Remove(filepath.Join(root, "scratch.ts")); err != nil {
+		t.Fatal(err)
+	}
+	to := snapshotOf(t, root)
+
+	m := mapping(t, root, from, to)
+
+	if files := m.Files(); len(files) != 1 || files[0] != "scratch.ts" {
+		t.Fatalf("expected scratch.ts named, got %v", files)
+	}
+	edits := m.Edits("scratch.ts")
+	if len(edits) != 1 || edits[0] != (review.RoundEdit{OldFirst: 1, OldCount: 2, NewFirst: 0, NewCount: 0}) {
+		t.Errorf("expected both lines withdrawn from the top, got %+v", edits)
 	}
 }

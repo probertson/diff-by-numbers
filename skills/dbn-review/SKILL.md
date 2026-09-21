@@ -186,6 +186,11 @@ read last round and nobody has touched since, so the new Walkthrough is scoped t
 exactly what you moved. You still plan Steps and coverage for the moved lines the
 same way.
 
+Do not label Steps "Changed" or "unchanged" in their names or explanations. In a
+Revision Round dbn shades the code by what changed since the previous round, and
+marks a Step whose code did not change at all, so the reviewer already sees it. Lines
+you removed since the last round are shown to them too, even where no Step points.
+
 Scoping is positional — dbn compares each round against a snapshot of the working
 tree it took when the last round was accepted — so it is exact. Blank lines and
 lone closing braces are scoped out like anything else, and a file you did not

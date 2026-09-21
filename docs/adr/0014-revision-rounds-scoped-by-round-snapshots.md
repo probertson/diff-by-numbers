@@ -87,3 +87,26 @@ behaviour change in the conservative direction.
 **Lines withdrawn between rounds** — added in round 1, gone in round 2 — are in neither round's
 Change Set, so nothing shows them. That gap is not new, and it is #44's to close using these
 same snapshots.
+
+## Amendment (#44): the round-over-round diff is also what the Reviewer is shown
+
+This ADR used the diff of two rounds' snapshots only to decide what was already read. #44
+shows it to the Reviewer as well. A Revision Round opens shaded by what changed since the
+previous round rather than since the merge-base:
+- A line that round already had, untouched, is plain.
+- A line added or rewritten since is shaded.
+- The lines an edit replaced are drawn above their replacement, read from the previous
+  round's snapshot.
+
+The Reviewer can switch back to every change under review, for the whole review at once.
+The daemon holds that choice, because it draws the rows (#57).
+
+This closes the gap the Consequences left open. Lines **withdrawn** between rounds, in
+neither round's Change Set, are found in the same diff. The Overview lists every one, and a
+Step draws one where it falls among the lines it shows. Coverage and pre-marking are
+untouched: they still ask their question of the merge-base Change Set, and the new shading
+changes only what the Reviewer sees.
+
+The mapping port grew to carry this. It now lists each file's edits between the rounds, and
+the files that differ, including one the later round no longer has, which no Changed Line
+would ever name.

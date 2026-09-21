@@ -67,6 +67,10 @@ type Anchor struct {
 	// posted. The Anchor still quotes what the Reviewer saw — the posted version —
 	// so its line numbers may no longer match the file, and the agent is told.
 	ChangedOnDisk bool
+	// PreviousRound is the round the Anchor's previous-side rows were read from,
+	// when it quotes lines that round had and this one replaced or withdrew; 0
+	// when it quotes none.
+	PreviousRound int
 }
 
 // Anchor composes an Anchor for a selection within the Step in view. The run
@@ -134,6 +138,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		AcknowledgementReason: reason,
 		Acknowledgement:       ackIndex,
 		ChangedOnDisk:         view.ChangedOnDisk,
+		PreviousRound:         s.previousRoundIn(lines),
 	}, nil
 }
 
@@ -195,6 +200,16 @@ func rowIndex(lines []Line, endpoint AnchorEndpoint, excerpt Excerpt) (int, erro
 		"this Excerpt shows no %s-side line %d", side, endpoint.Line)
 }
 
+// previousRoundIn is the round any previous-side rows among lines came from.
+func (s *Session) previousRoundIn(lines []Line) int {
+	for _, line := range lines {
+		if line.Side == PreviousSide {
+			return s.previousNumber()
+		}
+	}
+	return 0
+}
+
 // segmentsOf collapses a run of rendered lines into the side-qualified ranges it
 // covers, in the order they were rendered.
 func segmentsOf(lines []Line) []AnchorSegment {
@@ -214,13 +229,16 @@ func segmentsOf(lines []Line) []AnchorSegment {
 // a before-side number is a line that no longer exists on disk, and an agent
 // handed only the numbers would otherwise edit the wrong place. The sides are
 // held apart by a dash rather than a comma, because a comma already separates the
-// several ranges one side can carry: "before 651, 700 — after 691-710".
+// several ranges one side can carry: "before 651, 700 — after 691-710". Lines
+// quoted from the previous round a Revision Round is compared with get a group
+// of their own, "round 2 14", since their numbers are positions in that round
+// and in neither side of this one.
 func (a Anchor) Location() string {
 	parts := []string{a.File}
 	for _, group := range []struct {
 		side  Side
 		label string
-	}{{OldSide, "before"}, {NewSide, "after"}} {
+	}{{OldSide, "before"}, {PreviousSide, fmt.Sprintf("round %d", a.PreviousRound)}, {NewSide, "after"}} {
 		if ranges := rangesOn(a.Segments, group.side); ranges != "" {
 			parts = append(parts, group.label+" "+ranges)
 		}
@@ -270,14 +288,21 @@ func (a Anchor) Render() string {
 	if a.ChangedOnDisk {
 		b.WriteString(" (file changed since this round was posted; line numbers are from the posted version)")
 	}
+	if a.PreviousRound > 0 {
+		fmt.Fprintf(&b, " (includes lines removed since round %d)", a.PreviousRound)
+	}
 	b.WriteString("\n\n")
 	for _, line := range a.Lines {
 		marker := " "
-		if line.Changed {
+		switch {
+		case line.Side == PreviousSide:
+			// A line the previous round had, so its number is a position in that
+			// round, not in either side of this one; the prefix says which.
+			marker = fmt.Sprintf("- r%d", a.PreviousRound)
+		case line.Changed && line.Side == OldSide:
+			marker = "-"
+		case line.Changed:
 			marker = "+"
-			if line.Side == OldSide {
-				marker = "-"
-			}
 		}
 		fmt.Fprintf(&b, "%s %5d | %s\n", marker, line.Number, strings.ReplaceAll(line.Text, "\t", "    "))
 	}

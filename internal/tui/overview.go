@@ -195,3 +195,50 @@ func (m model) declinesHint() string {
 	}
 	return fmt.Sprintf("%d of %s not re-raised — R to re-raise", standing, pluralize(len(declined), "decline"))
 }
+
+// withdrawnCap is how many lines of one withdrawn run the Overview shows before
+// saying how many more there are.
+const withdrawnCap = 5
+
+// withdrawnSince lists what the previous round had and this one removed
+// outright (#44). Nothing else can show it: no Changed Line names a line that
+// was never in the merge-base and is no longer in the working tree, so the agent
+// has no coverage reason to show the spot where it was.
+func (m model) withdrawnSince(width int) string {
+	var b strings.Builder
+	b.WriteString(labelSt.Render(fmt.Sprintf("Withdrawn since round %d", m.view.PreviousRound)) + "\n")
+	indent := strings.Repeat(" ", dispositionIndent)
+	showRepo := len(m.view.Repositories) > 1
+	for _, w := range m.view.Withdrawn {
+		where := "at the top"
+		if w.After > 0 {
+			where = fmt.Sprintf("below line %d", w.After)
+		}
+		// Where the lines were in the previous round, which is all there is to
+		// place them by when this round no longer has the file at all.
+		where += fmt.Sprintf(" (round %d %s)", m.view.PreviousRound, lineSpan(w.PreviousFirst, len(w.Lines)))
+		heading := fileLabel(w.Repository, w.File, showRepo) + " — " + where
+		b.WriteString(indent + fitRow(heading, heading, width-dispositionIndent) + "\n")
+		shown := w.Lines
+		if len(shown) > withdrawnCap {
+			shown = shown[:withdrawnCap]
+		}
+		for _, line := range shown {
+			text := "- " + strings.ReplaceAll(line, "\t", "    ")
+			b.WriteString(indent + "  " + delSt.Render(truncateTo(text, width-dispositionIndent-2)) + "\n")
+		}
+		if more := len(w.Lines) - len(shown); more > 0 {
+			b.WriteString(indent + "  " + dimSt.Render(fmt.Sprintf("… %d more lines", more)) + "\n")
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// lineSpan names a run of count lines from first: "line 5" or "lines 5-11".
+func lineSpan(first, count int) string {
+	if count == 1 {
+		return fmt.Sprintf("line %d", first)
+	}
+	return fmt.Sprintf("lines %d-%d", first, first+count-1)
+}

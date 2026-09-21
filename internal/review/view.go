@@ -6,10 +6,15 @@ import (
 )
 
 // Line is one row of resolved file content, tagged with the Side it belongs to
-// and whether git considers it a Changed Line (versus reference context the
-// Excerpt included for readability). A new-side Excerpt's rendered lines are a
-// unified diff: mostly new-side rows, with the before-side rows of each edit it
-// shows injected as `-` lines, so Side is per line, not per Excerpt.
+// and whether it is shaded as changed (versus reference context the Excerpt
+// included for readability). A new-side Excerpt's rendered lines are a unified
+// diff: mostly new-side rows, with the removed rows of each edit it shows
+// injected as `-` lines, so Side is per line, not per Excerpt.
+//
+// What counts as changed, and which rows are injected, depends on what the
+// round is shaded against. Against the merge-base, Changed means a Changed Line
+// and the injected rows are the before-side. Since the previous round (#44), it
+// means touched since then, and the injected rows are the previous round's.
 type Line struct {
 	Number  int
 	Text    string
@@ -149,6 +154,18 @@ type ViewModel struct {
 	// Replaced reports that the Walkthrough on screen replaced another in place,
 	// so a surface can say why the review changed under the Reviewer.
 	Replaced bool
+	// Round is which round of the review this is. PreviousRound is the round it
+	// is compared with, 0 for a first round; SincePreviousRound says the code is
+	// shaded by what changed since then rather than since the merge-base.
+	Round              int
+	PreviousRound      int
+	SincePreviousRound bool
+	// Withdrawn lists what the previous round had and this one removed outright,
+	// whichever way the code is shaded. UnchangedSincePrevious says, per Step,
+	// that nothing it shows is new or edited since then. Both are nil in a
+	// first round.
+	Withdrawn              []Withdrawal
+	UnchangedSincePrevious []bool
 }
 
 // View reports what should be on screen right now.
@@ -183,6 +200,13 @@ func (s *Session) View() ViewModel {
 		Concluded:    s.isConcluded(),
 		Dispositions: s.Dispositions(),
 		Replaced:     s.replaced,
+
+		Round:              s.roundNumber,
+		PreviousRound:      s.previousNumber(),
+		SincePreviousRound: s.sincePrevious(),
+
+		Withdrawn:              s.previousWithdrawn(),
+		UnchangedSincePrevious: s.previousUnchanged(),
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)
@@ -234,6 +258,10 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 		return view
 	}
 	if excerpt.Side == NewSide {
+		if rows, ok := s.sinceRows(excerpt, in, lines); ok {
+			view.Lines = rows
+			return view
+		}
 		view.Lines = s.interleaveBefore(excerpt, in, lines)
 		return view
 	}
@@ -242,7 +270,12 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	// standalone block would show the same removal twice in one Step; what falls
 	// outside any modification the Step shows — a deliberate deletion — still
 	// renders here, which is what an old-side Excerpt was for.
-	interleaved := s.interleavedOld(in)
+	// Shaded by what moved since the previous round, no merge-base before-side
+	// is interleaved anywhere, so nothing here was drawn already.
+	interleaved := map[fileLine]bool{}
+	if !s.sincePrevious() {
+		interleaved = s.interleavedOld(in)
+	}
 	kept := make([]Line, 0, len(lines))
 	for _, line := range lines {
 		if interleaved[fileLine{excerpt.Repository, excerpt.File, line.Number}] {
@@ -250,6 +283,11 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 		}
 		line.Side = excerpt.Side
 		line.Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, line.Number)
+		if s.sincePrevious() {
+			// Shaded by what changed since the previous round, a deletion that
+			// round already had is not news.
+			line.Changed = s.ledger.newSinceEarlier(ChangedLine{Repository: excerpt.Repository, File: excerpt.File, Side: excerpt.Side, Line: line.Number})
+		}
 		kept = append(kept, line)
 	}
 	view.Lines = kept
