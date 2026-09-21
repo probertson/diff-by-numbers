@@ -85,7 +85,7 @@ func (m fakeMapping) PathIn(file string) string {
 // an edit on disk, so the same line number can carry different content per round.
 type textResolver struct{ text map[string]string }
 
-func (r *textResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+func (r *textResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
 	if e.Side == review.OldSide {
 		return nil, fmt.Errorf("old side unavailable")
 	}

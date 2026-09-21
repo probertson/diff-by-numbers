@@ -149,24 +149,6 @@ func TestAnchoringAnAcknowledgedOpaqueChangeIsRejected(t *testing.T) {
 	assertRejected(t, err, review.RejectedBadSelection)
 }
 
-func TestAnchoringAcknowledgedCodeThatChangedOnDiskIsRejected(t *testing.T) {
-	// The expansion the Reviewer is looking at was read before the edit; quoting the
-	// file now would put code in the Anchor they never saw.
-	resolver := &hashingResolver{hashes: map[string]string{"/repos/argus-portal|gen.ts": "v1"}}
-	walkthrough := validWalkthrough()
-	walkthrough.Steps = []review.Step{acknowledgingStep("gen.ts")}
-	session := review.NewSession(resolver, fixedDeriver{lines: changed("gen.ts", 1, 3)})
-	mustPost(t, session, walkthrough)
-	mustAdvance(t, session)
-	ack := 0
-	target := review.AnchorTarget{Acknowledgement: &ack, Start: newRow(1), End: newRow(2)}
-
-	resolver.hashes["/repos/argus-portal|gen.ts"] = "v2" // the file changes on disk
-	_, err := session.Anchor(target)
-
-	assertRejected(t, err, review.RejectedStaleContent)
-}
-
 func TestAnAnchorRemembersWhichAcknowledgementItLiesIn(t *testing.T) {
 	session := acknowledgedEdits(t)
 	ack := 0

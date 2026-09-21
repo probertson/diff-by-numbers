@@ -39,14 +39,13 @@ type ResolvedDisposition struct {
 }
 
 // roundState is what one accepted round leaves behind for the next to be
-// scoped against: where every repository's working tree stood, which base it was
-// derived from, and which lines and Opaque Changes the Reviewer was shown.
+// scoped against: its Round — where every repository's working tree stood and
+// which base it was derived from — and which lines and Opaque Changes the
+// Reviewer was shown.
 type roundState struct {
-	// snapshots and bases are keyed by repository root.
-	snapshots map[string]string
-	bases     map[string]string
-	lines     map[ChangedLine]bool
-	opaque    map[fileRef]bool
+	Round
+	lines  map[ChangedLine]bool
+	opaque map[fileRef]bool
 }
 
 // snapshotAll records every repository's working tree. A repository that cannot
@@ -66,12 +65,11 @@ func snapshotAll(snapshotter Snapshotter, set ChangeSet) map[string]string {
 
 // captureRound records what this round showed, for the next round to scope
 // against.
-func captureRound(l ledger, snapshots map[string]string, bases map[string]string) roundState {
+func captureRound(l ledger, round Round) roundState {
 	state := roundState{
-		snapshots: snapshots,
-		bases:     bases,
-		lines:     map[ChangedLine]bool{},
-		opaque:    map[fileRef]bool{},
+		Round:  round,
+		lines:  map[ChangedLine]bool{},
+		opaque: map[fileRef]bool{},
 	}
 	for _, line := range l.lines {
 		state.lines[line] = true
@@ -101,25 +99,25 @@ func captureRound(l ledger, snapshots map[string]string, bases map[string]string
 //
 // Anything that cannot be worked out is simply not pre-marked, which demands the
 // line — the same conservative answer as a daemon restart.
-func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, snapshots, bases map[string]string) (map[ChangedLine]bool, map[fileRef]bool) {
+func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[ChangedLine]bool, map[fileRef]bool) {
 	snapshotter, ok := s.deriver.(Snapshotter)
-	if !ok || s.prior.snapshots == nil {
+	if !ok || s.prior.Snapshots == nil {
 		return nil, nil
 	}
 
 	preShown := map[ChangedLine]bool{}
 	preShownOpaque := map[fileRef]bool{}
 	for _, repo := range set.Repositories {
-		previous, had := s.prior.snapshots[repo.Root]
-		current, took := snapshots[repo.Root]
+		previous, had := s.prior.Snapshots[repo.Root]
+		now, took := current.Snapshots[repo.Root]
 		if !had || !took {
 			continue
 		}
-		forward, err := snapshotter.MapBetween(repo.Root, previous, current)
+		forward, err := snapshotter.MapBetween(repo.Root, previous, now)
 		if err != nil {
 			continue
 		}
-		oldSide := s.oldSideMapping(snapshotter, repo, bases, forward)
+		oldSide := s.oldSideMapping(snapshotter, repo, current, forward)
 
 		for _, line := range l.lines {
 			if line.Repository != repo.Root {
@@ -153,7 +151,7 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, snapshots, bases map
 		// Opaque Change the Reviewer would be shown while leaving both working
 		// trees byte-identical. Rather than compare those facts separately, a
 		// moved base simply demands them again.
-		sameBase := s.prior.bases[repo.Root] == bases[repo.Root] && bases[repo.Root] != ""
+		sameBase := s.prior.Bases[repo.Root] == current.Bases[repo.Root] && current.Bases[repo.Root] != ""
 		for _, opaque := range l.opaque {
 			if opaque.Repository != repo.Root || !sameBase || forward.Touched(opaque.File) {
 				continue
@@ -174,20 +172,20 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, snapshots, bases map
 // commit they have not moved at all, and identityMapping says so. If the branch
 // was rebased under the review the base itself changed, and the two bases are
 // diffed exactly as two snapshots are.
-func (s *Session) oldSideMapping(snapshotter Snapshotter, repo Repository, bases map[string]string, forward RoundMapping) RoundMapping {
-	previous, had := s.prior.bases[repo.Root]
-	current, have := bases[repo.Root]
+func (s *Session) oldSideMapping(snapshotter Snapshotter, repo Repository, current Round, forward RoundMapping) RoundMapping {
+	previous, had := s.prior.Bases[repo.Root]
+	now, have := current.Bases[repo.Root]
 	if !had || !have {
 		return nil
 	}
-	if previous == current {
+	if previous == now {
 		// The base has not moved, so an old-side line sits exactly where it sat.
 		// Its path can still have moved, though: the ledger files old-side lines
 		// under the file's current name, so a file renamed between rounds would
 		// otherwise never match what the previous round recorded.
 		return unmovedSince{forward}
 	}
-	mapping, err := snapshotter.MapBetween(repo.Root, previous, current)
+	mapping, err := snapshotter.MapBetween(repo.Root, previous, now)
 	if err != nil {
 		return nil
 	}

@@ -13,7 +13,7 @@ import (
 // can tell an injected before-line from an after-line.
 type sideResolver struct{}
 
-func (sideResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+func (sideResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
 	side := "after"
 	if e.Side == review.OldSide {
 		side = "before"
@@ -287,11 +287,11 @@ func TestAnAnchorMaySpanARemovalAndItsReplacement(t *testing.T) {
 // as a shallow checkout or a base commit missing the file would leave it.
 type unreadableBeforeResolver struct{ sideResolver }
 
-func (r unreadableBeforeResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+func (r unreadableBeforeResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
 	if e.Side == review.OldSide {
 		return nil, errors.New("no such blob")
 	}
-	return r.sideResolver.Resolve(e)
+	return r.sideResolver.Resolve(e, round)
 }
 
 func TestAnAnchorRefusesToQuoteCodeThatCouldNotBeRead(t *testing.T) {
@@ -369,43 +369,6 @@ func TestAnAnchorSpanningTwoEditsKeepsEachRemovedRunApart(t *testing.T) {
 	// the after-side rows either side of them read as the one run they are.
 	if got := anchor.Location(); got != "src/fetch.ts — before 2, 5 — after 2-5" {
 		t.Errorf("unexpected location: %q", got)
-	}
-}
-
-// recordingResolver notes whether it was handed a Change Set, to prove a rejected
-// Post never repoints a resolver away from the Walkthrough still on screen.
-type recordingResolver struct {
-	stubResolver
-	uses int
-}
-
-func (r *recordingResolver) UseChangeSet(review.ChangeSet) { r.uses++ }
-
-func TestARejectedPostDoesNotRepointTheResolver(t *testing.T) {
-	resolver := &recordingResolver{}
-	// A changed line at 100 sits outside validWalkthrough's only Excerpt (12-34),
-	// so the Post is rejected for uncovered changes.
-	lines := append(changed("src/fetch.ts", 20, 22), review.ChangedLine{File: "src/fetch.ts", Side: review.NewSide, Line: 100})
-	session := review.NewSession(resolver, fixedDeriver{lines: lines})
-
-	err := session.Post(validWalkthrough())
-
-	assertRejected(t, err, review.RejectedUncoveredChanges)
-	if resolver.uses != 0 {
-		t.Errorf("a rejected Post must not hand the resolver new ranges, but it was called %d time(s)", resolver.uses)
-	}
-}
-
-func TestAnAcceptedPostRepointsTheResolver(t *testing.T) {
-	resolver := &recordingResolver{}
-	session := review.NewSession(resolver, fixedDeriver{lines: changed("src/fetch.ts", 20, 25)})
-
-	if err := session.Post(validWalkthrough()); err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
-	}
-
-	if resolver.uses != 1 {
-		t.Errorf("an accepted Post should hand the resolver its ranges exactly once, got %d", resolver.uses)
 	}
 }
 

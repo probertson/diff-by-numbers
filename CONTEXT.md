@@ -184,10 +184,13 @@ _Avoid_: finish, finalize, submit, sign off, complete
 
 **Round Snapshot**:
 A git tree object recording each repository's working tree as it stood when a
-Walkthrough was accepted. A Revision Round is scoped by diffing the previous
-round's snapshot against the current one, so "already read" is decided by
-position rather than by line text (ADR-0014). Nothing is derived from a
-snapshot — it answers only whether a line moved since the last round.
+Walkthrough was accepted. It does two jobs. It is what the round's code is read
+from: the Reviewer sees, expands and anchors exactly what was posted, and a file
+edited since is *changed on disk*, flagged with a warning rather than hidden
+(ADR-0004). And a Revision Round is scoped by diffing the previous round's
+snapshot against the current one, so "already read" is decided by position
+rather than by line text (ADR-0014). Nothing is derived from a snapshot: the
+Change Set still comes from the working tree.
 _Avoid_: stash, checkpoint, baseline
 
 **Position**:

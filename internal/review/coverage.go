@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// fileRef identifies a file within a repository — the unit a rename, an Opaque
+// Change and a pre-marked Opaque Change are all recorded against.
+type fileRef struct {
+	repository string
+	file       string
+}
+
 // StepBudget is the soft ceiling on the new reading a Step may ask for before it
 // must carry a justification. What counts toward it is not everything the Step
 // shows: reference lines never did, and neither do whitespace-only lines or ones

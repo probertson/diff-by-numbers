@@ -39,10 +39,8 @@ type Session struct {
 	comments      []Comment
 	nextCommentID int
 	finished      bool
-	// hashes fingerprints each new-side Excerpt file as it was when the
-	// Walkthrough was accepted, so a Step whose file later changes can refuse to
-	// show code beneath an explanation that has stopped describing it.
-	hashes map[fileRef]string
+	// round is where the accepted Walkthrough's code is read from.
+	round Round
 	// prior is what the previous accepted round left behind — its snapshots,
 	// bases and the atoms it showed — which is what a Revision Round is scoped
 	// against (ADR-0014).
@@ -114,6 +112,17 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
+	// The snapshot is taken before anything else reads the working tree. It is
+	// what the round will be shown from, so it is also what the post is checked
+	// against: a file edited mid-post can then only make the post fail, never
+	// leave an accepted Walkthrough that its own snapshot cannot show. It is
+	// also what the next Revision Round is scoped against, and it is kept only
+	// once the post is accepted.
+	var snapshots map[string]string
+	if snapshotter, ok := s.deriver.(Snapshotter); ok {
+		snapshots = snapshotAll(snapshotter, w.ChangeSet)
+	}
+
 	// Stage 1 stops at the first failure. Derivation needs a well-formed
 	// Walkthrough, and every stage-2 check needs the ledger, so anything they
 	// might say without these would be guesswork.
@@ -122,22 +131,14 @@ func (s *Session) Post(w Walkthrough) error {
 		return reject(RejectedDerivationFailed,
 			"could not derive the changes under review: %v", err)
 	}
-
-	// The snapshots and bases a Revision Round is scoped against. Worked out
-	// before the stage-2 checks, which need the pre-marking, and kept only once
-	// the post is accepted.
-	bases := ledger.bases
-	var snapshots map[string]string
-	if snapshotter, ok := s.deriver.(Snapshotter); ok {
-		snapshots = snapshotAll(snapshotter, w.ChangeSet)
-	}
+	round := Round{Snapshots: snapshots, Bases: ledger.bases}
 
 	// What a Revision Round has already shown is worked out here rather than
 	// among the checks, and marked on the ledger itself: normalisation and every
 	// stage-2 check asks its questions of the round's scope, not of the raw
 	// Change Set.
 	if revision {
-		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases))
+		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, round))
 	}
 
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
@@ -165,7 +166,7 @@ func (s *Session) Post(w Walkthrough) error {
 			"this is the first Walkthrough; there are no Comments to dispose of"))
 	}
 
-	add(validateNewSideResolves(w.Steps, s.resolver))
+	add(validateNewSideResolves(w.Steps, s.resolver, round))
 
 	add(ledger.validateBudget(w.Steps))
 	add(ledger.validateAcknowledgements(w.Steps))
@@ -175,14 +176,9 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
-	// Every validation has passed and this Walkthrough is now the one under review.
-	// Only now hand the resolver this round's ranges — a rejected Post must not
-	// repoint the resolver away from the Walkthrough still on screen, or its
-	// before-side would resolve against the wrong merge-base.
-	if aware, ok := s.resolver.(ChangeSetAware); ok {
-		aware.UseChangeSet(w.ChangeSet)
-	}
-
+	// Every validation has passed and this Walkthrough is now the one under
+	// review. Only now does its round replace the one on screen: a rejected post
+	// leaves the Reviewer reading exactly what they were.
 	s.walkthrough = &w
 	s.ledger = ledger
 	s.position = 0
@@ -190,9 +186,9 @@ func (s *Session) Post(w Walkthrough) error {
 	s.comments = nil
 	s.nextCommentID = 0
 	s.finished = false
-	s.hashes = s.hashExcerptFiles(w.Steps)
+	s.round = round
 	s.dispositions = dispositions
-	s.prior = captureRound(ledger, snapshots, bases)
+	s.prior = captureRound(ledger, round)
 	s.postings++
 
 	// A new review mints an id and takes the Walkthrough's label as given; a
@@ -223,18 +219,17 @@ func (s *Session) moveTo(position int) {
 	}
 }
 
-// validateNewSideResolves rejects a new-side Excerpt whose range the working tree
-// cannot satisfy. Old-side Excerpts are not checked here: like staleness, an
-// old-side range that cannot be read is surfaced as a render Problem in place of
-// the code, never fabricated — resolution happens at render time so what the
-// Reviewer sees is always what is currently readable.
-func validateNewSideResolves(steps []Step, resolver Resolver) *Rejection {
+// validateNewSideResolves rejects a new-side Excerpt whose range the round's
+// snapshot cannot satisfy — the same snapshot the Walkthrough will be shown from.
+// Old-side Excerpts are not checked here: an old-side range that cannot be read
+// is surfaced as a render Problem in place of the code, never fabricated.
+func validateNewSideResolves(steps []Step, resolver Resolver, round Round) *Rejection {
 	for i, step := range steps {
 		for j, excerpt := range step.Excerpts {
 			if excerpt.Side != NewSide {
 				continue
 			}
-			if _, err := resolver.Resolve(excerpt); err != nil {
+			if _, err := resolver.Resolve(excerpt, round); err != nil {
 				return reject(RejectedUnresolvableExcerpt,
 					"Excerpt %d of Step %d does not resolve: %v", j+1, i+1, err)
 			}

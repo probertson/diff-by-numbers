@@ -11,7 +11,7 @@ import (
 // stubResolver fabricates deterministic lines so view tests need no filesystem.
 type stubResolver struct{}
 
-func (stubResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+func (stubResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
 	lines := make([]review.Line, 0, e.LastLine-e.FirstLine+1)
 	for n := e.FirstLine; n <= e.LastLine; n++ {
 		lines = append(lines, review.Line{Number: n, Text: fmt.Sprintf("%s line %d", e.File, n)})
@@ -131,7 +131,7 @@ func TestAdvancingWithNothingPostedIsRejected(t *testing.T) {
 func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
 	// Post validates only new-side resolution, so an old-side Excerpt reaches
 	// the render, where a resolver failure must surface as a problem rather than
-	// as fabricated code. (This is also the shape staleness detection will take.)
+	// as fabricated code.
 	session := review.NewSession(failingResolver{}, emptyDeriver{})
 	walkthrough := validWalkthrough()
 	walkthrough.Steps[0].Excerpts[0].Side = review.OldSide
@@ -152,6 +152,6 @@ func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
 
 type failingResolver struct{}
 
-func (failingResolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+func (failingResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
 	return nil, fmt.Errorf("cannot read %s", e.File)
 }

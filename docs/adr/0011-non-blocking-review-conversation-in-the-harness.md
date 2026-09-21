@@ -31,6 +31,9 @@ core rather than deferred.
 ADR-0004 stops being physically enforced. Nothing prevents the agent editing files
 mid-Walkthrough except instruction; per-file staleness detection is the backstop, so a
 violation is noisy rather than silent.
+(Since #72 that backstop is a warning rather than hidden code: the Reviewer goes on seeing
+the round as posted, and a file edited since is flagged as changed on disk — see the
+ADR-0004 amendment.)
 
 The daemon's lifetime is no longer bound to a review, so it is separated from the TUI and run
 always-on as a login agent. This is not merely tidiness: Claude Code connects to configured

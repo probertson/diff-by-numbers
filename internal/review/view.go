@@ -30,21 +30,28 @@ type Line struct {
 // content may be selected, quoted or anchored.
 func (l Line) Content() bool { return !l.Unreadable && !l.Signpost }
 
-// Resolver turns an Excerpt into the lines it names. The core performs no I/O:
-// whoever constructs the Session supplies the thing that reads bytes, and
-// resolution happens at render time so a file changing on disk is noticed the
-// next time it is drawn, not hidden behind a cache.
-type Resolver interface {
-	Resolve(Excerpt) ([]Line, error)
+// Round is where one accepted Walkthrough's code is read from, per repository
+// root: the Round Snapshot taken when it was posted, which holds the after-side,
+// and the merge-base its Change Set was derived from, which holds the before-side.
+// Both are git objects and immutable, so anything read from a Round can be cached
+// for good.
+type Round struct {
+	// Snapshots has no entry for a repository git could not snapshot, whose code
+	// is then read from the working tree instead — the same conservative fallback
+	// pre-marking makes.
+	Snapshots map[string]string
+	// Bases is the merge-base the ledger was derived from, so the before-side the
+	// Reviewer reads is the one coverage was counted against.
+	Bases map[string]string
 }
 
-// ChangeSetAware is an optional capability of a Resolver that reads the old side:
-// the before-side of a change lives in git at each repository's merge-base, which
-// needs that repository's base ref. The Session hands the resolver the Change Set
-// when a Walkthrough is posted. A resolver that reads only the working tree (or a
-// test stub) need not implement it.
-type ChangeSetAware interface {
-	UseChangeSet(ChangeSet)
+// Resolver turns an Excerpt into the lines it names, as they stand in a Round:
+// the after-side from the round's snapshot, the before-side from its merge-base.
+// The core performs no I/O — whoever constructs the Session supplies the thing
+// that reads bytes — and it names the Round on every call, so a post being
+// checked and the round on screen can never be confused for one another.
+type Resolver interface {
+	Resolve(Excerpt, Round) ([]Line, error)
 }
 
 // ExcerptView is an Excerpt with its content resolved, or the reason it could
@@ -54,6 +61,10 @@ type ExcerptView struct {
 	Excerpt Excerpt
 	Lines   []Line
 	Problem string
+	// ChangedOnDisk is set when the file has been edited since the round was
+	// posted. The lines are still the posted ones; this only says the Reviewer
+	// is no longer looking at what is on disk.
+	ChangedOnDisk bool
 }
 
 // AcknowledgedFile is one line of an Acknowledgement's manifest: a file the
@@ -94,11 +105,6 @@ type StepView struct {
 	OversizeJustification string
 	Excerpts              []ExcerptView
 	Acknowledgements      []AcknowledgementView
-	// Stale is set when a file this Step reads has changed since the Walkthrough
-	// was accepted; StaleFiles names them. A stale Step shows no code — the
-	// explanation can no longer be trusted to describe what is on disk.
-	Stale      bool
-	StaleFiles []string
 }
 
 // Coverage is the live progress the Reviewer sees: how many Changed Lines the
@@ -182,18 +188,6 @@ func (s *Session) View() ViewModel {
 
 func (s *Session) stepView(position int) *StepView {
 	step := s.walkthrough.Steps[position-1]
-	// A Step whose files have changed refuses to render: showing code beneath an
-	// explanation that no longer describes it is the worst thing this tool could
-	// do. The blast radius is only this Step — others render normally.
-	if stale := s.staleFiles(step); len(stale) > 0 {
-		return &StepView{
-			Number:      position,
-			Name:        step.Name,
-			Explanation: step.Explanation,
-			Stale:       true,
-			StaleFiles:  stale,
-		}
-	}
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
 	for i, excerpt := range step.Excerpts {
 		excerpts = append(excerpts, s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.walkthrough.Steps}))
@@ -229,12 +223,15 @@ type drawnIn struct {
 // replacement. An old-side Excerpt is a deliberately shown deletion and renders
 // before-only.
 func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
-	lines, err := s.resolver.Resolve(excerpt)
+	view := ExcerptView{Excerpt: excerpt, ChangedOnDisk: s.changedOnDisk(excerpt)}
+	lines, err := s.resolver.Resolve(excerpt, s.round)
 	if err != nil {
-		return ExcerptView{Excerpt: excerpt, Problem: err.Error()}
+		view.Problem = err.Error()
+		return view
 	}
 	if excerpt.Side == NewSide {
-		return ExcerptView{Excerpt: excerpt, Lines: s.interleaveBefore(excerpt, in, lines)}
+		view.Lines = s.interleaveBefore(excerpt, in, lines)
+		return view
 	}
 	// An old-side Excerpt that assigns a rewrite's before-side has already been
 	// drawn, interleaved above the after-side it replaced. Drawing it again as a
@@ -251,7 +248,8 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 		line.Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, line.Number)
 		kept = append(kept, line)
 	}
-	return ExcerptView{Excerpt: excerpt, Lines: kept}
+	view.Lines = kept
+	return view
 }
 
 // fileLine identifies one before-side line of one file, so a Step can be asked
@@ -353,7 +351,7 @@ func (s *Session) beforeRows(c Correspondence, in drawnIn) []Line {
 		before, err := s.resolver.Resolve(Excerpt{
 			Repository: c.Repository, File: c.File, Side: OldSide,
 			FirstLine: run.first, LastLine: run.last,
-		})
+		}, s.round)
 		if err != nil {
 			// The before-side is accounted for by being drawn here, so it must not
 			// vanish silently, or a covered line would go unshown. Mark the gap.

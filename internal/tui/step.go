@@ -477,14 +477,14 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrap(step.OversizeJustification)+"\n")
 	}
 
-	if step.Stale {
-		fmt.Fprint(&b, "\n"+warnSt.Render("⚠ out of date")+"\n")
-		fmt.Fprint(&b, wrap("These files changed since the review began, so the code no longer matches the explanation:")+"\n")
-		for _, file := range step.StaleFiles {
-			fmt.Fprint(&b, dimSt.Render("  • "+file)+"\n")
+	// A file edited since the round was posted is still shown as posted, which is
+	// what the explanation was written against, so the code stays and the
+	// Reviewer is told. It sits up here, where it cannot scroll out of sight.
+	if edited := filesChangedOnDisk(step.Excerpts, showRepo); len(edited) > 0 {
+		fmt.Fprint(&b, "\n")
+		for _, label := range edited {
+			fmt.Fprint(&b, warnSt.Render(wrap(postedVersionWarning(label)))+"\n")
 		}
-		fmt.Fprint(&b, "\n"+wrap(dimSt.Render("Ask the agent to re-plan — post a fresh Walkthrough — so this Step describes what is now on disk."))+"\n")
-		return b.String()
 	}
 
 	// Every Acknowledgement is a stop, so an empty pane means no Acknowledgements
@@ -701,6 +701,13 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 
 	lastAck, lastExcerpt := -2, -2
 	fileHeader, ackHeader := "", ""
+	// warned records each expanded file already warned about, per Acknowledgement:
+	// an expansion shows a file as several Excerpts, but one warning says it.
+	type expandedFile struct {
+		ack              int
+		repository, file string
+	}
+	warned := map[expandedFile]bool{}
 	for i, line := range cur.lines {
 		if line.kind == kindStop {
 			ack := step.Acknowledgements[line.ack]
@@ -743,6 +750,15 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			decor("", "", ackHeader)
 			rows = append(rows, paneRow{text: fileHeader, line: -1, fileHeader: fileHeader, isFileHeader: true, ackHeader: ackHeader})
 			lastAck, lastExcerpt = line.ack, line.excerpt
+			// A narrated Step warns in its header; an expansion is opened deep in
+			// the pane, so its warning goes with the code it is about.
+			key := expandedFile{line.ack, e.Repository, e.File}
+			if line.ack >= 0 && e.ChangedOnDisk && !warned[key] {
+				warned[key] = true
+				for _, row := range strings.Split(wrapIndented("    ", postedVersionWarning(fileLabel(e.Repository, e.File, showRepo)), width), "\n") {
+					decor(warnSt.Render(row), fileHeader, ackHeader)
+				}
+			}
 		}
 
 		if line.kind.passedOver() {
@@ -901,6 +917,28 @@ func manifestSuffix(entry daemon.AcknowledgedFileWire) string {
 		return ""
 	}
 	return "  ·  " + pluralize(entry.ChangedLines, "line")
+}
+
+// filesChangedOnDisk names each file among a Step's Excerpts that has been
+// edited since the round was posted, once, in the order the Step first shows it.
+func filesChangedOnDisk(excerpts []daemon.ExcerptWire, showRepo bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range excerpts {
+		label := fileLabel(e.Repository, e.File, showRepo)
+		if !e.ChangedOnDisk || seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	return out
+}
+
+// postedVersionWarning tells the Reviewer the code in front of them is the
+// version the round was posted with, not what is on disk now.
+func postedVersionWarning(label string) string {
+	return "⚠ " + label + " has changed on disk since this round was posted — you're seeing the posted version"
 }
 
 // expansionNote says why an expanded file shows no code: an Opaque Change has no

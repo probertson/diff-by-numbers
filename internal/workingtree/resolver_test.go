@@ -28,7 +28,7 @@ func TestResolvesARangeFromARealFile(t *testing.T) {
 
 	lines, err := resolver.Resolve(review.Excerpt{
 		Repository: root, File: "src/fetch.ts", Side: review.NewSide, FirstLine: 2, LastLine: 4,
-	})
+	}, review.Round{})
 
 	if err != nil {
 		t.Fatalf("expected the range to resolve, got %v", err)
@@ -51,7 +51,7 @@ func TestResolvesAFileWithNoTrailingNewline(t *testing.T) {
 
 	lines, err := resolver.Resolve(review.Excerpt{
 		Repository: root, File: "notes.txt", Side: review.NewSide, FirstLine: 1, LastLine: 2,
-	})
+	}, review.Round{})
 
 	if err != nil {
 		t.Fatalf("expected the range to resolve, got %v", err)
@@ -68,7 +68,7 @@ func TestARangeBeyondTheEndOfTheFileIsAProblemNotAPartialAnswer(t *testing.T) {
 
 	_, err := resolver.Resolve(review.Excerpt{
 		Repository: root, File: "short.txt", Side: review.NewSide, FirstLine: 1, LastLine: 5,
-	})
+	}, review.Round{})
 
 	if err == nil {
 		t.Fatal("expected a range beyond the end of the file to be refused")
@@ -84,7 +84,7 @@ func TestAMissingFileIsNamedInTheProblem(t *testing.T) {
 
 	_, err := resolver.Resolve(review.Excerpt{
 		Repository: root, File: "gone.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
-	})
+	}, review.Round{})
 
 	if err == nil {
 		t.Fatal("expected a missing file to be refused")
@@ -101,7 +101,7 @@ func TestTheOldSideIsHonestlyUnavailableForNow(t *testing.T) {
 
 	_, err := resolver.Resolve(review.Excerpt{
 		Repository: root, File: "src/fetch.ts", Side: review.OldSide, FirstLine: 1, LastLine: 1,
-	})
+	}, review.Round{})
 
 	if err == nil {
 		t.Fatal("expected the old side to be refused rather than faked from the working tree")

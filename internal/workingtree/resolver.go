@@ -1,12 +1,9 @@
-// Package workingtree reads Excerpt content off disk. It is the file-reading
-// half of the git adapter: the review core names base refs, this resolves them
-// against what is actually in the working tree, so nothing the Reviewer sees
-// was supplied by the agent.
+// Package workingtree reads Excerpt content. It is the file-reading half of the
+// git adapter: the review core names a Round, and this reads what that Round
+// holds, so nothing the Reviewer sees was supplied by the agent.
 package workingtree
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,117 +13,112 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-type fileRef struct{ repository, file string }
+// blobRef names one file as one git object holds it: a Round Snapshot for the
+// after-side, a merge-base for the before-side.
+type blobRef struct{ repository, rev, file string }
 
-// Resolver reads Excerpt content: the after-side from the working tree, and the
-// before-side from git's object store at each repository's merge-base. It learns
-// those base refs from the Change Set when a Walkthrough is posted.
+// Resolver reads Excerpt content: the after-side from the Round Snapshot, and the
+// before-side from the merge-base the Change Set was derived from.
 //
-// The before-side is an immutable committed blob at a fixed merge-base, so both the
-// merge-base and the before-side file content are cached for the life of the
-// Walkthrough — the view is re-resolved on every poll, and re-shelling out to git
-// each time would be needless. The caches are reset when a new Walkthrough is
-// posted, and caching the base at post time also keeps it consistent with the
-// baseline the Coverage Ledger was derived from.
+// Both are immutable git objects, so what is read from them is cached for good —
+// the view is re-resolved on every poll, and re-shelling out to git each time
+// would be needless. A new round names new objects, so nothing ever needs
+// clearing for one.
 type Resolver struct {
-	baseRefs   map[string]string    // repository root -> the base ref as given
-	mergeBases map[string]string    // repository root -> the merge-base that ref resolves to
-	before     map[fileRef][]string // (repository, file) -> before-side lines at the base
+	files map[blobRef][]string // the lines of each file read, by the object read from
+	blobs map[blobRef]string   // each posted file's blob id, by its snapshot
 }
 
 func NewResolver() *Resolver {
-	return &Resolver{}
+	return &Resolver{files: map[blobRef][]string{}, blobs: map[blobRef]string{}}
 }
 
-// UseChangeSet records each repository's base ref so the before-side can be read from
-// the right merge-base, and clears the caches from any previous Walkthrough. It is
-// called when a Walkthrough is posted (the core hands base refs to the resolver via
-// the ChangeSetAware capability).
-func (r *Resolver) UseChangeSet(cs review.ChangeSet) {
-	r.baseRefs = map[string]string{}
-	r.mergeBases = map[string]string{}
-	r.before = map[fileRef][]string{}
-	for _, repo := range cs.Repositories {
-		r.baseRefs[repo.Root] = repo.Base
-	}
-}
-
-// Resolve reads the named range. The after-side comes from the working tree; the
-// before-side from git history. It refuses rather than approximates: a range the
-// source cannot satisfy is a problem to show the Reviewer, never a partial answer.
-func (r *Resolver) Resolve(e review.Excerpt) ([]review.Line, error) {
+// Resolve reads the named range as the Round holds it. It refuses rather than
+// approximates: a range the source cannot satisfy is a problem to show the
+// Reviewer, never a partial answer.
+func (r *Resolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
 	if e.Side == review.OldSide {
-		return r.resolveBefore(e)
+		return r.resolveBefore(e, round)
 	}
 
+	snapshot, ok := round.Snapshots[e.Repository]
+	if !ok {
+		return resolveOnDisk(e)
+	}
+	all, err := r.read(blobRef{e.Repository, snapshot, e.File}, git.ReadBlob)
+	if err != nil {
+		return nil, err
+	}
+	return linesInRange(all, e, e.File)
+}
+
+// resolveOnDisk reads the after-side from the working tree, for a repository git
+// could not snapshot. Nothing is cached, since the file can change.
+func resolveOnDisk(e review.Excerpt) ([]review.Line, error) {
 	content, err := os.ReadFile(filepath.Join(e.Repository, filepath.FromSlash(e.File)))
 	if err != nil {
 		return nil, fmt.Errorf("could not read %s: %w", e.File, err)
 	}
+	return linesInRange(splitLines(string(content)), e, e.File)
+}
 
-	all := splitLines(string(content))
-	if e.LastLine > len(all) {
-		return nil, fmt.Errorf("%s has %d lines, but the Excerpt asks for %d-%d", e.File, len(all), e.FirstLine, e.LastLine)
+// resolveBefore reads a before-side range at the round's merge-base.
+func (r *Resolver) resolveBefore(e review.Excerpt, round review.Round) ([]review.Line, error) {
+	base, ok := round.Bases[e.Repository]
+	if !ok {
+		return nil, fmt.Errorf("the before-side of %s cannot be read: no merge-base is known for %s", e.File, e.Repository)
 	}
+	all, err := r.read(blobRef{e.Repository, base, e.File}, git.ReadFileAt)
+	if err != nil {
+		return nil, err
+	}
+	return linesInRange(all, e, "the before-side of "+e.File)
+}
 
+// read returns a file's lines as a git object holds them, reading each one once.
+func (r *Resolver) read(ref blobRef, from func(root, rev, file string) ([]string, error)) ([]string, error) {
+	if lines, ok := r.files[ref]; ok {
+		return lines, nil
+	}
+	lines, err := from(ref.repository, ref.rev, ref.file)
+	if err != nil {
+		return nil, err
+	}
+	r.files[ref] = lines
+	return lines, nil
+}
+
+// ChangedOnDisk reports whether a file has been edited since the snapshot was
+// taken, by comparing the blob the snapshot holds with what git would store for
+// the file now. The snapshot's side never changes, so only the file on disk is
+// hashed each time. A file that can no longer be read, or that the snapshot does
+// not hold, has changed.
+func (r *Resolver) ChangedOnDisk(repository, snapshot, file string) bool {
+	ref := blobRef{repository, snapshot, file}
+	posted, ok := r.blobs[ref]
+	if !ok {
+		id, err := git.BlobID(repository, snapshot, file)
+		if err != nil {
+			return true
+		}
+		posted = id
+		r.blobs[ref] = id
+	}
+	current, err := git.HashFile(repository, file)
+	return err != nil || current != posted
+}
+
+// linesInRange takes an Excerpt's range out of a file's lines, refusing one the
+// file is too short to satisfy. what names the file in the refusal.
+func linesInRange(all []string, e review.Excerpt, what string) ([]review.Line, error) {
+	if e.LastLine > len(all) {
+		return nil, fmt.Errorf("%s has %d lines, but the Excerpt asks for %d-%d", what, len(all), e.FirstLine, e.LastLine)
+	}
 	lines := make([]review.Line, 0, e.LastLine-e.FirstLine+1)
 	for n := e.FirstLine; n <= e.LastLine; n++ {
 		lines = append(lines, review.Line{Number: n, Text: all[n-1]})
 	}
 	return lines, nil
-}
-
-// resolveBefore reads a before-side range from git, caching the merge-base per
-// repository and the before-side file content per file so a repeated render does
-// not re-shell to git for content that cannot change.
-func (r *Resolver) resolveBefore(e review.Excerpt) ([]review.Line, error) {
-	baseRef, ok := r.baseRefs[e.Repository]
-	if !ok {
-		return nil, fmt.Errorf("the before-side of %s cannot be read: no base ref is known for %s", e.File, e.Repository)
-	}
-
-	base, ok := r.mergeBases[e.Repository]
-	if !ok {
-		resolved, err := git.MergeBase(e.Repository, baseRef)
-		if err != nil {
-			return nil, err
-		}
-		base = resolved
-		r.mergeBases[e.Repository] = base
-	}
-
-	key := fileRef{e.Repository, e.File}
-	all, ok := r.before[key]
-	if !ok {
-		lines, err := git.ReadFileAt(e.Repository, base, e.File)
-		if err != nil {
-			return nil, err
-		}
-		all = lines
-		r.before[key] = all
-	}
-
-	if e.LastLine > len(all) {
-		return nil, fmt.Errorf("the before-side of %s has %d lines, but the Excerpt asks for %d-%d", e.File, len(all), e.FirstLine, e.LastLine)
-	}
-	out := make([]review.Line, 0, e.LastLine-e.FirstLine+1)
-	for n := e.FirstLine; n <= e.LastLine; n++ {
-		out = append(out, review.Line{Number: n, Text: all[n-1]})
-	}
-	return out, nil
-}
-
-// Hash fingerprints a file's current content, so the review core can tell when a
-// file has changed under review. It hashes whole-file bytes: a change anywhere in
-// the file shifts the line numbers an Excerpt named, so the whole file is the
-// unit of staleness.
-func (r *Resolver) Hash(repository, file string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(file)))
-	if err != nil {
-		return "", fmt.Errorf("could not read %s: %w", file, err)
-	}
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:]), nil
 }
 
 // splitLines splits file content into lines without inventing a final empty
@@ -141,3 +133,10 @@ func splitLines(content string) []string {
 	}
 	return lines
 }
+
+// The resolver is both things the review core reads code through. Asserted here
+// so a signature drift is a build failure, not warnings that silently stop.
+var (
+	_ review.Resolver  = (*Resolver)(nil)
+	_ review.DiskWatch = (*Resolver)(nil)
+)

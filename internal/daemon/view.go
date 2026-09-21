@@ -42,6 +42,9 @@ type ExcerptWire struct {
 	LastLine   int        `json:"last_line"`
 	Problem    string     `json:"problem,omitempty"`
 	Lines      []LineWire `json:"lines"`
+	// ChangedOnDisk says the file has been edited since the round was posted;
+	// the lines are still the posted ones.
+	ChangedOnDisk bool `json:"changed_on_disk,omitempty"`
 }
 
 type AcknowledgedFileWire struct {
@@ -65,8 +68,6 @@ type StepWire struct {
 	OversizeJustification string                `json:"oversize_justification,omitempty"`
 	Excerpts              []ExcerptWire         `json:"excerpts"`
 	Acknowledgements      []AcknowledgementWire `json:"acknowledgements,omitempty"`
-	Stale                 bool                  `json:"stale,omitempty"`
-	StaleFiles            []string              `json:"stale_files,omitempty"`
 }
 
 type BriefWire struct {
@@ -225,22 +226,9 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Name:                  v.Step.Name,
 			Explanation:           v.Step.Explanation,
 			OversizeJustification: v.Step.OversizeJustification,
-			Stale:                 v.Step.Stale,
-			StaleFiles:            v.Step.StaleFiles,
 		}
-		for _, excerpt := range v.Step.Excerpts {
-			excerptWire := ExcerptWire{
-				Repository: excerpt.Excerpt.Repository,
-				File:       excerpt.Excerpt.File,
-				Side:       string(excerpt.Excerpt.Side),
-				FirstLine:  excerpt.Excerpt.FirstLine,
-				LastLine:   excerpt.Excerpt.LastLine,
-				Problem:    excerpt.Problem,
-			}
-			for _, line := range excerpt.Lines {
-				excerptWire.Lines = append(excerptWire.Lines, toLineWire(line))
-			}
-			step.Excerpts = append(step.Excerpts, excerptWire)
+		if len(v.Step.Excerpts) > 0 {
+			step.Excerpts = toExcerptWires(v.Step.Excerpts)
 		}
 		for _, ack := range v.Step.Acknowledgements {
 			ackWire := AcknowledgementWire{Reason: ack.Reason}
@@ -261,18 +249,19 @@ func toViewWire(v review.ViewModel) ViewWire {
 	return wire
 }
 
-// toExcerptWires renders resolved Excerpts (as from an Acknowledgement expansion)
-// for the TUI, reusing the same shape a Step's Excerpts take.
+// toExcerptWires renders resolved Excerpts for the TUI — a Step's own, or an
+// Acknowledgement's expansion, which take the same shape.
 func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 	wires := make([]ExcerptWire, 0, len(views))
 	for _, view := range views {
 		wire := ExcerptWire{
-			Repository: view.Excerpt.Repository,
-			File:       view.Excerpt.File,
-			Side:       string(view.Excerpt.Side),
-			FirstLine:  view.Excerpt.FirstLine,
-			LastLine:   view.Excerpt.LastLine,
-			Problem:    view.Problem,
+			Repository:    view.Excerpt.Repository,
+			File:          view.Excerpt.File,
+			Side:          string(view.Excerpt.Side),
+			FirstLine:     view.Excerpt.FirstLine,
+			LastLine:      view.Excerpt.LastLine,
+			Problem:       view.Problem,
+			ChangedOnDisk: view.ChangedOnDisk,
 		}
 		for _, line := range view.Lines {
 			wire.Lines = append(wire.Lines, toLineWire(line))

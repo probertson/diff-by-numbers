@@ -63,6 +63,10 @@ type Anchor struct {
 	// Anchor lies in, or nil for the Step's own code — so a surface can tell which
 	// Acknowledgement a Comment was raised in.
 	Acknowledgement *int
+	// ChangedOnDisk is set when the file had been edited since the round was
+	// posted. The Anchor still quotes what the Reviewer saw — the posted version —
+	// so its line numbers may no longer match the file, and the agent is told.
+	ChangedOnDisk bool
 }
 
 // Anchor composes an Anchor for a selection within the Step in view. The run
@@ -81,21 +85,6 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	if err != nil {
 		return Anchor{}, err
 	}
-	// Acknowledged files are not part of the Step's staleness, which refuses to
-	// render the Step's own code, so a changed one is refused here: the expansion
-	// the Reviewer selected from was read before the change.
-	if target.Acknowledgement != nil && s.fileChanged(excerpt.Repository, excerpt.File) {
-		return Anchor{}, reject(RejectedStaleContent,
-			"%s changed since the Walkthrough was accepted; ask the agent to re-plan before anchoring it", excerpt.File)
-	}
-
-	for _, file := range s.staleFiles(step) {
-		if file == excerpt.File {
-			return Anchor{}, reject(RejectedStaleContent,
-				"%s changed since the Walkthrough was accepted; ask the agent to re-plan before anchoring it", excerpt.File)
-		}
-	}
-
 	// The Excerpt's rendering is the authority on which rows exist and what order
 	// they are in, so the selection is resolved against it rather than re-derived.
 	view := s.resolveExcerpt(excerpt, in)
@@ -144,6 +133,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 
 		AcknowledgementReason: reason,
 		Acknowledgement:       ackIndex,
+		ChangedOnDisk:         view.ChangedOnDisk,
 	}, nil
 }
 
@@ -276,7 +266,11 @@ func (a Anchor) Render() string {
 	if a.AcknowledgementReason != "" {
 		where = fmt.Sprintf("acknowledged in Step %q (%s)", a.StepName, a.AcknowledgementReason)
 	}
-	fmt.Fprintf(&b, "Re: %s — %s in %s\n\n", a.Location(), where, filepath.Base(a.Repository))
+	fmt.Fprintf(&b, "Re: %s — %s in %s", a.Location(), where, filepath.Base(a.Repository))
+	if a.ChangedOnDisk {
+		b.WriteString(" (file changed since this round was posted; line numbers are from the posted version)")
+	}
+	b.WriteString("\n\n")
 	for _, line := range a.Lines {
 		marker := " "
 		if line.Changed {
