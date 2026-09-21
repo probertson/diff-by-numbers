@@ -152,7 +152,7 @@ func (s *Session) View() ViewModel {
 		Position:     s.position,
 		Repositories: w.ChangeSet.Repositories,
 		Coverage: Coverage{
-			Seen:  s.ledger.seenBy(w.Steps, s.position, s.preShown),
+			Seen:  s.ledger.seenBy(w.Steps, s.position),
 			Total: s.ledger.total(),
 		},
 		Seen:         s.seenFlags(),

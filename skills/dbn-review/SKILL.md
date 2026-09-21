@@ -76,7 +76,9 @@ one git hunk. Plan them so:
   don't make the reviewer hold two functions in their head at once. Because an
   edit shows both its before and after, the ~30-line budget counts both sides, so
   a rewrite fills it faster than an addition. That pressure is intentional: split
-  it into more Steps rather than justify a wall of diff.
+  it into more Steps rather than justify a wall of diff. In a Revision Round,
+  lines the reviewer has already seen are free, so re-showing context around a fix
+  costs you nothing — the budget counts new reading, not everything on screen.
 
 **Acknowledgements** cover mechanical changes you should not make the reviewer
 read line by line: a regenerated lockfile, a deleted dead module, a re-exported

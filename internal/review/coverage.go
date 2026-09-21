@@ -7,10 +7,11 @@ import (
 	"strings"
 )
 
-// StepBudget is the soft ceiling on the Changed Lines a Step may show before it
-// must carry a justification. Reference lines do not count. It is a fixed number
-// rather than terminal-relative, so a plan validated on one terminal cannot fail
-// on another.
+// StepBudget is the soft ceiling on the new reading a Step may ask for before it
+// must carry a justification. What counts toward it is not everything the Step
+// shows: reference lines never did, and neither do whitespace-only lines or ones
+// a Revision Round has already shown. It is a fixed number rather than
+// terminal-relative, so a plan validated on one terminal cannot fail on another.
 const StepBudget = 30
 
 // ChangedLine identifies one line that differs between the two sides of the
@@ -117,6 +118,22 @@ type ledger struct {
 	// repository, so normalisation can read the source as an alias for the
 	// destination every atom of the file was derived under.
 	renames map[fileRef]string
+	// preShown and preShownOpaque are the atoms a Revision Round has already
+	// shown. They live on the ledger because that is what ADR-0007 pre-marks:
+	// every question the ledger answers — is this accounted for, how much new
+	// reading does this Step ask for, how far has the Reviewer got — is asked of
+	// the round's own scope, not of the raw Change Set.
+	preShown       map[ChangedLine]bool
+	preShownOpaque map[fileRef]bool
+}
+
+// withPreMarking returns the ledger scoped to a Revision Round. The atoms are
+// unchanged; what the round has already shown is marked, so coverage does not
+// re-demand it and the budget does not count it.
+func (l ledger) withPreMarking(lines map[ChangedLine]bool, opaque map[fileRef]bool) ledger {
+	l.preShown = lines
+	l.preShownOpaque = opaque
+	return l
 }
 
 func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
@@ -197,16 +214,16 @@ func stepCoversOpaque(step Step, opaque OpaqueChange) bool {
 // validateCoverage refuses a plan that leaves any Changed Line or Opaque Change
 // unaccounted for. The guarantee the agent cannot opt out of. Lines pre-marked as
 // shown by a Revision Round are already accounted for and are not re-demanded.
-func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, preShownOpaque map[fileRef]bool) *Rejection {
+func (l ledger) validateCoverage(steps []Step) *Rejection {
 	var uncoveredLines []ChangedLine
 	var uncoveredOpaque []OpaqueChange
 	for _, line := range l.lines {
-		if !l.accountedFor(line, steps, preShown) {
+		if !l.accountedFor(line, steps) {
 			uncoveredLines = append(uncoveredLines, line)
 		}
 	}
 	for _, opaque := range l.opaque {
-		if preShownOpaque[fileRef{opaque.Repository, opaque.File}] {
+		if l.preShownOpaque[fileRef{opaque.Repository, opaque.File}] {
 			continue
 		}
 		if !anyStep(steps, func(s Step) bool { return stepCoversOpaque(s, opaque) }) {
@@ -225,8 +242,8 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, pr
 // Revision Round. It is what the coverage guarantee is made of, and also what
 // absorption asks before widening a range — dbn widens only over lines that
 // would otherwise be left unaccounted for.
-func (l ledger) accountedFor(line ChangedLine, steps []Step, preShown map[ChangedLine]bool) bool {
-	if preShown[line] {
+func (l ledger) accountedFor(line ChangedLine, steps []Step) bool {
+	if l.preShown[line] {
 		return true
 	}
 	// A before-side line rides along when a Step shows the after-side of the edit
@@ -354,11 +371,11 @@ func (o oversizedStep) entry() string {
 	return fmt.Sprintf("%s shows %d", o, o.count)
 }
 
-// changedLinesIn counts the distinct Changed Lines a Step shows. A line shown by
-// two of the Step's Excerpts counts once.
+// changedLinesIn counts the distinct Changed Lines a Step asks the Reviewer to
+// read. A line shown by two of the Step's Excerpts counts once.
 func (l ledger) changedLinesIn(step Step) int {
 	seen := map[ChangedLine]bool{}
-	code := l.codeLines()
+	code := l.budgetedLines()
 	for _, line := range code {
 		for _, excerpt := range step.Excerpts {
 			if line.covered(excerpt) {
@@ -378,15 +395,22 @@ func (l ledger) changedLinesIn(step Step) int {
 	return len(seen)
 }
 
-// codeLines are the Changed Lines that cost something to read. A whitespace-only
-// line costs nothing, so it never pushes a Step over the budget — least of all
-// the blank separators dbn itself absorbed into the Step's ranges.
-func (l ledger) codeLines() []ChangedLine {
+// budgetedLines are the Changed Lines the budget counts: the ones that cost the
+// Reviewer something to read.
+//
+// A whitespace-only line costs nothing, so it never pushes a Step over the
+// budget — least of all a blank separator dbn itself absorbed into the Step's
+// ranges. Neither does a line a Revision Round pre-marked as shown: it was read
+// last round, and the budget is about how much new reading a Step asks for. A
+// Step re-showing a stretch of already-reviewed context around a fix counts
+// zero, rather than being refused as oversized with no justification to give.
+func (l ledger) budgetedLines() []ChangedLine {
 	out := make([]ChangedLine, 0, len(l.lines))
 	for _, line := range l.lines {
-		if !l.whitespace[line] {
-			out = append(out, line)
+		if l.whitespace[line] || l.preShown[line] {
+			continue
 		}
+		out = append(out, line)
 	}
 	return out
 }
@@ -395,9 +419,9 @@ func (l ledger) codeLines() []ChangedLine {
 // Lines shown or acknowledged, and Opaque Changes acknowledged — for the live
 // coverage the Reviewer sees as they move. Pre-marked lines count as seen from
 // the start, since a Revision Round has already reviewed them.
-func (l ledger) seenBy(steps []Step, position int, preShown map[ChangedLine]bool) int {
+func (l ledger) seenBy(steps []Step, position int) int {
 	seenLines := map[ChangedLine]bool{}
-	for line := range preShown {
+	for line := range l.preShown {
 		seenLines[line] = true
 	}
 	seenOpaque := map[OpaqueChange]bool{}

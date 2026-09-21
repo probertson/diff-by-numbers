@@ -152,7 +152,8 @@ _Avoid_: change request, note, feedback, todo
 The Authoring Agent responding to the collected Comments, followed by a fresh
 Walkthrough over just the resulting changes. Its Brief maps every Comment to its
 resolution, so an answer or a decline is read before any code. Repeats until the Reviewer
-hands a Walkthrough off having raised nothing.
+hands a Walkthrough off having raised nothing. Lines it has already shown are pre-marked:
+coverage does not demand them again, and they cost nothing against a Step's budget.
 _Avoid_: fix pass, iteration, follow-up
 
 **Hand Off**:

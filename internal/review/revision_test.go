@@ -28,6 +28,9 @@ type roundDeriver struct {
 	// renamed says what a file was called in the previous round, for the cases
 	// that move one between rounds.
 	renamed map[string]string
+	// correspondences pair each edit's removed lines with the lines that
+	// replaced them, for the cases that care about the before-side riding along.
+	correspondences []review.Correspondence
 }
 
 func (d *roundDeriver) Derive(repo review.Repository) (review.Derivation, error) {
@@ -36,9 +39,14 @@ func (d *roundDeriver) Derive(repo review.Repository) (review.Derivation, error)
 		line.Repository = repo.Root
 		out[i] = line
 	}
+	pairs := make([]review.Correspondence, len(d.correspondences))
+	for i, c := range d.correspondences {
+		c.Repository = repo.Root
+		pairs[i] = c
+	}
 	// A constant base: unchanged between rounds, so old-side lines map by
 	// identity, which is what happens when nobody rebases mid-review.
-	return review.Derivation{Lines: out, Base: "base"}, nil
+	return review.Derivation{Lines: out, Correspondences: pairs, Base: "base"}, nil
 }
 
 func (d *roundDeriver) Snapshot(string) (string, error) { return "snapshot", nil }
@@ -117,19 +125,25 @@ func changedApp(first, last int) []review.ChangedLine {
 	return lines
 }
 
-// finishRound1 posts a first Walkthrough over app.ts:1-3 and finishes it, leaving
-// the Session ready for a Revision Round. It returns the deriver so the caller
-// can re-derive a different Change Set, and say what moved, for round two.
+// finishFirstRound posts a first Walkthrough and finishes it, leaving the Session
+// ready for a Revision Round over whatever the deriver is then set to.
+func finishFirstRound(t *testing.T, deriver *roundDeriver, steps []review.Step) *review.Session {
+	t.Helper()
+	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
+	mustPost(t, session, appWalkthrough(steps, nil))
+	if err := session.Finish(); err != nil {
+		t.Fatalf("expected the first round to finish, got %v", err)
+	}
+	return session
+}
+
+// finishRound1 is the common case: a first Walkthrough over app.ts:1-3. It
+// returns the deriver so the caller can re-derive a different Change Set, and
+// say what moved, for round two.
 func finishRound1(t *testing.T) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
-	resolver := &textResolver{text: map[string]string{}}
-	session := review.NewSession(resolver, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatalf("expected round 1 to finish, got %v", err)
-	}
-	return session, deriver
+	return finishFirstRound(t, deriver, []review.Step{appStep(1, 3)}), deriver
 }
 
 func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {

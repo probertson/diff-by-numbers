@@ -76,3 +76,23 @@ listed in one Acknowledgement fold into one entry, because they are one file.
 
 Nothing is hidden by this. The Reviewer sees the destination path everywhere, as
 before, carrying git's own "renamed from …" detail.
+
+## Amendment (#84): the budget counts new reading, not everything shown
+
+A Revision Round whose Step was made entirely of unchanged, already-reviewed
+lines was refused as oversized, with no justification its author could honestly
+give: the reading had already been done. The budget now counts only the Changed
+Lines a Step asks the Reviewer to read for the first time — so a line pre-marked
+as shown by a Revision Round (ADR-0007, and ADR-0014 once round snapshots decide
+it) is free, on both sides, including a before-side line that rides along.
+
+That makes two exemptions, with the whitespace one above, and they have the same
+shape: what a Step *shows* and what it *costs* are no longer the same number. The
+Step still shows every line — nothing is hidden, and coverage still accounts for
+all of it. Neither exemption forces a boundary, which is what ADR-0003 rules out;
+both only relax a pressure that was being applied for reading nobody has to do.
+
+The live coverage the Reviewer sees is deliberately not filtered this way. It
+counts every atom in the Change Set, because it answers "how much of this review
+is behind me", which is a different question from "how much does this Step ask
+of me now".

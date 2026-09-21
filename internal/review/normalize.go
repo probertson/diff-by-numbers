@@ -8,14 +8,14 @@ import "sort"
 // rendering, coverage, the budget and anchoring all see one set of ranges, so
 // "shown" and "accounted for" stay in lockstep (the rule riddenAlong documents,
 // correspondence.go).
-func normalize(steps []Step, changeSet ChangeSet, l ledger, preShown map[ChangedLine]bool) []Step {
+func normalize(steps []Step, changeSet ChangeSet, l ledger) []Step {
 	out := copySteps(steps)
 	// The order is what each pass needs of the one before it. Filling in the
 	// repository comes first because everything after keys on it; renaming comes
 	// before absorption because absorption groups Excerpts by the file they show.
 	fillInRepositories(out, changeSet)
 	aliasRenames(out, l)
-	absorbWhitespace(out, l, preShown)
+	absorbWhitespace(out, l)
 	return out
 }
 
@@ -135,12 +135,12 @@ type showing []*Excerpt
 // be covered, because exempting them everywhere would count lines as accounted
 // for without ever showing them, and a blank line can carry meaning — a Markdown
 // paragraph break, a YAML block scalar.
-func absorbWhitespace(steps []Step, l ledger, preShown map[ChangedLine]bool) {
+func absorbWhitespace(steps []Step, l ledger) {
 	if len(l.whitespace) == 0 {
 		return
 	}
 	for key, shown := range excerptsByFileSide(steps) {
-		for _, run := range unaccountedRuns(l, key, steps, preShown) {
+		for _, run := range unaccountedRuns(l, key, steps) {
 			if excerpt := shown.absorber(run); excerpt != nil {
 				widen(excerpt, run)
 			}
@@ -166,13 +166,13 @@ func excerptsByFileSide(steps []Step) map[fileSide]showing {
 // into the maximal runs of consecutive lines they form. Runs are worked out
 // against the ranges as posted and are disjoint, so absorbing one cannot change
 // which Excerpt another touches.
-func unaccountedRuns(l ledger, key fileSide, steps []Step, preShown map[ChangedLine]bool) []span {
+func unaccountedRuns(l ledger, key fileSide, steps []Step) []span {
 	var numbers []int
 	for line := range l.whitespace {
 		if line.Repository != key.repository || line.File != key.file || line.Side != key.side {
 			continue
 		}
-		if l.accountedFor(line, steps, preShown) {
+		if l.accountedFor(line, steps) {
 			continue
 		}
 		numbers = append(numbers, line.Line)

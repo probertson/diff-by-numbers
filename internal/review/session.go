@@ -47,12 +47,6 @@ type Session struct {
 	// bases and the atoms it showed — which is what a Revision Round is scoped
 	// against (ADR-0014).
 	prior roundState
-	// preShown marks the current round's Changed Lines that were unchanged since
-	// the previous round: already reviewed, and counted as seen from the start.
-	preShown map[ChangedLine]bool
-	// preShownOpaque does the same for Opaque Changes, which have no lines to
-	// map and are recognised by the file being identical between rounds.
-	preShownOpaque map[fileRef]bool
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
@@ -139,18 +133,17 @@ func (s *Session) Post(w Walkthrough) error {
 	}
 
 	// What a Revision Round has already shown is worked out here rather than
-	// among the checks: normalisation and every stage-2 check needs to know which
-	// atoms are already accounted for.
-	var preShown map[ChangedLine]bool
-	var preShownOpaque map[fileRef]bool
+	// among the checks, and marked on the ledger itself: normalisation and every
+	// stage-2 check asks its questions of the round's scope, not of the raw
+	// Change Set.
 	if revision {
-		preShown, preShownOpaque = s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases)
+		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases))
 	}
 
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
 	// anything judges them, so the checks below see exactly what will be stored
 	// and shown.
-	w.Steps = normalize(w.Steps, w.ChangeSet, ledger, preShown)
+	w.Steps = normalize(w.Steps, w.ChangeSet, ledger)
 
 	// Stage 2: every check runs, and every one that fails is reported. They are
 	// independent of each other, so stopping at the first only hides what the
@@ -176,7 +169,7 @@ func (s *Session) Post(w Walkthrough) error {
 
 	add(ledger.validateBudget(w.Steps))
 	add(ledger.validateAcknowledgements(w.Steps))
-	add(ledger.validateCoverage(w.Steps, preShown, preShownOpaque))
+	add(ledger.validateCoverage(w.Steps))
 
 	if rejection := rejectAll(problems); rejection != nil {
 		return rejection
@@ -198,8 +191,6 @@ func (s *Session) Post(w Walkthrough) error {
 	s.nextCommentID = 0
 	s.finished = false
 	s.hashes = s.hashExcerptFiles(w.Steps)
-	s.preShown = preShown
-	s.preShownOpaque = preShownOpaque
 	s.dispositions = dispositions
 	s.prior = captureRound(ledger, snapshots, bases)
 	s.postings++
