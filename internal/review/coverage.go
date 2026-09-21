@@ -240,15 +240,62 @@ func anyStep(steps []Step, pred func(Step) bool) bool {
 // validateBudget refuses an oversized Step that carries no justification. It
 // never refuses a justified one: no mechanism in dbn forces an arbitrary cut.
 func (l ledger) validateBudget(steps []Step) *Rejection {
+	// Every offender, not the first. An agent that learns about them one
+	// rejected post at a time re-sends the whole Walkthrough — Brief, every
+	// Step, every Excerpt — to find out about the next, and they were all
+	// present on the first attempt. The coverage check has always aggregated;
+	// the budget was the outlier.
+	var over []oversizedStep
 	for i, step := range steps {
 		count := l.changedLinesIn(step)
 		if count > StepBudget && step.OversizeJustification == "" {
-			return reject(RejectedOversizedStep,
-				"Step %d shows %d changed lines, over the budget of %d, and gives no justification",
-				i+1, count, StepBudget)
+			over = append(over, oversizedStep{position: i + 1, name: step.Name, count: count})
 		}
 	}
-	return nil
+
+	switch len(over) {
+	case 0:
+		return nil
+	case 1:
+		return reject(RejectedOversizedStep, "%s", over[0].sentence())
+	default:
+		// Uncapped: the point is to learn about all of them in one go, and a
+		// Walkthrough has few enough Steps that the list stays readable.
+		var listed strings.Builder
+		fmt.Fprintf(&listed, "%d Steps are over the budget of %d changed lines and give no justification:",
+			len(over), StepBudget)
+		for _, step := range over {
+			fmt.Fprintf(&listed, "\n  %s", step.entry())
+		}
+		return reject(RejectedOversizedStep, "%s", listed.String())
+	}
+}
+
+// oversizedStep is one Step over the budget, named as well as numbered: with
+// twenty Steps, "Step 6" alone means counting positions in a JSON array to find
+// the one to fix.
+type oversizedStep struct {
+	position int
+	name     string
+	count    int
+}
+
+// String identifies the Step. validateSteps has already refused a Step with no
+// name by the time the budget is checked, so the name is always there to quote.
+func (o oversizedStep) String() string {
+	return fmt.Sprintf("Step %d (%q)", o.position, o.name)
+}
+
+// sentence is how one offender reads on its own.
+func (o oversizedStep) sentence() string {
+	return fmt.Sprintf("%s shows %d changed lines, over the budget of %d, and gives no justification",
+		o, o.count, StepBudget)
+}
+
+// entry is how one offender reads in a list, where the header has already said
+// what the budget is and what is wrong with them.
+func (o oversizedStep) entry() string {
+	return fmt.Sprintf("%s shows %d", o, o.count)
 }
 
 // changedLinesIn counts the distinct Changed Lines a Step shows. A line shown by

@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
@@ -202,5 +203,111 @@ func TestResolvedLinesAreMarkedChangedOrReference(t *testing.T) {
 		if changedNumbers[n] {
 			t.Errorf("expected line %d to be reference, not changed", n)
 		}
+	}
+}
+
+// bigStep is one Step of a budget test: what it is called, and how many changed
+// lines it shows.
+type bigStep struct {
+	name  string
+	lines int
+}
+
+// oversizedWalkthrough builds a Walkthrough whose Steps each show one file, and
+// the Changed Lines that make those Steps the size they claim to be. Both come
+// from here so the two halves cannot drift: a test that derived the file names
+// itself would pass for the wrong reason the moment this helper renamed them.
+func oversizedWalkthrough(steps ...bigStep) (review.Walkthrough, []review.ChangedLine) {
+	walkthrough := validWalkthrough()
+	walkthrough.Steps = nil
+	var lines []review.ChangedLine
+	for i, step := range steps {
+		file := fmt.Sprintf("big%d.ts", i+1)
+		walkthrough.Steps = append(walkthrough.Steps, review.Step{
+			Name:        step.name,
+			Explanation: "why this Step exists, in the reviewer's terms",
+			Excerpts: []review.Excerpt{{
+				Repository: "/repos/argus-portal", File: file,
+				Side: review.NewSide, FirstLine: 1, LastLine: 200,
+			}},
+		})
+		lines = append(lines, changed(file, 1, step.lines)...)
+	}
+	return walkthrough, lines
+}
+
+// An Authoring Agent used to find oversized Steps one rejected post at a time,
+// re-sending the whole Walkthrough — Brief, every Step, every Excerpt — to learn
+// about the next one. All of them are present on the first attempt, so all of
+// them are reported on the first attempt.
+func TestEveryOversizedStepIsReportedInOneRejection(t *testing.T) {
+	walkthrough, lines := oversizedWalkthrough(
+		bigStep{"Wire the flag through", 31},
+		bigStep{"New state on the model, and a new mode", 51},
+		bigStep{"Tests for the new mode", 44},
+	)
+	session := sessionDeriving(lines)
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedOversizedStep)
+	// Asserted as one string rather than three `contains` checks, so the Steps
+	// have to be listed in Step order and each has to carry its own name and
+	// count — an order-blind check would pass on a reversed list.
+	assertDetailContains(t, err, `3 Steps are over the budget of 30 changed lines and give no justification:
+  Step 1 ("Wire the flag through") shows 31
+  Step 2 ("New state on the model, and a new mode") shows 51
+  Step 3 ("Tests for the new mode") shows 44`)
+}
+
+// Twenty Steps in, "Step 6" alone means counting positions in a JSON array to
+// find the one to fix.
+func TestAnOversizedStepIsNamedNotJustNumbered(t *testing.T) {
+	walkthrough, lines := oversizedWalkthrough(bigStep{"New state on the model, and a new mode", 51})
+	session := sessionDeriving(lines)
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedOversizedStep)
+	assertDetailContains(t, err, `Step 1 ("New state on the model, and a new mode")`)
+}
+
+func TestAJustifiedStepIsLeftOutOfTheOversizedList(t *testing.T) {
+	walkthrough, lines := oversizedWalkthrough(
+		bigStep{"Justified and huge", 90},
+		bigStep{"Unjustified and huge", 44},
+	)
+	walkthrough.Steps[0].OversizeJustification = "the state machine only makes sense whole"
+	session := sessionDeriving(lines)
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedOversizedStep)
+	assertDetailContains(t, err, "Unjustified and huge")
+	assertDetailOmits(t, err, "Justified and huge")
+	assertDetailOmits(t, err, "90")
+}
+
+// One offender keeps the single-sentence form: a list of one reads worse.
+func TestASingleOversizedStepUsesTheOneLineForm(t *testing.T) {
+	walkthrough, lines := oversizedWalkthrough(bigStep{"Only me", 51})
+	session := sessionDeriving(lines)
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedOversizedStep)
+	assertDetailContains(t, err, "over the budget of 30, and gives no justification")
+	assertDetailOmits(t, err, "\n")
+}
+
+func TestStepsWithinTheBudgetAreNotRejected(t *testing.T) {
+	walkthrough, lines := oversizedWalkthrough(
+		bigStep{"Comfortably small", 10},
+		bigStep{"Right on the budget", 30},
+	)
+	session := sessionDeriving(lines)
+
+	if err := session.Post(walkthrough); err != nil {
+		t.Fatalf("nothing is over the budget, so nothing should be rejected, got %v", err)
 	}
 }
