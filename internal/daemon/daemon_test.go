@@ -159,17 +159,41 @@ func decodeResult[T any](t *testing.T, result *mcp.CallToolResult) T {
 }
 
 type postOutcome struct {
-	Accepted bool   `json:"accepted"`
-	Reason   string `json:"reason"`
-	Detail   string `json:"detail"`
-	ReviewID string `json:"review_id"`
+	Accepted bool          `json:"accepted"`
+	Problems []problemJSON `json:"problems"`
+	ReviewID string        `json:"review_id"`
+}
+
+// problemJSON mirrors one entry of the wire's problems array.
+type problemJSON struct {
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
+}
+
+// summary renders an outcome's problems for a failure message.
+func (o postOutcome) summary() string {
+	var parts []string
+	for _, problem := range o.Problems {
+		parts = append(parts, problem.Reason+": "+problem.Detail)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// has reports whether any problem carries this reason.
+func (o postOutcome) has(reason string) bool {
+	for _, problem := range o.Problems {
+		if problem.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func postWalkthrough(t *testing.T, baseURL string, walkthrough map[string]any) postOutcome {
 	t.Helper()
 	outcome := decodeResult[postOutcome](t, callTool(t, baseURL, "post_walkthrough", walkthrough))
 	if !outcome.Accepted {
-		t.Fatalf("expected the Walkthrough to be accepted, got %s: %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("expected the Walkthrough to be accepted, got %s", outcome.summary())
 	}
 	return outcome
 }

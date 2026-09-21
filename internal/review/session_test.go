@@ -100,11 +100,13 @@ func assertRejected(t *testing.T, err error, want review.RejectionReason) {
 	if !errors.As(err, &rejection) {
 		t.Fatalf("expected a structured rejection, got %v", err)
 	}
-	if rejection.Reason != want {
-		t.Errorf("expected rejection reason %q, got %q (%s)", want, rejection.Reason, rejection.Detail)
+	if !rejection.Has(want) {
+		t.Errorf("expected a %q problem, got %v", want, reasonsOf(rejection))
 	}
-	if rejection.Detail == "" {
-		t.Error("expected the rejection to name the problem, got an empty detail")
+	for _, problem := range rejection.Problems {
+		if problem.Detail == "" {
+			t.Errorf("the %q problem names nothing to fix", problem.Reason)
+		}
 	}
 }
 
@@ -402,8 +404,8 @@ func assertDetailContains(t *testing.T, err error, want string) {
 	if !errors.As(err, &rejection) {
 		t.Fatalf("expected a structured rejection, got %v", err)
 	}
-	if !strings.Contains(rejection.Detail, want) {
-		t.Errorf("expected the rejection detail to mention %q, got %q", want, rejection.Detail)
+	if !strings.Contains(rejection.Error(), want) {
+		t.Errorf("expected the rejection to mention %q, got %q", want, rejection.Error())
 	}
 }
 
@@ -413,8 +415,8 @@ func assertDetailOmits(t *testing.T, err error, unwanted string) {
 	if !errors.As(err, &rejection) {
 		t.Fatalf("expected a structured rejection, got %v", err)
 	}
-	if strings.Contains(rejection.Detail, unwanted) {
-		t.Errorf("expected the rejection detail not to contain %q, got %q", unwanted, rejection.Detail)
+	if strings.Contains(rejection.Error(), unwanted) {
+		t.Errorf("expected the rejection not to contain %q, got %q", unwanted, rejection.Error())
 	}
 }
 
@@ -439,4 +441,14 @@ func TestEachAcceptedWalkthroughIsANewPosting(t *testing.T) {
 	if revised == first {
 		t.Errorf("expected a Revision Round to be a new posting, still %d", revised)
 	}
+}
+
+// reasonsOf lists what a rejection complained about, for a failure message that
+// says what actually came back rather than only what did not.
+func reasonsOf(rejection *review.Rejection) []review.RejectionReason {
+	var reasons []review.RejectionReason
+	for _, problem := range rejection.Problems {
+		reasons = append(reasons, problem.Reason)
+	}
+	return reasons
 }

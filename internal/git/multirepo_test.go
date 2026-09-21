@@ -102,7 +102,7 @@ func TestCoverageDistinguishesSameNamedFilesAcrossRepositories(t *testing.T) {
 	err := review.NewSession(workingtree.NewResolver(), git.NewDeriver()).Post(walkthrough)
 
 	var rejection *review.Rejection
-	if !errors.As(err, &rejection) || rejection.Reason != review.RejectedUncoveredChanges {
+	if !errors.As(err, &rejection) || !rejection.Has(review.RejectedUncoveredChanges) {
 		t.Fatalf("expected the service's change to be uncovered, got %v", err)
 	}
 }

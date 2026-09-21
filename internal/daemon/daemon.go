@@ -561,11 +561,7 @@ func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in w
 	if err := d.session.Post(in.toDomain()); err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
-			return nil, postResult{
-				Accepted: false,
-				Reason:   string(rejection.Reason),
-				Detail:   rejection.Detail,
-			}, nil
+			return nil, postResult{Accepted: false, Problems: problemsOf(rejection)}, nil
 		}
 		return nil, postResult{}, err
 	}
@@ -579,7 +575,11 @@ func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in conclude
 	if err := d.session.Conclude(in.ReviewID); err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
-			return nil, concludeResult{Concluded: false, Reason: string(rejection.Reason), Message: rejection.Detail}, nil
+			return nil, concludeResult{
+				Concluded: false,
+				Problems:  problemsOf(rejection),
+				Message:   rejection.Error(),
+			}, nil
 		}
 		return nil, concludeResult{}, err
 	}
@@ -606,4 +606,14 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	}
 
 	return nil, toFetchResult(results, message), nil
+}
+
+// problemsOf puts a rejection's problems on the wire in the order dbn found
+// them, so an agent reads them in the order it would fix them.
+func problemsOf(rejection *review.Rejection) []problemWire {
+	problems := make([]problemWire, 0, len(rejection.Problems))
+	for _, problem := range rejection.Problems {
+		problems = append(problems, problemWire{Reason: string(problem.Reason), Detail: problem.Detail})
+	}
+	return problems
 }

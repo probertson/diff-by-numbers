@@ -1,6 +1,9 @@
 package review
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // RejectionReason names why a Walkthrough was refused. The Authoring Agent acts
 // on this, so it is a value rather than prose: a rejection must tell the agent
@@ -62,16 +65,58 @@ const (
 	RejectedAlreadyReRaised RejectionReason = "already_re_raised"
 )
 
-// Rejection is a refusal that names its cause.
-type Rejection struct {
+// Problem is one thing wrong with a post: what kind, and what specifically.
+type Problem struct {
 	Reason RejectionReason
 	Detail string
 }
 
+// Rejection is a refusal that names every cause it could find.
+//
+// A post used to be refused at the first fault, so an Authoring Agent found
+// them one at a time — and each attempt re-sent the entire Walkthrough, Brief
+// and every Excerpt, to learn about the next. Four posts to get one accepted
+// was ordinary. Everything the later checks can see is present on the first
+// attempt, so they all run and all report.
+//
+// Problems carries at most one entry per reason, in the order the checks run.
+// A structural failure is a list of one: the later checks mean nothing without
+// a well-formed Walkthrough, so their guesses would be noise.
+type Rejection struct {
+	Problems []Problem
+}
+
+// Has reports whether any problem has this reason.
+func (r *Rejection) Has(reason RejectionReason) bool {
+	for _, problem := range r.Problems {
+		if problem.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// rejectAll gathers several problems into one refusal, dropping the stages that
+// found nothing. It returns nil when they all passed, so callers can treat it
+// like any other check.
+func rejectAll(problems []Problem) *Rejection {
+	if len(problems) == 0 {
+		return nil
+	}
+	return &Rejection{Problems: problems}
+}
+
 func (r *Rejection) Error() string {
-	return fmt.Sprintf("%s: %s", r.Reason, r.Detail)
+	if len(r.Problems) == 1 {
+		return fmt.Sprintf("%s: %s", r.Problems[0].Reason, r.Problems[0].Detail)
+	}
+	parts := make([]string, 0, len(r.Problems))
+	for _, problem := range r.Problems {
+		parts = append(parts, fmt.Sprintf("%s: %s", problem.Reason, problem.Detail))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func reject(reason RejectionReason, format string, args ...any) *Rejection {
-	return &Rejection{Reason: reason, Detail: fmt.Sprintf(format, args...)}
+	return &Rejection{Problems: []Problem{{Reason: reason, Detail: fmt.Sprintf(format, args...)}}}
 }

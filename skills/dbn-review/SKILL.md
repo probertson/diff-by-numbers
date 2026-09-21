@@ -77,8 +77,16 @@ Comments against it.
 
 **Coverage is enforced.** dbn derives the changed lines from git and refuses a
 Walkthrough that leaves any of them shown by neither an Excerpt nor an
-Acknowledgement. If your post is rejected as `uncovered_changes`, it names what
-you missed — add it and re-post.
+Acknowledgement. If your post is rejected as `uncovered_changes`, it names
+everything you missed, grouped by file and side — add it all and re-post.
+
+**A rejection lists every problem it found.** Once the Walkthrough is
+structurally sound, dbn runs all its checks and reports all of them in
+`problems`, rather than stopping at the first. Fix every entry before posting
+again: posting to discover the next one costs you the whole Walkthrough each
+time. A structural fault — a malformed Brief or Step, a bad `base`, a Change
+Set that will not derive — comes back on its own, because the later checks
+cannot say anything useful until it is fixed.
 
 **Untracked files count.** A file you created but never `git add`ed is part of
 the Change Set, every line of it, and needs covering like any other. There is no

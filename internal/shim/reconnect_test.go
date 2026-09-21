@@ -56,7 +56,7 @@ func TestARefusedToolCallIsReturnedAsIsRatherThanRetried(t *testing.T) {
 	defer session.Close()
 	outcome := post(t, ctx, session, minimalWalkthrough(root))
 	if !outcome.Accepted {
-		t.Fatalf("precondition: the post was rejected: %s %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("precondition: the post was rejected: %s", outcome.summary())
 	}
 
 	refused := conclude(t, ctx, session, "not-"+outcome.ReviewID)

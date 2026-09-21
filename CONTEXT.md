@@ -154,6 +154,13 @@ What the round-over-round mapping answers with, and the unit that decides
 whether a Changed Line was already shown.
 _Avoid_: location, coordinate, address
 
+**Problem**:
+One fault in a refused post: what kind it is, and what specifically to fix. A
+refusal carries every problem dbn could find rather than the first, so an agent
+fixes them all before re-sending the Walkthrough. At most one per kind, in the
+order dbn checks them.
+_Avoid_: error, failure, violation
+
 **Coverage Ledger**:
 dbn's own record, derived from git rather than from the Authoring Agent, of every
 Changed Line and Opaque Change under review, and whether each has been shown by an

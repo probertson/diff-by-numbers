@@ -120,54 +120,57 @@ func (s *Session) Post(w Walkthrough) error {
 		return rejection
 	}
 
-	// Dispositions account for the previous round's Comments. Resolve them
-	// before any state is reset, while the previous round's Comments still
-	// stand.
-	var dispositions []ResolvedDisposition
-	if revision {
-		resolved, rejection := s.resolveDispositions(w.Dispositions)
-		if rejection != nil {
-			return rejection
-		}
-		dispositions = resolved
-	} else if len(w.Dispositions) > 0 {
-		return reject(RejectedMalformedDisposition,
-			"this is the first Walkthrough; there are no Comments to dispose of")
-	}
-
-	// Derive what git says changed, then hold the plan to it. Order matters:
-	// structural faults are named before coverage, so an agent fixes the obvious
-	// thing first.
+	// Stage 1 stops at the first failure. Derivation needs a well-formed
+	// Walkthrough, and every stage-2 check needs the ledger, so anything they
+	// might say without these would be guesswork.
 	ledger, err := buildLedger(w.ChangeSet, s.deriver)
 	if err != nil {
 		return reject(RejectedDerivationFailed,
 			"could not derive the changes under review: %v", err)
 	}
-	if rejection := validateNewSideResolves(w.Steps, s.resolver); rejection != nil {
-		return rejection
-	}
 
-	// In a Revision Round, a Changed Line the Reviewer already read is pre-marked
-	// as shown, so coverage is enforced over what actually moved. Both the
-	// snapshots and the bases are worked out now and kept only on acceptance.
+	// The snapshots and bases a Revision Round is scoped against. Worked out
+	// before the stage-2 checks, which need the pre-marking, and kept only once
+	// the post is accepted.
 	bases := ledger.bases
 	var snapshots map[string]string
 	if snapshotter, ok := s.deriver.(Snapshotter); ok {
 		snapshots = snapshotAll(snapshotter, w.ChangeSet)
 	}
+
+	// Stage 2: every check runs, and every one that fails is reported. They are
+	// independent of each other, so stopping at the first only hides what the
+	// agent would have to come back for.
+	var problems []Problem
+	add := func(rejection *Rejection) {
+		if rejection != nil {
+			problems = append(problems, rejection.Problems...)
+		}
+	}
+
+	var dispositions []ResolvedDisposition
+	if revision {
+		resolved, rejection := s.resolveDispositions(w.Dispositions)
+		add(rejection)
+		dispositions = resolved
+	} else if len(w.Dispositions) > 0 {
+		add(reject(RejectedMalformedDisposition,
+			"this is the first Walkthrough; there are no Comments to dispose of"))
+	}
+
+	add(validateNewSideResolves(w.Steps, s.resolver))
+
 	var preShown map[ChangedLine]bool
 	var preShownOpaque map[fileRef]bool
 	if revision {
 		preShown, preShownOpaque = s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases)
 	}
 
-	if rejection := ledger.validateBudget(w.Steps); rejection != nil {
-		return rejection
-	}
-	if rejection := ledger.validateAcknowledgements(w.Steps); rejection != nil {
-		return rejection
-	}
-	if rejection := ledger.validateCoverage(w.Steps, preShown, preShownOpaque); rejection != nil {
+	add(ledger.validateBudget(w.Steps))
+	add(ledger.validateAcknowledgements(w.Steps))
+	add(ledger.validateCoverage(w.Steps, preShown, preShownOpaque))
+
+	if rejection := rejectAll(problems); rejection != nil {
 		return rejection
 	}
 

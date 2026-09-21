@@ -41,7 +41,7 @@ func TestTheWireAcceptsABaseRef(t *testing.T) {
 		walkthroughWithRepository(root, map[string]any{"root": root, "base": "main"})))
 
 	if !outcome.Accepted {
-		t.Fatalf("a plain base ref is exactly what the field is for, got %s: %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("a plain base ref is exactly what the field is for, got %s", outcome.summary())
 	}
 }
 
@@ -57,11 +57,11 @@ func TestTheWireRejectsARangeAsABase(t *testing.T) {
 	if outcome.Accepted {
 		t.Fatal("A..B is not a base ref")
 	}
-	if outcome.Reason != "malformed_base" {
-		t.Errorf("expected malformed_base, got %s: %s", outcome.Reason, outcome.Detail)
+	if !outcome.has("malformed_base") {
+		t.Errorf("expected a malformed_base problem, got %s", outcome.summary())
 	}
-	if !strings.Contains(outcome.Detail, "base takes a single ref, not A..B") {
-		t.Errorf("the rejection should explain the field, got %q", outcome.Detail)
+	if !strings.Contains(outcome.summary(), "base takes a single ref, not A..B") {
+		t.Errorf("the rejection should explain the field, got %q", outcome.summary())
 	}
 }
 
@@ -76,4 +76,44 @@ func resultText(t *testing.T, result *mcp.CallToolResult) string {
 		}
 	}
 	return all.String()
+}
+
+// The rejection an agent actually receives carries every problem, so it can fix
+// them all before posting the whole Walkthrough again.
+func TestARefusedPostCarriesEveryProblemOnTheWire(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+
+	// A Step covering nothing, plus an Acknowledgement of a file with no
+	// changes: two independent stage-2 faults.
+	walkthrough := walkthroughWithRepository(root, map[string]any{"root": root, "base": "main"})
+	steps := walkthrough["steps"].([]any)
+	step := steps[0].(map[string]any)
+	step["excerpts"] = []any{
+		map[string]any{
+			"repository": root, "file": "FILE-src/fetch.ts",
+			"side": "new", "first_line": 1, "last_line": 1,
+		},
+	}
+	step["acknowledgements"] = []any{
+		map[string]any{"repository": root, "files": []any{"NOT-A-CHANGED-FILE"}, "reason": "nothing"},
+	}
+
+	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_walkthrough", walkthrough))
+
+	if outcome.Accepted {
+		t.Fatal("expected the post to be refused")
+	}
+	if len(outcome.Problems) < 2 {
+		t.Fatalf("expected every problem, got %d: %s", len(outcome.Problems), outcome.summary())
+	}
+	if !outcome.has("empty_acknowledgement") || !outcome.has("uncovered_changes") {
+		t.Errorf("expected both faults reported together, got %s", outcome.summary())
+	}
+	for _, problem := range outcome.Problems {
+		if problem.Reason == "" || problem.Detail == "" {
+			t.Errorf("every problem needs a reason and a detail, got %+v", problem)
+		}
+	}
 }

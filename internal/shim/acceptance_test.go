@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ func TestShimAutoStartsADaemonThenServesTheTools(t *testing.T) {
 	outcome := post(t, ctx, session, minimalWalkthrough(root))
 
 	if !outcome.Accepted {
-		t.Fatalf("expected the post via the shim to be accepted, got %s: %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("expected the post via the shim to be accepted, got %s", outcome.summary())
 	}
 	if outcome.ReviewID == "" {
 		t.Error("expected a review id back through the shim")
@@ -62,7 +63,7 @@ func TestShimConnectsToAnExistingDaemonRatherThanStartingASecond(t *testing.T) {
 	posted := post(t, ctx, direct, minimalWalkthrough(root))
 	direct.Close()
 	if !posted.Accepted {
-		t.Fatalf("precondition: direct post rejected: %s %s", posted.Reason, posted.Detail)
+		t.Fatalf("precondition: direct post rejected: %s", posted.summary())
 	}
 
 	// The shim must reach that same daemon — it sees the already-posted review,
@@ -85,7 +86,7 @@ func TestDaemonSurvivesShimExitWhileAReviewIsUnconcluded(t *testing.T) {
 	session := connectShim(t, ctx, bin, env)
 	outcome := post(t, ctx, session, minimalWalkthrough(root))
 	if !outcome.Accepted {
-		t.Fatalf("expected the post to be accepted, got %s: %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("expected the post to be accepted, got %s", outcome.summary())
 	}
 
 	// Ending the shim (as the agent session ending would) must not take the daemon
@@ -110,7 +111,7 @@ func TestDaemonSelfExitsOnceAReviewConcludesAndTheSessionEnds(t *testing.T) {
 	session := connectShim(t, ctx, bin, env)
 	outcome := post(t, ctx, session, minimalWalkthrough(root))
 	if !outcome.Accepted {
-		t.Fatalf("expected the post to be accepted, got %s: %s", outcome.Reason, outcome.Detail)
+		t.Fatalf("expected the post to be accepted, got %s", outcome.summary())
 	}
 
 	// Conclude the review, then end the session so nothing keeps the daemon warm.
@@ -244,10 +245,25 @@ func concludeAndWait(port int, env []string, reviewID string) {
 }
 
 type postOutcome struct {
-	Accepted bool   `json:"accepted"`
-	ReviewID string `json:"review_id"`
-	Reason   string `json:"reason"`
-	Detail   string `json:"detail"`
+	Accepted bool          `json:"accepted"`
+	ReviewID string        `json:"review_id"`
+	Problems []problemJSON `json:"problems"`
+}
+
+// problemJSON mirrors one entry of the wire's problems array. These outcomes
+// only ever appear in failure messages here, but an empty one would defeat the
+// purpose of printing it.
+type problemJSON struct {
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
+}
+
+func (o postOutcome) summary() string {
+	var parts []string
+	for _, problem := range o.Problems {
+		parts = append(parts, problem.Reason+": "+problem.Detail)
+	}
+	return strings.Join(parts, "; ")
 }
 
 type fetchOutcome struct {

@@ -163,7 +163,8 @@ func stepCoversOpaque(step Step, opaque OpaqueChange) bool {
 // unaccounted for. The guarantee the agent cannot opt out of. Lines pre-marked as
 // shown by a Revision Round are already accounted for and are not re-demanded.
 func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, preShownOpaque map[fileRef]bool) *Rejection {
-	var uncovered []string
+	var uncoveredLines []ChangedLine
+	var uncoveredOpaque []OpaqueChange
 	for _, line := range l.lines {
 		if preShown[line] {
 			continue
@@ -175,7 +176,7 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, pr
 			continue
 		}
 		if !anyStep(steps, func(s Step) bool { return stepCoversLine(s, line) }) {
-			uncovered = append(uncovered, line.String())
+			uncoveredLines = append(uncoveredLines, line)
 		}
 	}
 	for _, opaque := range l.opaque {
@@ -183,14 +184,13 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, pr
 			continue
 		}
 		if !anyStep(steps, func(s Step) bool { return stepCoversOpaque(s, opaque) }) {
-			uncovered = append(uncovered, opaque.String())
+			uncoveredOpaque = append(uncoveredOpaque, opaque)
 		}
 	}
-	if len(uncovered) == 0 {
+	if len(uncoveredLines) == 0 && len(uncoveredOpaque) == 0 {
 		return nil
 	}
-	return reject(RejectedUncoveredChanges,
-		"no Excerpt or Acknowledgement accounts for %s: %s", pluralize(len(uncovered), "change"), summarize(uncovered))
+	return reject(RejectedUncoveredChanges, "%s", summarizeUncovered(uncoveredLines, uncoveredOpaque))
 }
 
 // validateAcknowledgements refuses an Acknowledgement that claims a file with no
@@ -468,15 +468,4 @@ func (l ledger) isChanged(repo, file string, side Side, line int) bool {
 		}
 	}
 	return false
-}
-
-// summarize names a handful of atoms for a rejection, so the message is
-// actionable without dumping thousands of them.
-func summarize(labels []string) string {
-	const limit = 5
-	sort.Strings(labels)
-	if len(labels) > limit {
-		return strings.Join(labels[:limit], ", ") + fmt.Sprintf(", and %d more", len(labels)-limit)
-	}
-	return strings.Join(labels, ", ")
 }

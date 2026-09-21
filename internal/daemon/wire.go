@@ -64,10 +64,16 @@ type wireWalkthrough struct {
 }
 
 type postResult struct {
-	Accepted bool   `json:"accepted"`
-	ReviewID string `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
-	Reason   string `json:"reason,omitempty" jsonschema:"Why the Walkthrough was refused, as a value you can act on"`
-	Detail   string `json:"detail,omitempty" jsonschema:"What specifically to fix"`
+	Accepted bool          `json:"accepted"`
+	ReviewID string        `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
+	Problems []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this Walkthrough, not just the first thing found. Fix them all before posting again"`
+}
+
+// problemWire is one fault in a refused post. A rejection carries at most one
+// per reason, in the order dbn checks them.
+type problemWire struct {
+	Reason string `json:"reason" jsonschema:"What kind of fault this is, as a value you can act on"`
+	Detail string `json:"detail" jsonschema:"What specifically to fix"`
 }
 
 type concludeInput struct {
@@ -75,9 +81,9 @@ type concludeInput struct {
 }
 
 type concludeResult struct {
-	Concluded bool   `json:"concluded"`
-	Reason    string `json:"reason,omitempty" jsonschema:"Why the conclude was refused, as a value you can act on"`
-	Message   string `json:"message" jsonschema:"A human-readable account of the outcome"`
+	Concluded bool          `json:"concluded"`
+	Problems  []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this conclude, not just the first thing found"`
+	Message   string        `json:"message" jsonschema:"A human-readable account of the outcome"`
 }
 
 type commentWire struct {
