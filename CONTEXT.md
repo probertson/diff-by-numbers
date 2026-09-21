@@ -82,7 +82,9 @@ A contiguous range of lines in one file of one repository that the Authoring Age
 to show,
 sized and bounded for comprehension rather than by any tool's output format. May
 include unchanged lines for reference. Named as an editorial selection, because
-that is what it is. A Step is made of Excerpts.
+that is what it is. A Step is made of Excerpts. The repository is named
+explicitly, except where only one is under review — then it may be left out and
+dbn fills it in, since there is nothing else it could mean.
 _Avoid_: hunk, chunk, block, fragment, snippet
 
 **Changed Line**:
@@ -122,7 +124,8 @@ The Authoring Agent's declaration that a set of changes is mechanical and need n
 read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of
 an Excerpt and renders as a manifest of files and counts. A claim, not a dismissal: the
 Reviewer may expand it into real Excerpts at any time — inline in the Step, as a unified diff
-they can navigate, anchor and raise Comments against like any other code.
+they can navigate, anchor and raise Comments against like any other code. Its repository may
+be left out on the same terms as an Excerpt's.
 _Avoid_: skip, noise, ignore, suppress
 
 **Anchor**:

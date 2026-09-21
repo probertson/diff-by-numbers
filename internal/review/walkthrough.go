@@ -107,6 +107,30 @@ type Walkthrough struct {
 	Label string
 }
 
+// sole returns the one repository under review, when there is only one. It is
+// what makes leaving `repository` off an Excerpt or an Acknowledgement
+// unambiguous, and the single place that rule is stated: validation, filling in
+// and the uniqueness check must all agree on it, or one accepts what another
+// cannot make sense of.
+func (c ChangeSet) sole() (string, bool) {
+	if len(c.Repositories) != 1 {
+		return "", false
+	}
+	return c.Repositories[0].Root, true
+}
+
+// repositoryOf resolves the repository an Excerpt or Acknowledgement sits in,
+// standing in the sole repository where the field was left out. It answers ""
+// when the field is empty and there is no sole repository, which validation
+// refuses separately.
+func (c ChangeSet) repositoryOf(named string) string {
+	if named != "" {
+		return named
+	}
+	only, _ := c.sole()
+	return only
+}
+
 // contains reports whether the Change Set includes the given repository root.
 func (c ChangeSet) contains(root string) bool {
 	for _, repository := range c.Repositories {

@@ -150,7 +150,7 @@ func (s *Session) Post(w Walkthrough) error {
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
 	// anything judges them, so the checks below see exactly what will be stored
 	// and shown.
-	w.Steps = normalize(w.Steps, ledger, preShown)
+	w.Steps = normalize(w.Steps, w.ChangeSet, ledger, preShown)
 
 	// Stage 2: every check runs, and every one that fails is reported. They are
 	// independent of each other, so stopping at the first only hides what the

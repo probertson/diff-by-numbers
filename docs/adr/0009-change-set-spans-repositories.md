@@ -18,6 +18,16 @@ Multi-repository support costs almost nothing when built in from the start and i
 of the Change Set, the Excerpt reference, the Coverage Ledger and the TUI if retrofitted —
 which is why it is in the MVP despite spanning repositories being the uncommon case.
 
+Excerpts and Acknowledgements are qualified by repository, but the field may be left out
+when exactly one repository is under review, and dbn fills it in when the Walkthrough is
+posted. A single-repository review is the common case, and repeating the same absolute root
+on every entry of a twenty-Step Walkthrough is noise that cannot be got wrong in any
+interesting way. Nothing downstream ever sees the blank: the value is resolved before the
+Walkthrough is stored, so Anchors, Comments and results all carry a real root. With several
+repositories the field is required and never inferred from the path — the same relative path
+can exist in more than one tree, so a guess would point the Reviewer at the wrong file while
+looking entirely correct.
+
 Discovery is the part deliberately not built. dbn does not search for repositories with
 changes; the agent already knows which ones it touched, so it says so. A future helper that
 finds candidates is additive and changes no model.

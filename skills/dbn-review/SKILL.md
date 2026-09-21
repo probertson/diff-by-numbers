@@ -52,7 +52,9 @@ one git hunk. Plan them so:
   forbids a large Step, it only asks for a reason.
 - **Excerpts are ranges you choose**, `{repository, file, side, first_line,
   last_line}`. Send ranges, never code — dbn reads the bytes itself. An Excerpt
-  may include unchanged lines for context.
+  may include unchanged lines for context. Reviewing a single repository, omit
+  `repository` — on Excerpts and Acknowledgements both — and dbn uses the only
+  one there is. With several, it is required and never guessed from the path.
 - **You need not list blank separator lines.** A blank line between two ranges
   you do list is absorbed into the range before it, so listing a new file's
   sections covers the whole file. Absorbed lines are shown, and cost nothing

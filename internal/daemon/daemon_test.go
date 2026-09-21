@@ -244,3 +244,44 @@ func walkthroughWithRepository(root string, repository map[string]any) map[strin
 		},
 	}
 }
+
+// With one repository under review there is nothing else `repository` could
+// mean, so the schema lets the Authoring Agent leave it out — and dbn reports
+// the resolved value back, so nothing downstream sees a blank.
+func TestASingleRepositoryPostMayOmitTheRepository(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+
+	root := featureRepo(t)
+	postWalkthrough(t, server.URL, map[string]any{
+		"brief": map[string]any{
+			"ask":        "ASK-tenant-scoping",
+			"approach":   "APPROACH-thread-the-id-through",
+			"provenance": map[string]any{"kind": "inferred"},
+		},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+		"steps": []any{map[string]any{
+			"name":        "NAME-the-change",
+			"explanation": "EXPLANATION-what-it-does",
+			"excerpts": []any{
+				map[string]any{"file": "FILE-src/fetch.ts", "side": "new", "first_line": 1, "last_line": 4},
+			},
+			"acknowledgements": []any{
+				map[string]any{"files": []any{"LOCKFILE"}, "reason": "regenerated lockfile"},
+			},
+		}},
+	})
+
+	dump := get(t, server.URL+"/dump")
+
+	// The Change Set section names the root regardless, so the assertion has to
+	// be on the Excerpt and the Acknowledgement — the entries that omitted it.
+	for _, want := range []string{
+		root + " FILE-src/fetch.ts:1-4 (new side)",
+		"acknowledged in " + root + ": LOCKFILE",
+	} {
+		if !strings.Contains(dump, want) {
+			t.Errorf("expected %q in the dump\n--- dump ---\n%s", want, dump)
+		}
+	}
+}

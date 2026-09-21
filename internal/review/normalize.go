@@ -8,13 +8,38 @@ import "sort"
 // rendering, coverage, the budget and anchoring all see one set of ranges, so
 // "shown" and "accounted for" stay in lockstep (the rule riddenAlong documents,
 // correspondence.go).
-func normalize(steps []Step, l ledger, preShown map[ChangedLine]bool) []Step {
+func normalize(steps []Step, changeSet ChangeSet, l ledger, preShown map[ChangedLine]bool) []Step {
 	out := copySteps(steps)
-	// Renaming first: absorption groups Excerpts by the file they show, so the
-	// aliases have to be resolved before anything is grouped by path.
+	// The order is what each pass needs of the one before it. Filling in the
+	// repository comes first because everything after keys on it; renaming comes
+	// before absorption because absorption groups Excerpts by the file they show.
+	fillInRepositories(out, changeSet)
 	aliasRenames(out, l)
 	absorbWhitespace(out, l, preShown)
 	return out
+}
+
+// fillInRepositories fills in the repository an Excerpt or Acknowledgement left
+// out. Validation has already refused a missing one where the Change Set has
+// several, so by here an empty value can only mean the single repository under
+// review — and from here on everything downstream sees a concrete value.
+func fillInRepositories(steps []Step, changeSet ChangeSet) {
+	only, ok := changeSet.sole()
+	if !ok {
+		return
+	}
+	for i := range steps {
+		for j := range steps[i].Excerpts {
+			if steps[i].Excerpts[j].Repository == "" {
+				steps[i].Excerpts[j].Repository = only
+			}
+		}
+		for j := range steps[i].Acknowledgements {
+			if steps[i].Acknowledgements[j].Repository == "" {
+				steps[i].Acknowledgements[j].Repository = only
+			}
+		}
+	}
 }
 
 // aliasRenames rewrites a rename's source path to its destination, which is the

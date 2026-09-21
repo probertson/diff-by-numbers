@@ -23,7 +23,7 @@ type wireBrief struct {
 }
 
 type wireExcerpt struct {
-	Repository string `json:"repository" jsonschema:"Root path of the repository this Excerpt is in. Must be one named in the Change Set"`
+	Repository string `json:"repository,omitempty" jsonschema:"Root path of the repository this Excerpt is in. Must be one named in the Change Set. Optional when reviewing a single repository: leave it out and dbn uses the only one there is"`
 	File       string `json:"file" jsonschema:"Path to the file, relative to the repository root"`
 	Side       string `json:"side" jsonschema:"'new' for the after-side of a change — added or edited lines, and unchanged context. Point at the after-side of an edit and dbn shows the before-side it replaced automatically; you need not name the old side. Use 'old' only to show a standalone deletion: removed lines that nothing replaced"`
 	FirstLine  int    `json:"first_line" jsonschema:"First line of the range, counting from 1"`
@@ -31,7 +31,7 @@ type wireExcerpt struct {
 }
 
 type wireAcknowledgement struct {
-	Repository string   `json:"repository" jsonschema:"Root path of the repository these files are in. Must be one named in the Change Set"`
+	Repository string   `json:"repository,omitempty" jsonschema:"Root path of the repository these files are in. Must be one named in the Change Set. Optional when reviewing a single repository: leave it out and dbn uses the only one there is"`
 	Files      []string `json:"files" jsonschema:"Paths, relative to the repository root, whose entire change is mechanical. Every changed line and every binary, mode or rename change in these files is thereby accounted for"`
 	Reason     string   `json:"reason" jsonschema:"One line saying why these changes are mechanical and need not be read, e.g. 'regenerated lockfile'. The Reviewer sees this and may expand it into the real code"`
 }

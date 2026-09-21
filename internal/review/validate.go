@@ -20,19 +20,23 @@ func validate(w Walkthrough) *Rejection {
 	if rejection := validateSteps(w.Steps, w.ChangeSet); rejection != nil {
 		return rejection
 	}
-	return validateAcknowledgementUniqueness(w.Steps)
+	return validateAcknowledgementUniqueness(w.Steps, w.ChangeSet)
 }
 
 // validateAcknowledgementUniqueness refuses a file claimed by more than one
 // Acknowledgement — within one or across Steps. Coverage would not break (the
 // checks are idempotent), but a doubly-claimed file is an authoring mistake, and
 // saying so beats silently accepting a copy-pasted Acknowledgement.
-func validateAcknowledgementUniqueness(steps []Step) *Rejection {
+func validateAcknowledgementUniqueness(steps []Step, changeSet ChangeSet) *Rejection {
 	seen := map[string]bool{}
 	for i, step := range steps {
 		for j, ack := range step.Acknowledgements {
+			// The repository is resolved here rather than taken as written,
+			// because normalisation has not run yet: one claim naming the sole
+			// repository and another leaving it out are the same claim, and
+			// keying on the raw field would let the pair through.
 			for _, file := range ack.Files {
-				key := ack.Repository + "\x00" + filepath.Clean(file)
+				key := changeSet.repositoryOf(ack.Repository) + "\x00" + filepath.Clean(file)
 				if seen[key] {
 					return reject(RejectedMalformedStep,
 						"Acknowledgement %d of Step %d claims %q, which another Acknowledgement already claims; a file is acknowledged once",
@@ -79,9 +83,8 @@ func validateSteps(steps []Step, changeSet ChangeSet) *Rejection {
 
 func validateAcknowledgement(a Acknowledgement, step, index int, changeSet ChangeSet) *Rejection {
 	where := fmt.Sprintf("Acknowledgement %d of Step %d", index, step)
-	if !changeSet.contains(a.Repository) {
-		return reject(RejectedMalformedStep,
-			"%s names repository %q, which the Change Set does not include", where, a.Repository)
+	if rejection := validateRepositoryOf(a.Repository, where, changeSet); rejection != nil {
+		return rejection
 	}
 	if len(a.Files) == 0 {
 		return reject(RejectedMalformedStep, "%s names no files, so it claims nothing", where)
@@ -120,9 +123,28 @@ func validateExcerpt(e Excerpt, step, index int, changeSet ChangeSet) *Rejection
 	if e.LastLine < e.FirstLine {
 		return reject(RejectedMalformedStep, "%s ends at line %d, before it starts at line %d", where, e.LastLine, e.FirstLine)
 	}
-	if !changeSet.contains(e.Repository) {
+	return validateRepositoryOf(e.Repository, where, changeSet)
+}
+
+// validateRepositoryOf checks the repository an Excerpt or an Acknowledgement
+// sits in. Leaving it out is allowed when the Change Set has exactly one, since
+// there is nothing else it could mean and repeating an absolute root on every
+// entry is noise; normalisation fills the value in.
+//
+// With several repositories it is required, and never inferred from the path.
+// The same relative path can exist in more than one tree, so a guess would point
+// the Reviewer at the wrong file while looking entirely correct.
+func validateRepositoryOf(repository, where string, changeSet ChangeSet) *Rejection {
+	if repository == "" {
+		if _, ok := changeSet.sole(); ok {
+			return nil
+		}
 		return reject(RejectedMalformedStep,
-			"%s names repository %q, which the Change Set does not include", where, e.Repository)
+			"%s names no repository: repository is required when the Change Set has more than one repository", where)
+	}
+	if !changeSet.contains(repository) {
+		return reject(RejectedMalformedStep,
+			"%s names repository %q, which the Change Set does not include", where, repository)
 	}
 	return nil
 }
