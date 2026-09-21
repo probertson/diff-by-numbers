@@ -64,10 +64,15 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 		}},
 	}
 	postWalkthrough(t, server.URL, walkthrough)
+	// A Comment keeps the review going into a Revision Round: a hand-off with
+	// nothing raised would end it.
+	httpPost(t, server.URL+"/goto/1")
+	raiseComment(t, server.URL, 0, 4, 4, "rename this")
 	httpPost(t, server.URL+"/finish")
 	if err := os.WriteFile(filepath.Join(root, "FILE-src/fetch.ts"), []byte("a\nb\nc\nREWRITTEN\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	walkthrough["dispositions"] = []any{map[string]any{"comment_id": 1, "status": "addressed"}}
 	postWalkthrough(t, server.URL, walkthrough)
 	httpPost(t, server.URL+"/goto/1")
 

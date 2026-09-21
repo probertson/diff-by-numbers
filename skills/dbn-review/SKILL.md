@@ -234,7 +234,8 @@ decision, not yours.
 
 A review that ends this way — the reviewer handing off having raised nothing — is
 already concluded; dbn treats `fetch_results` reporting "complete" as the end of
-the loop. There is nothing more you must do.
+the loop. There is nothing more you must do, and your next `post_walkthrough`
+starts a new review with a new `review_id`, not a Revision Round of this one.
 
 For any other ending — you decide to stop, or the reviewer declines everything and
 you will post no further round — call `conclude` with the `review_id` from

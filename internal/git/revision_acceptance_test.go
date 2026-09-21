@@ -33,16 +33,40 @@ func roundOver(root string, steps []review.Step, dispositions []review.Dispositi
 	}
 }
 
-// finishRound posts a Walkthrough and finishes it, leaving the Session ready for
-// a Revision Round.
+// finishRound posts a Walkthrough and hands it off with one Comment raised on
+// its first line of code, leaving the Session ready for a Revision Round. The
+// Comment is what keeps the review going: a hand-off with nothing raised ends
+// it, and the next post starts a new review. revisedOver answers it.
 func finishRound(t *testing.T, session *review.Session, w review.Walkthrough) {
 	t.Helper()
 	if err := session.Post(w); err != nil {
 		t.Fatalf("posting the round: %v", err)
 	}
-	if err := session.Finish(); err != nil {
-		t.Fatalf("finishing the round: %v", err)
+	if err := session.GoTo(1); err != nil {
+		t.Fatal(err)
 	}
+	for i, excerpt := range session.View().Step.Excerpts {
+		for _, line := range excerpt.Lines {
+			if !line.Content() {
+				continue
+			}
+			at := review.AnchorEndpoint{Side: line.Side, Line: line.Number}
+			if _, err := session.RaiseComment(review.AnchorTarget{ExcerptIndex: i, Start: at, End: at}, "keep going"); err != nil {
+				t.Fatalf("raising the Comment that keeps the review going: %v", err)
+			}
+			if err := session.Finish(); err != nil {
+				t.Fatalf("finishing the round: %v", err)
+			}
+			return
+		}
+	}
+	t.Fatal("the first Step shows no line to raise a Comment on")
+}
+
+// revisedOver is a Revision Round over the given Steps, answering the Comment
+// finishRound raised.
+func revisedOver(root string, steps []review.Step) review.Walkthrough {
+	return roundOver(root, steps, []review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}})
 }
 
 // The measured case from the ticket: in a braced language most lines are blank
@@ -60,7 +84,7 @@ func TestUntouchedBoilerplateIsPreMarkedInARevisionRound(t *testing.T) {
 	// untouched, and none of them has unique content.
 	write(t, root, "app.ts", "function renamed() {\n}\n\nfunction b() {\n}\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 
 	if err != nil {
 		t.Fatalf("only line 1 moved, so covering it should be enough: %v", err)
@@ -88,7 +112,7 @@ func TestANewlyAddedBraceIsStillDemanded(t *testing.T) {
 	// A whole new function, whose closing brace is byte-identical to the old one.
 	write(t, root, "app.ts", "function a() {\n}\nfunction b() {\n}\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 2)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 2)}))
 
 	if err == nil {
 		t.Fatal("the new function's lines were never reviewed and must be demanded")
@@ -118,7 +142,7 @@ func TestAnUntouchedDeletionIsPreMarkedInARevisionRound(t *testing.T) {
 
 	// Round 2 changes nothing at all: the same deletion still stands, and the
 	// agent should not have to re-walk it.
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 
 	if err != nil {
 		t.Fatalf("nothing moved, so the round should be accepted: %v", err)
@@ -152,7 +176,7 @@ func TestAnUntouchedBinaryNeedsNoSecondAcknowledgement(t *testing.T) {
 	// not have to Acknowledge it again.
 	write(t, root, "app.ts", "one\ntwo\nthree\nFOUR\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 4, 4)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 4, 4)}))
 
 	if err != nil {
 		t.Fatalf("an untouched binary should not need re-Acknowledging: %v", err)
@@ -175,7 +199,7 @@ func TestARetouchedBinaryIsDemandedAgain(t *testing.T) {
 	// The agent re-exported the asset in response to feedback: it is new again.
 	writeBytes(t, root, "logo.png", []byte{0x00, 0x01, 0x02, 0x00, 0xAA, 0xBB})
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 4)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 4)}))
 
 	if err == nil {
 		t.Fatal("a binary that changed since the last round must be Acknowledged again")
@@ -201,7 +225,7 @@ func TestUncommittedRoundOneWorkStillMapsAfterBeingCommitted(t *testing.T) {
 	run(t, root, "add", ".")
 	run(t, root, "commit", "-qm", "commit the reviewed work")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 
 	if err != nil {
 		t.Fatalf("committing already-reviewed work should move nothing: %v", err)
@@ -228,7 +252,7 @@ func TestARejectedRevisionRoundLeavesTheStoredSnapshotAlone(t *testing.T) {
 	write(t, root, "app.ts", "one\ntwo\nthree\nfour\nfive\n")
 	// A well-formed round that simply fails to show the new line, so the refusal
 	// is about coverage rather than a malformed post.
-	rejected := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	rejected := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 	if rejected == nil || !strings.Contains(rejected.Error(), "uncovered_changes") {
 		t.Fatalf("the uncovered new line should have been refused for coverage, got %v", rejected)
 	}
@@ -236,7 +260,7 @@ func TestARejectedRevisionRoundLeavesTheStoredSnapshotAlone(t *testing.T) {
 	// The agent now covers it. If the rejected post had been taken as the
 	// baseline, line 5 would count as already read and this would report it seen
 	// without the Reviewer ever having been shown it.
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 5, 5)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 5, 5)}))
 
 	if err != nil {
 		t.Fatalf("covering the new line should be accepted: %v", err)
@@ -272,7 +296,7 @@ func TestARebaseBetweenRoundsMapsOldSideLinesThroughTheMovedBase(t *testing.T) {
 	run(t, root, "rebase", "-q", "main")
 	write(t, root, "app.ts", "one\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 
 	if err != nil {
 		t.Fatalf("a rebase moved the base but the agent moved nothing: %v", err)
@@ -297,7 +321,7 @@ func TestADeletionMadeSinceTheLastRoundIsDemanded(t *testing.T) {
 	// In response to feedback the agent deletes an original line.
 	write(t, root, "app.ts", "one\nthree\nEXTRA\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 1, 1)}))
 
 	if err == nil {
 		t.Fatal("a newly made deletion was never shown and must be demanded")
@@ -326,7 +350,7 @@ func TestAnUntouchedModeChangeNeedsNoSecondAcknowledgement(t *testing.T) {
 
 	write(t, root, "app.ts", "one\ntwo\nthree\nFOUR\n")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "app.ts", 4, 4)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "app.ts", 4, 4)}))
 
 	if err != nil {
 		t.Fatalf("an untouched mode change should not need re-Acknowledging: %v", err)
@@ -362,7 +386,7 @@ func TestAFileRenamedBetweenRoundsIsNotReDemanded(t *testing.T) {
 	// and an add, which is the case this exercises.
 	move(t, root, "app.ts", "renamed.ts")
 
-	err := session.Post(roundOver(root, []review.Step{stepOver(root, "renamed.ts", 1, 5)}, nil))
+	err := session.Post(revisedOver(root, []review.Step{stepOver(root, "renamed.ts", 1, 5)}))
 
 	if err != nil {
 		t.Fatalf("a rename moved no code, so nothing should be re-demanded: %v", err)

@@ -139,11 +139,12 @@ func (s *Session) LastPost() PostKind {
 func (s *Session) Label() string { return s.label }
 
 // Post submits a Walkthrough for review. Posting after the previous Walkthrough
-// was handed off is a Revision Round: it re-derives the full Change Set, pre-marks
-// what is unchanged, and must account for the previous round's Comments. Posting
-// once the review is concluded starts a new review.
+// was handed off with Comments is a Revision Round: it re-derives the full Change
+// Set, pre-marks what is unchanged, and must account for those Comments. Posting
+// once the review is concluded — explicitly, or by a hand-off that raised
+// nothing — starts a new review.
 func (s *Session) Post(w Walkthrough) error {
-	if s.walkthrough != nil && !s.finished && !s.concluded {
+	if s.walkthrough != nil && !s.finished && !s.isConcluded() {
 		return reject(RejectedWalkthroughActive,
 			"a Walkthrough is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
 			s.id, s.id)
@@ -153,11 +154,16 @@ func (s *Session) Post(w Walkthrough) error {
 
 // nextAnswering is the earlier round the next accepted post would answer: the
 // round just handed off, or — while one is under review — whatever that one
-// answers, which is what its Replacement answers too. After a conclusion, or
-// with nothing posted, the next post starts a new review and answers nothing.
+// answers, which is what its Replacement answers too.
+//
+// A concluded review answers nothing, so the next post starts a new review. That
+// covers a round handed off with nothing raised as well as an explicit conclude:
+// fetch_results already calls that review complete, and posting new work as a
+// Revision Round of it pre-marked the new work against the finished review, so it
+// could escape coverage.
 func (s *Session) nextAnswering() *earlierRound {
 	switch {
-	case s.walkthrough == nil || s.concluded:
+	case s.walkthrough == nil || s.isConcluded():
 		return nil
 	case s.finished:
 		return &earlierRound{state: s.latest, comments: s.comments}
@@ -175,7 +181,9 @@ func (s *Session) Replace(id string, w Walkthrough) error {
 		return reject(RejectedUnknownReview,
 			"no review with id %q is under review, so there is nothing to replace", id)
 	}
-	if s.concluded {
+	// Concluded outright, or by a hand-off that raised nothing: either way the
+	// review is over, and new work is a new review.
+	if s.isConcluded() {
 		return reject(RejectedUnknownReview,
 			"review %q is concluded; post without replaces to start a new review", id)
 	}

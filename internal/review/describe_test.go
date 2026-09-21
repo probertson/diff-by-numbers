@@ -125,9 +125,7 @@ func TestBeforeARevisionRoundTheDescriptionPreMarksWhatThePostWill(t *testing.T)
 	session := review.NewSession(&textResolver{text: map[string]string{}}, opaqueRounds{deriver, logo})
 	first := appWalkthrough([]review.Step{appStep(1, 3), deletionStep(5), acknowledgingRevStep("logo.png")}, nil)
 	mustPost(t, session, first)
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
+	handOffWithAComment(t, session)
 
 	d, err := session.DescribeChanges(appWalkthrough(nil, nil).ChangeSet)
 
@@ -148,7 +146,7 @@ func TestBeforeARevisionRoundTheDescriptionPreMarksWhatThePostWill(t *testing.T)
 		t.Error("expected the untouched binary to read as already shown")
 	}
 	// And the post agrees: covering only what is left is enough.
-	if err := session.Post(appWalkthrough([]review.Step{appStep(2, 2)}, nil)); err != nil {
+	if err := session.Post(revising(appWalkthrough([]review.Step{appStep(2, 2)}, nil))); err != nil {
 		t.Errorf("expected a post covering only the line still to cover to be accepted, got %v", err)
 	}
 }

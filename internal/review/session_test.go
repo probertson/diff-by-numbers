@@ -432,7 +432,7 @@ func TestEachAcceptedWalkthroughIsANewPosting(t *testing.T) {
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	mustPost(t, session, validWalkthrough()) // a Revision Round
+	mustPost(t, session, validWalkthrough()) // a new review: the hand-off raised nothing
 	revised := session.View().Posting
 
 	if first == 0 || rejected != first {

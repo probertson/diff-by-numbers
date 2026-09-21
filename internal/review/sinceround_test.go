@@ -43,10 +43,8 @@ func secondRound(t *testing.T, deriver *roundsDeriver, resolver review.Resolver)
 	t.Helper()
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil)))
 	return session
 }
 
@@ -93,7 +91,7 @@ func TestTheFirstRoundHasNoPreviousRoundToCompareWith(t *testing.T) {
 func TestAReplacementKeepsItsRoundNumber(t *testing.T) {
 	session := secondRound(t, &roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}}, &textResolver{text: map[string]string{}})
 
-	if err := session.Replace(session.ReviewID(), appWalkthrough([]review.Step{appStep(1, 6)}, nil)); err != nil {
+	if err := session.Replace(session.ReviewID(), revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,10 +234,8 @@ func TestAStepWithNothingNewOrEditedSinceThePreviousRoundIsMarkedUnchanged(t *te
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 	split := appWalkthrough([]review.Step{appStep(1, 3), appStep(4, 6)}, nil)
 	mustPost(t, session, split)
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, split)
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(split))
 
 	unchanged := session.View().UnchangedSincePrevious
 
@@ -294,10 +290,8 @@ func withdrawnBelow(t *testing.T, lines []review.ChangedLine, steps ...review.St
 	session := review.NewSession(resolver, deriver)
 	w := appWalkthrough(steps, nil)
 	mustPost(t, session, w)
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, w)
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(w))
 	return session
 }
 
@@ -375,10 +369,8 @@ func TestAnEditIsDrawnOnceInAStepThatShowsItInTwoRanges(t *testing.T) {
 	}}
 	w := appWalkthrough([]review.Step{twoRanges}, nil)
 	mustPost(t, session, w)
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, w)
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(w))
 	mustAdvance(t, session)
 
 	step := session.View().Step
@@ -417,11 +409,9 @@ func TestSinceThePreviousRoundADeletionItAlreadyHadIsPlain(t *testing.T) {
 		{Repository: revRepo, File: "app.ts", Side: review.OldSide, FirstLine: 7, LastLine: 8},
 	}}
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6), deletion}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
+	handOffWithAComment(t, session)
 	deriver.lines = append(lines, review.ChangedLine{File: "app.ts", Side: review.OldSide, Line: 8})
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6), deletion}, nil))
+	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6), deletion}, nil)))
 	if err := session.GoTo(2); err != nil {
 		t.Fatal(err)
 	}
@@ -444,10 +434,8 @@ func TestARoundThatCannotBeComparedOffersNoComparison(t *testing.T) {
 	deriver := &failingMapper{roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}}}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil)))
 
 	view := session.View()
 
@@ -490,10 +478,8 @@ func TestALineRewrittenInAFileRenamedSinceThePreviousRoundIsReadFromItsOldName(t
 	}}
 	session := review.NewSession(renameResolver{}, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 3)}, nil)))
 	mustAdvance(t, session)
 
 	got := previousRowsIn(session.View().Step.Excerpts[0])

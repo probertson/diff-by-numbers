@@ -69,8 +69,11 @@ handed off. The replacement is validated like any post and becomes the same revi
 Edits the Reviewer did not ask for still wait for the Revision Round; the skill says
 so, since dbn cannot tell an asked-for change from an unasked one.
 
-An explicit `conclude` now frees the slot: the next post starts a new review, with a new
-id, rather than being refused. A round handed off with nothing raised, which reads as
-concluded by inference, still takes a Revision Round on the next post, as it always has.
-That inferred conclusion never blocked a post, and keeping the review lets its pre-marking
-scope any follow-up to what moved.
+A concluded review frees the slot: the next post starts a new review, with a new id, rather
+than being refused. That holds however the review was concluded: explicitly, or by a round
+handed off with nothing raised, which `fetch_results` already reports as complete. An
+earlier reading of this amendment kept the second case going as a Revision Round, so its
+pre-marking would scope a follow-up to what changed. In use, that pre-marked *new* work
+against a review that was over. A fresh piece of work posted after it had its files
+treated as already seen and escaped coverage, and every post after that was refused as
+the review still under way.

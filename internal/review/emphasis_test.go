@@ -52,10 +52,8 @@ func TestSinceThePreviousRoundAnEditedLineCarriesWhatChanged(t *testing.T) {
 	resolver := roundTextResolver{first: []string{"call()", "retry(transport, 3)"}, second: []string{"call()", "retry(transport, 5)"}}
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 2)}, nil)))
 	mustAdvance(t, session)
 
 	got := emphasisOf(session.View().Step.Excerpts[0].Lines)

@@ -12,15 +12,15 @@ import (
 // it refuses a Step for work nobody has to do again.
 
 // finishFirstRoundOver posts a first Walkthrough covering a range of app.ts and
-// finishes it, leaving those lines pre-marked for the Revision Round that
-// follows. The first round carries a justification because its size is not what
-// these tests are about.
+// hands it off with a Comment, leaving those lines pre-marked for the Revision
+// Round that follows. The first round carries a justification because its size
+// is not what these tests are about.
 func finishFirstRoundOver(t *testing.T, first, last int) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(first, last)}
 	step := appStep(first, last)
 	step.OversizeJustification = "the size of the first round is not what this is about"
-	return finishFirstRound(t, deriver, []review.Step{step}), deriver
+	return keptOpenFirstRound(t, deriver, []review.Step{step}), deriver
 }
 
 // editedApp is a rewrite of app.ts: both sides of the same line numbers, paired
@@ -53,7 +53,7 @@ func TestABudgetCountsOnlyTheLinesARevisionRoundHasNotAlreadyShown(t *testing.T)
 	deriver.lines = changedApp(1, 45)
 	deriver.touched = touching(41, 45)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 45)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 45)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected 40 already-read lines plus 5 new ones to count 5, got %v", err)
@@ -65,7 +65,7 @@ func TestARevisionRoundIsStillRefusedForTooMuchNewReading(t *testing.T) {
 	deriver.lines = changedApp(1, 38)
 	deriver.touched = touching(4, 38)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 38)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 38)}, nil)))
 
 	assertRejected(t, err, review.RejectedOversizedStep)
 	assertDetailContains(t, err, "35 changed lines")
@@ -79,7 +79,7 @@ func TestAStepOfNothingButAlreadyReadLinesCountsZero(t *testing.T) {
 	deriver.lines = changedApp(1, 41)
 	deriver.touched = touching(41, 41)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 40), appStep(41, 41)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 40), appStep(41, 41)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected a Step of wholly already-read lines to count zero, got %v", err)
@@ -95,13 +95,13 @@ func TestAnAlreadyShownBeforeSideLineIsFreeWhenItRidesAlong(t *testing.T) {
 	deriver := &roundDeriver{lines: lines, correspondences: pairs}
 	step := appStep(1, 20)
 	step.OversizeJustification = "the size of the first round is not what this is about"
-	session := finishFirstRound(t, deriver, []review.Step{step})
+	session := keptOpenFirstRound(t, deriver, []review.Step{step})
 
 	// Every new-side line moved, so only the old side — unmoved against an
 	// unmoved merge-base — is pre-marked.
 	deriver.touched = touching(1, 20)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 20)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 20)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected the 20 already-shown before-side lines to be free, got %v", err)

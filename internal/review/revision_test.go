@@ -161,14 +161,14 @@ func finishRound1(t *testing.T) (*review.Session, *roundDeriver) {
 }
 
 func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {
-	session, deriver := finishRound1(t)
+	session, deriver := keptOpenRound1(t)
 
 	// The fix added line 4; lines 1-3 are unchanged.
 	deriver.lines = changedApp(1, 4)
 	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only the moved line is enough: 1-3 are pre-marked as shown.
-	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(4, 4)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected a Revision Round covering only what moved to be accepted, got %v", err)
@@ -183,24 +183,24 @@ func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {
 }
 
 func TestARevisionRoundStillDemandsTheLinesThatMoved(t *testing.T) {
-	session, deriver := finishRound1(t)
+	session, deriver := keptOpenRound1(t)
 	deriver.lines = changedApp(1, 4) // line 4 moved
 	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only a pre-shown line leaves the moved line 4 unaccounted for.
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "4")
 }
 
 func TestARevisionRoundDemandsOnlyTheLineTheMappingSaysWasTouched(t *testing.T) {
-	session, deriver := finishRound1(t)
+	session, deriver := keptOpenRound1(t)
 	deriver.lines = changedApp(1, 3) // the same line numbers
 	deriver.touched = map[string]bool{"app.ts:2": true}
 
 	// Line 2 moved, 1 and 3 did not: covering only line 2 suffices.
-	if err := session.Post(appWalkthrough([]review.Step{appStep(2, 2)}, nil)); err != nil {
+	if err := session.Post(revising(appWalkthrough([]review.Step{appStep(2, 2)}, nil))); err != nil {
 		t.Fatalf("expected covering the content-changed line to be accepted, got %v", err)
 	}
 	if seen := session.View().Coverage.Seen; seen != 2 {
@@ -356,9 +356,7 @@ func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 	resolver := &textResolver{text: map[string]string{"app.ts:1": "}", "app.ts:2": "keep"}}
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
+	handOffWithAComment(t, session)
 
 	// The fix adds a brand-new line 3 whose text collides with line 1's "}" —
 	// which used to be enough to let it escape, and now is simply irrelevant.
@@ -366,7 +364,7 @@ func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 	resolver.text["app.ts:3"] = "}"
 	deriver.touched = map[string]bool{"app.ts:3": true}
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "3")
@@ -398,13 +396,11 @@ func TestAFailedSnapshotPreMarksNothing(t *testing.T) {
 	deriver := &failingSnapshotDeriver{roundDeriver{lines: changedApp(1, 3)}}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
+	handOffWithAComment(t, session)
 
 	// Round 2 moves nothing at all. With a working snapshot every line would be
 	// pre-marked; without one the agent must show them again.
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 1)}, nil))
+	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 }
@@ -505,4 +501,58 @@ func TestAReRaiseWithNoFollowUpKeepsTheOriginalNote(t *testing.T) {
 	if comment.Note != "please fix line 2" {
 		t.Errorf("expected the original note carried over, got %q", comment.Note)
 	}
+}
+
+// handOffWithAComment raises one Comment on the first line of code the
+// Walkthrough shows, then hands the round off. A Comment is what keeps a review
+// going into a Revision Round: a hand-off with nothing raised ends the review,
+// and the next post starts a new one.
+func handOffWithAComment(t *testing.T, session *review.Session) {
+	t.Helper()
+	for position := 1; position <= session.View().StepCount; position++ {
+		if err := session.GoTo(position); err != nil {
+			t.Fatal(err)
+		}
+		for i, excerpt := range session.View().Step.Excerpts {
+			for _, line := range excerpt.Lines {
+				if !line.Content() {
+					continue
+				}
+				at := review.AnchorEndpoint{Side: line.Side, Line: line.Number}
+				if _, err := session.RaiseComment(review.AnchorTarget{ExcerptIndex: i, Start: at, End: at}, "keep going"); err != nil {
+					t.Fatalf("could not raise the Comment that keeps the review going: %v", err)
+				}
+				if err := session.Finish(); err != nil {
+					t.Fatalf("expected the round to hand off, got %v", err)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("the Walkthrough shows no line to raise a Comment on")
+}
+
+// revising answers the one Comment handOffWithAComment raised, as a Revision
+// Round must.
+func revising(w review.Walkthrough) review.Walkthrough {
+	w.Dispositions = append(w.Dispositions, review.Disposition{CommentID: 1, Status: review.DispositionAddressed})
+	return w
+}
+
+// keptOpenFirstRound posts a first Walkthrough and hands it off with a Comment,
+// so the next post is a Revision Round of it.
+func keptOpenFirstRound(t *testing.T, deriver *roundDeriver, steps []review.Step) *review.Session {
+	t.Helper()
+	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
+	mustPost(t, session, appWalkthrough(steps, nil))
+	handOffWithAComment(t, session)
+	return session
+}
+
+// keptOpenRound1 is finishRound1 handed off with a Comment: a first round over
+// app.ts:1-3 that the next post revises.
+func keptOpenRound1(t *testing.T) (*review.Session, *roundDeriver) {
+	t.Helper()
+	deriver := &roundDeriver{lines: changedApp(1, 3)}
+	return keptOpenFirstRound(t, deriver, []review.Step{appStep(1, 3)}), deriver
 }

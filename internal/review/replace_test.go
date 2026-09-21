@@ -115,6 +115,7 @@ func TestReplacingWithNothingUnderReviewIsRefused(t *testing.T) {
 
 func TestReplacingAHandedOffRoundIsRefused(t *testing.T) {
 	session, _ := underReview(t)
+	raise(t, session, 2, 2, "a point") // so the hand-off leaves a Revision Round to post
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
@@ -242,4 +243,16 @@ func TestReplacingARevisionRoundScopesItAgainstThePreviousAcceptedRound(t *testi
 	err := session.Replace(session.ReviewID(), appWalkthrough([]review.Step{appStep(1, 1)}, addressed))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
+}
+
+func TestReplacingAReviewHandedOffWithNothingRaisedPointsAtANewReview(t *testing.T) {
+	session, _ := underReview(t)
+	if err := session.Finish(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+
+	assertRejected(t, err, review.RejectedUnknownReview)
+	assertDetailContains(t, err, "post without replaces to start a new review")
 }
