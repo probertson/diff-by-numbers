@@ -162,6 +162,7 @@ type postOutcome struct {
 	Accepted bool          `json:"accepted"`
 	Problems []problemJSON `json:"problems"`
 	ReviewID string        `json:"review_id"`
+	Message  string        `json:"message"`
 }
 
 // problemJSON mirrors one entry of the wire's problems array.

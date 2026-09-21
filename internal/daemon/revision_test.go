@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
@@ -101,11 +102,14 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	httpPost(t, server.URL+"/finish")
 
 	// Round 2: a Revision Round declining the one Comment.
-	postWalkthrough(t, server.URL, map[string]any{
+	revised := postWalkthrough(t, server.URL, map[string]any{
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "the name is deliberate"}},
 	})
 
+	if !strings.HasPrefix(revised.Message, "The Revision Round is posted. The Reviewer opens it by running dbn") {
+		t.Errorf("expected the Revision Round to be announced as one, got %q", revised.Message)
+	}
 	view := getView(t, server.URL)
 	if len(view.Dispositions) != 1 || view.Dispositions[0].Status != "declined" || view.Dispositions[0].Response == "" {
 		t.Fatalf("expected one declined disposition with a response on the view, got %+v", view.Dispositions)

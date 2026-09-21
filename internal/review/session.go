@@ -100,6 +100,28 @@ func defaultMint() string {
 // ReviewID returns the id of the review under review, or "" if none is posted.
 func (s *Session) ReviewID() string { return s.id }
 
+// PostKind is what an accepted post was to its review.
+type PostKind string
+
+const (
+	PostedNewReview     PostKind = "new_review"
+	PostedRevisionRound PostKind = "revision_round"
+	PostedReplacement   PostKind = "replacement"
+)
+
+// LastPost reports what the Walkthrough on screen was when it was accepted. A
+// replacement of a Revision Round reads as a replacement: what the agent just
+// did is replace the Walkthrough, not start a round.
+func (s *Session) LastPost() PostKind {
+	switch {
+	case s.replaced:
+		return PostedReplacement
+	case s.answering != nil:
+		return PostedRevisionRound
+	}
+	return PostedNewReview
+}
+
 // Label returns the optional human-readable name the Authoring Agent attached to
 // the review, or "" if none was given.
 func (s *Session) Label() string { return s.label }

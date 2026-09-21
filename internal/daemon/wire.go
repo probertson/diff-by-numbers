@@ -4,6 +4,8 @@
 package daemon
 
 import (
+	"fmt"
+
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -68,6 +70,26 @@ type postResult struct {
 	Accepted bool          `json:"accepted"`
 	ReviewID string        `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
 	Problems []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this Walkthrough, not just the first thing found. Fix them all before posting again"`
+	Message  string        `json:"message,omitempty" jsonschema:"When accepted: what to tell the human, including how they open the review. Relay it to them, then end your turn"`
+}
+
+// postedMessage is written for the agent to relay: the Authoring Agent cannot
+// see the Reviewer's terminal, and without this it could only say the review
+// was ready, not where to look (#89). The command carries the port whenever it
+// is not the one dbn finds on its own.
+func postedMessage(kind review.PostKind, port int) string {
+	command := "dbn"
+	if port != DefaultPort {
+		command = fmt.Sprintf("dbn -port %d", port)
+	}
+	lead := "Posted."
+	switch kind {
+	case review.PostedRevisionRound:
+		lead = "The Revision Round is posted."
+	case review.PostedReplacement:
+		lead = "The Walkthrough is replaced."
+	}
+	return fmt.Sprintf("%s The Reviewer opens it by running %s in a terminal; if dbn is already open, it appears there. Tell them it's ready, then end your turn.", lead, command)
 }
 
 // problemWire is one fault in a refused post. A rejection carries at most one

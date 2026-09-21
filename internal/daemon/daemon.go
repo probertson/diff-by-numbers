@@ -47,6 +47,9 @@ type Daemon struct {
 	// calls — can take the same way out as a signal.
 	quit     chan struct{}
 	quitOnce sync.Once
+	// port is where this daemon listens, so an agent can be told how the
+	// Reviewer reaches it. It is the default until Serve says otherwise.
+	port int
 }
 
 // Option configures a Daemon at construction.
@@ -62,6 +65,7 @@ func New(opts ...Option) *Daemon {
 	d := &Daemon{
 		session: review.NewSession(workingtree.NewResolver(), git.NewDeriver()),
 		quit:    make(chan struct{}),
+		port:    DefaultPort,
 	}
 	d.touch()
 	for _, opt := range opts {
@@ -82,6 +86,7 @@ func (d *Daemon) idleFor() time.Duration {
 // to be reachable from the network. It runs until q is pressed (when a terminal
 // is attached) or an interrupt/terminate signal arrives, then shuts down cleanly.
 func (d *Daemon) Serve(port int) error {
+	d.port = port
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return fmt.Errorf("dbn could not listen on port %d: %w", port, err)
@@ -572,7 +577,7 @@ func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in w
 		}
 		return nil, postResult{}, err
 	}
-	return nil, postResult{Accepted: true, ReviewID: d.session.ReviewID()}, nil
+	return nil, postResult{Accepted: true, ReviewID: d.session.ReviewID(), Message: postedMessage(d.session.LastPost(), d.port)}, nil
 }
 
 func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in concludeInput) (*mcp.CallToolResult, concludeResult, error) {

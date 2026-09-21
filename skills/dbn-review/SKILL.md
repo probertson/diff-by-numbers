@@ -128,9 +128,10 @@ Call `post_walkthrough` once, complete. Name every repository under review in
 like "auth refactor" — to help a reviewer tell several reviews apart.
 
 `post_walkthrough` returns a `review_id`. **Record it**: you pass it back to
-`conclude` when the review is over. Then **end your turn** — tell the human their
-review is ready and that you will pick up their feedback when they are done. Do
-not poll.
+`conclude` when the review is over. It also returns a `message`: **relay it** to
+the human, since it says how they open the review, and say you will pick up
+their feedback when they are done.
+Then **end your turn**. Do not poll.
 
 ## Collecting feedback and revising
 

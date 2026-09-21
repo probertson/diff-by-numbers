@@ -46,6 +46,12 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	if refused.Accepted || !strings.Contains(refused.summary(), `replaces: "`+first.ReviewID+`"`) {
 		t.Errorf("expected a second post to be refused, naming replaces, got %+v", refused)
 	}
+	if !strings.HasPrefix(first.Message, "Posted. The Reviewer opens it by running dbn in a terminal") {
+		t.Errorf("expected a first post to say how the Reviewer opens it, got %q", first.Message)
+	}
+	if !strings.HasPrefix(replaced.Message, "The Walkthrough is replaced. The Reviewer opens it by running dbn") {
+		t.Errorf("expected a replacement to say so, got %q", replaced.Message)
+	}
 	if replaced.ReviewID != first.ReviewID {
 		t.Errorf("expected the replacement to keep review %q, got %q", first.ReviewID, replaced.ReviewID)
 	}
