@@ -1,9 +1,11 @@
 package git_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -291,5 +293,39 @@ func TestABadRangeIsAnError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected an error for a range that does not resolve")
+	}
+}
+
+// A hunk's body is read before the file headers it can resemble. With zero
+// context every line inside a hunk is content, and content is free to look like
+// anything — including the "+++ b/<path>" that opens a file's diff. Read in the
+// wrong order, such a line renames the file the rest of the diff is attributed
+// to, and the Changed Lines after it land under a file that was never touched.
+func TestAChangedLineShapedLikeAFileHeaderDoesNotRetargetTheDiff(t *testing.T) {
+	root := newRepo(t)
+	var original strings.Builder
+	for n := 1; n <= 20; n++ {
+		fmt.Fprintf(&original, "line %d\n", n)
+	}
+	write(t, root, "doc.md", original.String())
+	run(t, root, "add", "doc.md")
+	run(t, root, "commit", "-qm", "add doc")
+	run(t, root, "checkout", "-q", "-b", "feature")
+	// Two hunks: the first replaces line 2 with text that becomes "+++ b/other.md"
+	// once git prefixes it, and the second is far enough away to stay separate.
+	edited := strings.Replace(original.String(), "line 2\n", "++ b/other.md\n", 1)
+	edited = strings.Replace(edited, "line 18\n", "line eighteen\n", 1)
+	write(t, root, "doc.md", edited)
+
+	d, err := git.NewDeriver().Derive(review.Repository{Root: root, Base: "main"})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := linesOn(d.Lines, "doc.md", review.NewSide), []int{2, 18}; !reflect.DeepEqual(got, want) {
+		t.Errorf("expected both edits to be attributed to doc.md at %v, got %v", want, got)
+	}
+	if got := linesOn(d.Lines, "other.md", review.NewSide); len(got) != 0 {
+		t.Errorf("expected nothing to be attributed to the file the content names, got %v", got)
 	}
 }

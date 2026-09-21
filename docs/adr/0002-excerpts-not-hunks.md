@@ -30,3 +30,28 @@ hunks. The correspondence is derived plumbing the core consumes for two mechanic
 purposes only — letting a shown after-side account for the before-side it replaced (the
 "point once" behaviour), and interleaving the two into a unified diff — not a boundary the
 agent sees or authors against.
+
+## Amendment (#85): dbn may widen a range over whitespace, never narrow one
+
+Agents split a new file into its sections and leave out the blank lines between
+them. Those are Changed Lines, so the post was refused for lines nobody needs to
+be told to read, and the fix an agent reached for — listing the blanks — made the
+Walkthrough worse to read in order to satisfy a ledger. dbn now absorbs a run of
+whitespace-only Changed Lines into an Excerpt it touches, at post time, and stores
+the widened range.
+
+This is dbn editing what the agent chose to show, which ADR-0001 otherwise
+forbids, so the limits are the point. It only ever *widens*: nothing the agent
+selected is dropped, so it cannot hide code. It widens only over lines whose
+content git says is whitespace, and only over lines nothing else already accounts
+for, so it adds nothing the Reviewer would have been shown anyway. And an absorbed
+line is genuinely rendered — the alternative, exempting blank lines from coverage,
+was rejected because it would count lines as accounted for without ever showing
+them, and a blank line can carry meaning in Markdown or YAML.
+
+Whitespace-only lines also stop counting toward the Step budget, wherever they
+appear. This does not walk back ADR-0003's "the ledger constrains completeness
+only, never ordering, grouping or size": the budget has always been counted from
+ledger-derived lines, and what ADR-0003 forbids is a mechanism that *forces* an
+arbitrary boundary. Exempting whitespace only relaxes the pressure, and stops
+dbn's own widening from being what pushes a Step over.

@@ -138,6 +138,20 @@ func (s *Session) Post(w Walkthrough) error {
 		snapshots = snapshotAll(snapshotter, w.ChangeSet)
 	}
 
+	// What a Revision Round has already shown is worked out here rather than
+	// among the checks: normalisation and every stage-2 check needs to know which
+	// atoms are already accounted for.
+	var preShown map[ChangedLine]bool
+	var preShownOpaque map[fileRef]bool
+	if revision {
+		preShown, preShownOpaque = s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases)
+	}
+
+	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
+	// anything judges them, so the checks below see exactly what will be stored
+	// and shown.
+	w.Steps = normalize(w.Steps, ledger, preShown)
+
 	// Stage 2: every check runs, and every one that fails is reported. They are
 	// independent of each other, so stopping at the first only hides what the
 	// agent would have to come back for.
@@ -159,12 +173,6 @@ func (s *Session) Post(w Walkthrough) error {
 	}
 
 	add(validateNewSideResolves(w.Steps, s.resolver))
-
-	var preShown map[ChangedLine]bool
-	var preShownOpaque map[fileRef]bool
-	if revision {
-		preShown, preShownOpaque = s.preMarkUnchanged(ledger, w.ChangeSet, snapshots, bases)
-	}
 
 	add(ledger.validateBudget(w.Steps))
 	add(ledger.validateAcknowledgements(w.Steps))

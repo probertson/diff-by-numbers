@@ -53,6 +53,11 @@ one git hunk. Plan them so:
 - **Excerpts are ranges you choose**, `{repository, file, side, first_line,
   last_line}`. Send ranges, never code — dbn reads the bytes itself. An Excerpt
   may include unchanged lines for context.
+- **You need not list blank separator lines.** A blank line between two ranges
+  you do list is absorbed into the range before it, so listing a new file's
+  sections covers the whole file. Absorbed lines are shown, and cost nothing
+  against the Step's budget. A blank line standing on its own, next to no
+  Excerpt, still has to be covered like any other change.
 - **Point once at a change.** For an edit, give a `new`-side Excerpt over the
   after-side; dbn reads the before-side from git and shows a real before → after
   diff, so you never name the old side for an edit. Use an `old`-side Excerpt only

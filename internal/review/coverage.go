@@ -61,6 +61,12 @@ type Derivation struct {
 	Lines           []ChangedLine
 	Opaque          []OpaqueChange
 	Correspondences []Correspondence
+	// Whitespace names the Changed Lines whose content is whitespace only. It is
+	// a subset of Lines, not a separate kind of atom: these still have to be
+	// accounted for, but an Excerpt beside one absorbs it rather than demanding
+	// the agent name a line nobody needs to be told to read, and they cost
+	// nothing against a Step's budget.
+	Whitespace []ChangedLine
 	// Base is the resolved merge-base the Change Set was derived from. A
 	// Revision Round compares it with the previous round's: when it has moved,
 	// the branch was rebased under the review and old-side lines no longer sit
@@ -98,10 +104,13 @@ type ledger struct {
 	// Round compares it with the previous round's to tell whether the branch was
 	// rebased underneath the review, which moves every old-side line.
 	bases map[string]string
+	// whitespace is the subset of lines holding nothing but whitespace, as a set
+	// because both the absorption pass and the budget ask about one line at a time.
+	whitespace map[ChangedLine]bool
 }
 
 func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
-	l := ledger{bases: map[string]string{}}
+	l := ledger{bases: map[string]string{}, whitespace: map[ChangedLine]bool{}}
 	for _, repository := range changeSet.Repositories {
 		derivation, err := deriver.Derive(repository)
 		if err != nil {
@@ -110,6 +119,9 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		l.lines = append(l.lines, derivation.Lines...)
 		l.opaque = append(l.opaque, derivation.Opaque...)
 		l.correspondences = append(l.correspondences, derivation.Correspondences...)
+		for _, line := range derivation.Whitespace {
+			l.whitespace[line] = true
+		}
 		if derivation.Base != "" {
 			l.bases[repository.Root] = derivation.Base
 		}
@@ -166,16 +178,7 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, pr
 	var uncoveredLines []ChangedLine
 	var uncoveredOpaque []OpaqueChange
 	for _, line := range l.lines {
-		if preShown[line] {
-			continue
-		}
-		// A before-side line rides along when a Step shows the after-side of the
-		// edit that removed it: pointing once at a change accounts for the lines it
-		// replaced, without the agent naming the old side.
-		if l.riddenAlong(line, steps) {
-			continue
-		}
-		if !anyStep(steps, func(s Step) bool { return stepCoversLine(s, line) }) {
+		if !l.accountedFor(line, steps, preShown) {
 			uncoveredLines = append(uncoveredLines, line)
 		}
 	}
@@ -191,6 +194,25 @@ func (l ledger) validateCoverage(steps []Step, preShown map[ChangedLine]bool, pr
 		return nil
 	}
 	return reject(RejectedUncoveredChanges, "%s", summarizeUncovered(uncoveredLines, uncoveredOpaque))
+}
+
+// accountedFor reports whether a Changed Line is already covered, by any of the
+// ways a line can be: shown by an Excerpt, claimed by an Acknowledgement, ridden
+// along by the after-side that replaced it, or pre-marked as already read by a
+// Revision Round. It is what the coverage guarantee is made of, and also what
+// absorption asks before widening a range — dbn widens only over lines that
+// would otherwise be left unaccounted for.
+func (l ledger) accountedFor(line ChangedLine, steps []Step, preShown map[ChangedLine]bool) bool {
+	if preShown[line] {
+		return true
+	}
+	// A before-side line rides along when a Step shows the after-side of the edit
+	// that removed it: pointing once at a change accounts for the lines it
+	// replaced, without the agent naming the old side.
+	if l.riddenAlong(line, steps) {
+		return true
+	}
+	return anyStep(steps, func(s Step) bool { return stepCoversLine(s, line) })
 }
 
 // validateAcknowledgements refuses an Acknowledgement that claims a file with no
@@ -302,7 +324,8 @@ func (o oversizedStep) entry() string {
 // two of the Step's Excerpts counts once.
 func (l ledger) changedLinesIn(step Step) int {
 	seen := map[ChangedLine]bool{}
-	for _, line := range l.lines {
+	code := l.codeLines()
+	for _, line := range code {
 		for _, excerpt := range step.Excerpts {
 			if line.covered(excerpt) {
 				seen[line] = true
@@ -313,12 +336,25 @@ func (l ledger) changedLinesIn(step Step) int {
 	// Before-side lines this Step rides along render as `-` rows beside their
 	// replacements, so they cost against the budget too: a rewrite is not cheaper
 	// to read than an addition of the same size (status quo — both sides count).
-	for _, line := range l.lines {
+	for _, line := range code {
 		if line.Side == OldSide && !seen[line] && l.riddenAlong(line, []Step{step}) {
 			seen[line] = true
 		}
 	}
 	return len(seen)
+}
+
+// codeLines are the Changed Lines that cost something to read. A whitespace-only
+// line costs nothing, so it never pushes a Step over the budget — least of all
+// the blank separators dbn itself absorbed into the Step's ranges.
+func (l ledger) codeLines() []ChangedLine {
+	out := make([]ChangedLine, 0, len(l.lines))
+	for _, line := range l.lines {
+		if !l.whitespace[line] {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // seenBy counts the distinct atoms accounted for by Steps 1..position — Changed

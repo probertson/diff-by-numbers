@@ -91,6 +91,16 @@ The atom of coverage, and the only unit dbn derives for itself. Git hunks are
 parsed to find Changed Lines and then discarded — a hunk is an artifact of a
 text format, not a unit of meaning, and is never shown to the Reviewer as one.
 
+**Absorption**:
+dbn widening an Excerpt over the run of whitespace-only Changed Lines beside it,
+so an Authoring Agent listing a new file's sections need not name the blank
+separators between them. The widened range is the stored one: absorbed lines are
+shown like any other, and cost nothing against a Step's budget. Only lines
+nothing else accounts for are absorbed, and only where they touch an Excerpt — a
+whitespace-only line standing on its own is covered like any other change, because
+dbn never counts a line as accounted for without showing it.
+_Avoid_: exemption, skip, ignore, whitespace-insensitive, trim
+
 **Opaque Change**:
 A change with no line-level representation — a modified binary file, a mode change, a
 pure rename carrying no content delta. Accounted for by the Coverage Ledger alongside

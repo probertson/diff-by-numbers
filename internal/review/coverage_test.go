@@ -12,20 +12,31 @@ import (
 type fixedDeriver struct {
 	lines  []review.ChangedLine
 	opaque []review.OpaqueChange
+	// whitespace names which of the lines hold nothing but whitespace. git knows
+	// this because it has the text; the core is told.
+	whitespace []review.ChangedLine
 }
 
 func (d fixedDeriver) Derive(repo review.Repository) (review.Derivation, error) {
-	lines := make([]review.ChangedLine, len(d.lines))
-	for i, l := range d.lines {
-		l.Repository = repo.Root
-		lines[i] = l
-	}
 	opaque := make([]review.OpaqueChange, len(d.opaque))
 	for i, o := range d.opaque {
 		o.Repository = repo.Root
 		opaque[i] = o
 	}
-	return review.Derivation{Lines: lines, Opaque: opaque}, nil
+	return review.Derivation{
+		Lines:      inRepository(d.lines, repo.Root),
+		Opaque:     opaque,
+		Whitespace: inRepository(d.whitespace, repo.Root),
+	}, nil
+}
+
+func inRepository(lines []review.ChangedLine, root string) []review.ChangedLine {
+	out := make([]review.ChangedLine, len(lines))
+	for i, line := range lines {
+		line.Repository = root
+		out[i] = line
+	}
+	return out
 }
 
 func changed(file string, first, last int) []review.ChangedLine {

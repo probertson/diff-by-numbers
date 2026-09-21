@@ -121,7 +121,21 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 		result review.Derivation
 		file   string // current file for line attribution, from the +++/--- headers
 		blk    *block
+		// The body lines of the hunk being read. With zero context every line
+		// inside a hunk is a Changed Line, so counting them down attributes each
+		// one's text to the line number the @@ header gave it.
+		body hunkBody
 	)
+
+	// whitespace records a body line that holds nothing but whitespace, which is
+	// the one thing the text of a Changed Line is read for.
+	whitespace := func(side review.Side, number int, text string) {
+		if !whitespaceOnly(text) {
+			return
+		}
+		result.Whitespace = append(result.Whitespace,
+			review.ChangedLine{Repository: root, File: file, Side: side, Line: number})
+	}
 
 	flush := func() {
 		if blk == nil {
@@ -141,8 +155,16 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		// The body of a hunk comes first, so that a changed line whose own text
+		// begins "+++ " or "diff --git " is read as content and not mistaken for
+		// the header it resembles.
+		case body.removed.left > 0 && strings.HasPrefix(line, "-"):
+			whitespace(review.OldSide, body.removed.take(), line[1:])
+		case body.added.left > 0 && strings.HasPrefix(line, "+"):
+			whitespace(review.NewSide, body.added.take(), line[1:])
 		case strings.HasPrefix(line, "diff --git "):
 			flush()
+			body = hunkBody{}
 			blk = &block{}
 			blk.oldPath, blk.newPath = parseDiffGitPaths(line)
 			file = ""
@@ -198,10 +220,44 @@ func parseUnifiedZero(root, diff string) (review.Derivation, error) {
 				corr.NewFirst, corr.NewLast = newStart, newStart+newCount-1
 			}
 			result.Correspondences = append(result.Correspondences, corr)
+			body = hunkBody{
+				removed: sideCounter{next: oldStart, left: oldCount},
+				added:   sideCounter{next: newStart, left: newCount},
+			}
 		}
 	}
 	flush()
 	return result, scanner.Err()
+}
+
+// hunkBody tracks which line number the next body line of a hunk belongs to.
+// git emits a hunk's removed lines before its added ones, but the two sides are
+// counted apart rather than relying on that.
+type hunkBody struct {
+	removed sideCounter
+	added   sideCounter
+}
+
+// sideCounter walks one side of a hunk's body: the line number the next body
+// line carries, and how many of them are left to read.
+type sideCounter struct {
+	next, left int
+}
+
+// take consumes one body line and returns the line number it belongs to. Its
+// callers guard on there being one left to take.
+func (c *sideCounter) take() int {
+	number := c.next
+	c.next++
+	c.left--
+	return number
+}
+
+// whitespaceOnly reports whether a line of content is blank: empty, or nothing
+// but spaces and tabs. A carriage return counts too, since in a CRLF file that
+// is all a blank line holds.
+func whitespaceOnly(text string) bool {
+	return strings.Trim(text, " \t\r") == ""
 }
 
 // parseDiffGitPaths reads the old and new path from a "diff --git a/OLD b/NEW"
