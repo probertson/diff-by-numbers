@@ -250,7 +250,7 @@ func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
 	// lipgloss strips styling when stdout is not a TTY (as under `go test`), so to
 	// see the dim at the render level we force a colour profile for this test and
 	// restore whatever it was afterwards (the profile is process-global). A dimmed row then carries an ANSI
-	// escape; a plain changed row carries none. This guards the !changed wiring at
+	// escape and no tint; a changed row carries a tint. This guards the !changed wiring at
 	// each call site, which the rowStyle unit test alone cannot.
 	orig := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
@@ -274,11 +274,12 @@ func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
 
 	stepOut := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
 
-	if strings.Contains(lineWith(t, stepOut, changed), "\x1b") {
-		t.Error("renderStep: a plain changed row should not be styled")
+	// A changed row is tinted (#81); a reference row is dimmed and never tinted.
+	if !strings.Contains(lineWith(t, stepOut, changed), "48;2;") {
+		t.Error("renderStep: a changed row should be tinted")
 	}
-	if !strings.Contains(lineWith(t, stepOut, reference), "\x1b") {
-		t.Error("renderStep: a plain reference row should be dimmed")
+	if row := lineWith(t, stepOut, reference); !strings.Contains(row, "\x1b") || strings.Contains(row, "48;2;") {
+		t.Error("renderStep: a reference row should be dimmed, with no tint")
 	}
 
 	ackStep := &daemon.StepWire{
@@ -294,11 +295,11 @@ func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
 	}}}
 	expandedOut := renderStep(ackStep, newStepCursor(ackStep, expanded), map[string]bool{}, nil, 80, 40, false, false)
 
-	if strings.Contains(lineWith(t, expandedOut, changed), "\x1b") {
-		t.Error("expanded Acknowledgement: a plain changed row should not be styled")
+	if !strings.Contains(lineWith(t, expandedOut, changed), "48;2;") {
+		t.Error("expanded Acknowledgement: a changed row should be tinted")
 	}
-	if !strings.Contains(lineWith(t, expandedOut, reference), "\x1b") {
-		t.Error("expanded Acknowledgement: a plain reference row should be dimmed")
+	if row := lineWith(t, expandedOut, reference); !strings.Contains(row, "\x1b") || strings.Contains(row, "48;2;") {
+		t.Error("expanded Acknowledgement: a reference row should be dimmed, with no tint")
 	}
 }
 

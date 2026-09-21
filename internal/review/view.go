@@ -3,6 +3,8 @@ package review
 import (
 	"fmt"
 	"strings"
+
+	"github.com/probertson/diff-by-numbers/internal/intraline"
 )
 
 // Line is one row of resolved file content, tagged with the Side it belongs to
@@ -28,6 +30,11 @@ type Line struct {
 	// Steps draw it instead. Like Unreadable it is drawn but is not content: it
 	// cannot be selected or anchored, and it counts toward nothing.
 	Signpost bool
+	// Emphasis is the runes of the text that changed, when the row is a removed
+	// line matched with the added line that took its place, or that added line
+	// (#81).
+	// Offsets are in runes of Text as it stands, before any tab is expanded.
+	Emphasis []intraline.Range
 }
 
 // Content reports whether a row is code, rather than a stand-in drawn in its
@@ -357,15 +364,27 @@ func (s *Session) interleaveBefore(excerpt Excerpt, in drawnIn, after []Line) []
 		// The before-side belongs to the Step, not to each of its ranges: a Step
 		// showing one rewrite through several Excerpts draws the removal once,
 		// above the first of them, rather than repeating it beside each.
+		removedFrom := len(out)
 		if firstShowing(in.step, c) == in.at {
 			out = append(out, s.beforeRows(c, in)...)
 		}
+		addedFrom := len(out)
 		last := c.NewLast
 		if last > excerpt.LastLine {
 			last = excerpt.LastLine
 		}
 		for n := start; n <= last; n++ {
 			out = append(out, newLine(n))
+		}
+		changes := s.modificationChanges(c)
+		for i := removedFrom; i < len(out); i++ {
+			switch {
+			case !out[i].Content():
+			case out[i].Side == OldSide:
+				out[i].Emphasis = changes.removed[out[i].Number]
+			case i >= addedFrom:
+				out[i].Emphasis = changes.added[out[i].Number]
+			}
 		}
 		cursor = last + 1
 	}

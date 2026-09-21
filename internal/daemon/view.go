@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/probertson/diff-by-numbers/internal/intraline"
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -19,6 +20,10 @@ type LineWire struct {
 	// Steps draw it instead. It is not code: the cursor never lands on it, and
 	// nothing may be selected, copied or commented from it.
 	Signpost bool `json:"signpost,omitempty"`
+	// Emphasis is the [start, end) rune ranges of the text that changed within
+	// a removed line and the added line matched with it (#81). The TUI only
+	// styles them.
+	Emphasis [][2]int `json:"emphasis,omitempty"`
 }
 
 // toLineWire carries one rendered row to the TUI, including whether it is code
@@ -31,7 +36,16 @@ func toLineWire(line review.Line) LineWire {
 		Side:     string(line.Side),
 		Changed:  line.Changed,
 		Signpost: line.Signpost,
+		Emphasis: toEmphasisWire(line.Emphasis),
 	}
+}
+
+func toEmphasisWire(ranges []intraline.Range) [][2]int {
+	var out [][2]int
+	for _, r := range ranges {
+		out = append(out, [2]int{r.Start, r.End})
+	}
+	return out
 }
 
 type ExcerptWire struct {

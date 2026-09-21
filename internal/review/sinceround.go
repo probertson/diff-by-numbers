@@ -166,10 +166,26 @@ func (s *Session) sinceRows(excerpt Excerpt, in drawnIn, after []Line) ([]Line, 
 
 	var out []Line
 	for _, line := range after {
-		out = append(out, previousOf(above[line.Number])...)
+		for _, edit := range above[line.Number] {
+			rows := previousOf([]RoundEdit{edit})
+			changes := s.roundEditChanges(excerpt.Repository, excerpt.File, earlierPath, edit)
+			for i := range rows {
+				if rows[i].Content() {
+					rows[i].Emphasis = changes.removed[rows[i].Number]
+				}
+			}
+			out = append(out, rows...)
+		}
 		_, untouched := mapping.Lookup(excerpt.File, line.Number)
 		line.Side = NewSide
 		line.Changed = !untouched
+		// The added line is marked against the line it took the place of,
+		// whether or not this range is the one that draws that line.
+		for _, edit := range mapping.Edits(excerpt.File) {
+			if line.Number >= edit.NewFirst && line.Number < edit.NewFirst+edit.NewCount {
+				line.Emphasis = s.roundEditChanges(excerpt.Repository, excerpt.File, earlierPath, edit).added[line.Number]
+			}
+		}
 		out = append(out, line)
 		out = append(out, previousOf(below[line.Number])...)
 	}

@@ -38,7 +38,7 @@ func TestResolvesARangeFromARealFile(t *testing.T) {
 		t.Fatalf("expected %d lines, got %d: %v", len(want), len(lines), lines)
 	}
 	for i, line := range lines {
-		if line != want[i] {
+		if line.Number != want[i].Number || line.Text != want[i].Text {
 			t.Errorf("line %d: expected %+v, got %+v", i, want[i], line)
 		}
 	}

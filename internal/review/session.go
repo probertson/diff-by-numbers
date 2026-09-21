@@ -57,6 +57,10 @@ type Session struct {
 	// review instead.
 	previous *previousRound
 	showAll  bool
+	// editChanges remembers what changed inside each edit already matched
+	// (#81). The round's content is fixed, so it holds for as long as the round
+	// is on screen.
+	editChanges map[string]changesWithin
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
@@ -266,6 +270,7 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 	s.previous = s.comparedWith(earlier, round, w.ChangeSet)
 	s.settle(s.previous)
 	s.showAll = false
+	s.editChanges = map[string]changesWithin{}
 
 	// A replacement keeps the Reviewer's Comments: each quotes its own code, so
 	// it stands without the Step it was raised on, which the replacement no

@@ -3,6 +3,7 @@ package daemon
 import (
 	"testing"
 
+	"github.com/probertson/diff-by-numbers/internal/intraline"
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -35,5 +36,16 @@ func TestAnExpansionCarriesWhetherItsFileChangedOnDisk(t *testing.T) {
 
 	if !wires[0].ChangedOnDisk {
 		t.Error("expected the expanded file flagged as changed on disk")
+	}
+}
+
+func TestARowCarriesItsEmphasisAsRunePairs(t *testing.T) {
+	line := review.Line{Number: 2, Text: "retry(transport, 5)", Side: review.NewSide, Changed: true,
+		Emphasis: []intraline.Range{{Start: 17, End: 18}}}
+
+	wire := toLineWire(line)
+
+	if len(wire.Emphasis) != 1 || wire.Emphasis[0] != [2]int{17, 18} {
+		t.Errorf("expected [[17 18]], got %v", wire.Emphasis)
 	}
 }

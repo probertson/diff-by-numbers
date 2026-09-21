@@ -60,6 +60,9 @@ type codeLine struct {
 	side    string
 	text    string
 	changed bool
+	// emphasis is the [start, end) rune ranges of text that changed between a
+	// removed line and the added line matched with it (#81).
+	emphasis [][2]int
 }
 
 // sameExcerpt reports whether two rows lie in the same Excerpt — a narrated one,
@@ -130,6 +133,7 @@ func rowFor(line daemon.LineWire, excerpt daemon.ExcerptWire, ack, ei int) codeL
 	return codeLine{
 		kind: kind, ack: ack, excerpt: ei,
 		number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
+		emphasis: line.Emphasis,
 	}
 }
 
@@ -787,6 +791,13 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 // codeRows draws one line of code: a single truncated row, or — under the cursor,
 // or on every line once wrapAll is on (#77) — the line soft-wrapped in place
 // (#26) so its tail is readable without scrolling, capped at wrapCap rows.
+//
+// A changed line is tinted across the whole row, gutter included, green for an
+// addition and red for a removal, with the words that changed — between a
+// removed line and the added line matched with it — on a stronger tint of the
+// same colour (#81). Each
+// signal keeps its own channel, so they compose: a Comment is the foreground, the
+// cursor is bold, and a selection's blue replaces every tint while it lasts.
 func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAll bool) []string {
 	line := cur.lines[i]
 	sign := " "
@@ -800,38 +811,59 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 	if hasComment {
 		note = "✎"
 	}
-	text := strings.ReplaceAll(line.text, "\t", "    ") // tabs display wider than one cell
+	runes, changedRunes := expandTabs(line.text, line.emphasis) // tabs display wider than one cell
+	text := string(runes)
 	gutter := fmt.Sprintf("%s%s %5d │ ", note, sign, line.number)
 	isCursor := i == cur.cursor
+	room := width - 2 // leave room for the caret
+	textWidth := room - lipgloss.Width(gutter)
 
-	rows := []string{truncateTo(gutter+text, width-2)} // leave room for the caret
-	if isCursor || wrapAll {
+	type wrapped struct {
+		prefix string
+		chunk  string
+		start  int // where chunk begins among runes
+		// plain is a row too narrow for the gutter and any code, clipped as a
+		// whole: its runes no longer line up with the code's, so nothing in it
+		// is emphasised.
+		plain bool
+	}
+	rows := []wrapped{{prefix: gutter, chunk: truncateTo(text, textWidth)}}
+	if textWidth < 1 {
+		rows = []wrapped{{chunk: truncateTo(gutter+text, room), plain: true}}
+	}
+	if (isCursor || wrapAll) && textWidth >= 1 {
 		// Continuation rows carry a blank gutter — the missing line number is itself
 		// the continuation signal — plus a hanging indent, so they sit under the
 		// line's own first character and a wrapped statement reads as one indented
 		// block. The hang is capped at half the code column: a deeply nested line
 		// would otherwise wrap into a sliver narrower than the indent in front of it.
-		textWidth := (width - 2) - lipgloss.Width(gutter)
 		hang := leadingSpaces(text)
 		if limit := textWidth / 2; hang > limit {
 			hang = limit
 		}
 		restWidth := textWidth - hang
-		if textWidth >= 1 && restWidth >= 1 {
+		if restWidth >= 1 {
 			chunks := wrapCode(text, textWidth, restWidth, wrapCap)
 			if len(chunks) > 1 {
 				indent := strings.Repeat(" ", lipgloss.Width(gutter)+hang)
-				rows = []string{gutter + chunks[0]}
-				for _, chunk := range chunks[1:] {
-					rows = append(rows, indent+chunk)
+				starts := chunkStarts(runes, chunks)
+				rows = rows[:0]
+				for ci, chunk := range chunks {
+					prefix := indent
+					if ci == 0 {
+						prefix = gutter
+					}
+					rows = append(rows, wrapped{prefix: prefix, chunk: chunk, start: starts[ci]})
 				}
 			}
 		}
 	}
 
-	// The caret marks only the first row; cursor, comment, and selection styling
-	// span every row so the wrapped line reads as one unit.
+	// The caret marks only the first row; cursor, Comment, tint and selection
+	// styling span every row so the wrapped line reads as one unit.
 	selected := cur.sel >= 0 && cur.inSelection(i)
+	base := rowStyle(hasComment, isCursor, !line.changed)
+	tint, emphasis, signColour := tintsFor(line)
 	out := make([]string, 0, len(rows))
 	for ri, row := range rows {
 		caret := "  "
@@ -839,12 +871,126 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 			caret = caretSt.Render("▸ ")
 		}
 		if selected {
-			out = append(out, caret+selSt.Render(row))
-		} else {
-			out = append(out, caret+rowStyle(hasComment, isCursor, !line.changed).Render(row))
+			out = append(out, caret+selSt.Render(row.prefix+row.chunk))
+			continue
 		}
+		if !line.changed {
+			out = append(out, caret+base.Render(row.prefix+row.chunk))
+			continue
+		}
+		tinted := base.Background(tint)
+		if row.plain {
+			out = append(out, caret+tinted.Render(row.chunk))
+			continue
+		}
+		var b strings.Builder
+		b.WriteString(tintedPrefix(row.prefix, tinted, sign, signColour))
+		chunk := []rune(row.chunk)
+		// A clipped row ends in an ellipsis standing in for what was cut, which
+		// is not a rune of the code and takes no emphasis of its own.
+		clipped := string(runes[row.start:min(row.start+len(chunk), len(runes))]) != row.chunk
+		changedAt := func(i int) bool {
+			if clipped && i == len(chunk)-1 {
+				return false
+			}
+			return emphasisAt(changedRunes, row.start+i)
+		}
+		for from := 0; from < len(chunk); {
+			on := changedAt(from)
+			to := from + 1
+			for to < len(chunk) && changedAt(to) == on {
+				to++
+			}
+			style := tinted
+			if on {
+				style = style.Background(emphasis)
+			}
+			b.WriteString(style.Render(string(chunk[from:to])))
+			from = to
+		}
+		// The tint runs to the edge of the pane, so a changed line reads as a
+		// band rather than as highlighted text of whatever length it has.
+		if pad := room - lipgloss.Width(row.prefix+row.chunk); pad > 0 {
+			b.WriteString(tinted.Render(strings.Repeat(" ", pad)))
+		}
+		out = append(out, caret+b.String())
 	}
 	return out
+}
+
+// Palette B (#81): a medium tint for a changed row, and a stronger one of the
+// same colour for the words that changed within it, in light and dark themes.
+var (
+	addTint     = lipgloss.AdaptiveColor{Light: "#e3f5e3", Dark: "#213a21"}
+	addEmphasis = lipgloss.AdaptiveColor{Light: "#abe2ab", Dark: "#2f6b2f"}
+	delTint     = lipgloss.AdaptiveColor{Light: "#fae3e3", Dark: "#3f2222"}
+	delEmphasis = lipgloss.AdaptiveColor{Light: "#f0a8a8", Dark: "#7a2f2f"}
+)
+
+// tintsFor is a changed line's row tint, the stronger tint for the words that
+// changed in it, and the colour of its sign — each decided by the one question
+// of whether the row is a removal.
+func tintsFor(line codeLine) (lipgloss.AdaptiveColor, lipgloss.AdaptiveColor, lipgloss.AdaptiveColor) {
+	if removedSide(line.side) {
+		return delTint, delEmphasis, delColour
+	}
+	return addTint, addEmphasis, addColour
+}
+
+// tintedPrefix draws a changed row's gutter on its tint, with the sign in its own
+// colour — the backup for a Reviewer who cannot tell the tints apart. A
+// continuation row's prefix is only indent, and is tinted plain.
+func tintedPrefix(prefix string, tinted lipgloss.Style, sign string, colour lipgloss.AdaptiveColor) string {
+	at := strings.Index(prefix, sign)
+	if sign == " " || at < 0 {
+		return tinted.Render(prefix)
+	}
+	return tinted.Render(prefix[:at]) + tinted.Foreground(colour).Render(sign) + tinted.Render(prefix[at+len(sign):])
+}
+
+// expandTabs widens each tab to four spaces, carrying with every rune whether it
+// lies in a changed range — the ranges count runes of the text as it stands, and
+// a tab ahead of them would otherwise shift every one of them.
+func expandTabs(text string, emphasis [][2]int) ([]rune, []bool) {
+	var runes []rune
+	var flags []bool
+	for i, r := range []rune(text) {
+		on := false
+		for _, span := range emphasis {
+			if i >= span[0] && i < span[1] {
+				on = true
+				break
+			}
+		}
+		if r == '\t' {
+			for range 4 {
+				runes, flags = append(runes, ' '), append(flags, on)
+			}
+			continue
+		}
+		runes, flags = append(runes, r), append(flags, on)
+	}
+	return runes, flags
+}
+
+// emphasisAt reports whether the rune at i is emphasised; past the end, as for
+// the ellipsis a clipped row ends with, it is not.
+func emphasisAt(flags []bool, i int) bool { return i >= 0 && i < len(flags) && flags[i] }
+
+// chunkStarts says where each row of a wrapped line begins among its runes, so
+// what is known about a rune follows it onto whichever row it lands on. It
+// retraces wrapCode, which drops the spaces at each break.
+func chunkStarts(runes []rune, chunks []string) []int {
+	starts := make([]int, len(chunks))
+	at := 0
+	for i, chunk := range chunks {
+		if i > 0 {
+			at = skipSpaces(runes, at)
+		}
+		starts[i] = at
+		at += len([]rune(chunk))
+	}
+	return starts
 }
 
 // acknowledgementHeader is an Acknowledgement's one-row header — its stop, and

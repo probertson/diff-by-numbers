@@ -1219,6 +1219,13 @@ func (m model) reRaiseOf(commentID int) (daemon.CommentWire, bool) {
 	return daemon.CommentWire{}, false
 }
 
+// addColour and delColour are what marks an addition and a removal wherever
+// one is named: the +/- signs, and the Overview's addressed and withdrawn items.
+var (
+	addColour = lipgloss.AdaptiveColor{Light: "#207520", Dark: "#87d787"}
+	delColour = lipgloss.AdaptiveColor{Light: "#a01010", Dark: "#ff8787"}
+)
+
 var (
 	subtle   = lipgloss.AdaptiveColor{Light: "#6b6b6b", Dark: "#9a9a9a"}
 	accent   = lipgloss.AdaptiveColor{Light: "#005f87", Dark: "#5fd7ff"}
@@ -1229,8 +1236,8 @@ var (
 	labelSt  = lipgloss.NewStyle().Bold(true)
 	accentSt = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	gutterSt = lipgloss.NewStyle().Foreground(subtle)
-	addSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#207520", Dark: "#87d787"})
-	delSt    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a01010", Dark: "#ff8787"})
+	addSt    = lipgloss.NewStyle().Foreground(addColour)
+	delSt    = lipgloss.NewStyle().Foreground(delColour)
 	// revisionBoxStyle sets the "Revision Round ready" announcement off in a bordered
 	// accent box, so a round arriving on the finished screen is announced rather than
 	// silently swapping the copy.
@@ -2155,6 +2162,10 @@ func (m model) brief() string {
 	return b.String()
 }
 
+// step draws a Step as plain text. It is the fallback the viewport holds while
+// no cursor has laid the Step out; the Reviewer walks a Step through
+// renderStep, which is where rows are tinted and emphasised (#81), so this keeps
+// the older +/- colouring rather than a second copy of that styling.
 func (m model) step() string {
 	var b strings.Builder
 	step := m.view.Step
