@@ -47,3 +47,30 @@ carries a warning that the Reviewer is seeing the posted version, and an Anchor 
 its line numbers are from the posted version, so the agent knows they are historical. That
 warning is now the backstop ADR-0011 relies on. The snapshot lives in memory with the
 review, so a daemon restart loses both together, which adds no new failure mode.
+
+## Amendment (#56): a Reviewer-requested update mid-round replaces the Walkthrough in place
+
+Deferral is about the agent not moving code the Reviewer is in the middle of reading.
+It was never meant to stop the Reviewer asking, in the chat, for a change *now* — and when
+they did, the only way through was a hand-off the Reviewer was not ready for, or the
+Reviewer-only abandon that an agent once reached for over HTTP.
+
+`post_walkthrough` now takes `replaces: <review_id>` for the review under review and not
+handed off. The replacement is validated like any post and becomes the same review:
+- **Same review.** It keeps the id, and keeps the label unless a new one is given.
+- **Comments carry over.** Each Anchor quotes its own code, so a Comment stands without
+  the Step it was raised on. It is marked carried over, and the Reviewer withdraws any the
+  replacement dealt with. Nothing is disposed of mid-round.
+- **The Reviewer starts again from the Overview.** A notice says why.
+- **Replacing a Revision Round** re-supplies its dispositions. It is scoped against the
+  last accepted round the Reviewer handed off, never against the Walkthrough it replaces,
+  which they may not have read. The replaced Walkthrough's snapshot is discarded.
+
+Edits the Reviewer did not ask for still wait for the Revision Round; the skill says
+so, since dbn cannot tell an asked-for change from an unasked one.
+
+An explicit `conclude` now frees the slot: the next post starts a new review, with a new
+id, rather than being refused. A round handed off with nothing raised, which reads as
+concluded by inference, still takes a Revision Round on the next post, as it always has.
+That inferred conclusion never blocked a post, and keeping the review lets its pre-marking
+scope any follow-up to what moved.

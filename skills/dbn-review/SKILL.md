@@ -156,6 +156,10 @@ Use `answered` for a question, even one you could read as a request; use
 led you to change the code, that is `addressed`, with the answer as its
 `response`.
 
+An anchor whose first line says `file changed since this round was posted` was
+taken from code you edited after posting: its lines and line numbers are the ones
+the reviewer saw, not what is on disk now, so find the place by its code.
+
 A Comment carrying `re_raised_from` is one the reviewer pushed back on: they read
 your decline or your answer and did not accept it. It calls for a change, or for
 a stronger argument than the one they already rejected — repeating the same
@@ -183,6 +187,28 @@ why it is mechanical this time.
 Repeat until the reviewer hands off having raised nothing — `fetch_results` will
 say the review is complete.
 
+## Updating a Walkthrough while it is under review
+
+`post_walkthrough` is refused while a review is under review and not handed off.
+To change it in place, post again with `replaces` set to its `review_id`. Do
+that only when:
+
+- the reviewer asked you, in the chat, for a change during the review, or
+- you realise your Walkthrough is wrong before they have got far into it.
+
+Do not use it to slip in changes nobody asked for. Edits the reviewer did not
+request wait for the Revision Round, so the review does not move under them.
+
+The replacement is validated like any post and keeps the same `review_id`
+(and label, unless you give a new one). The reviewer starts it again from the
+top. Their Comments carry over with `carried_over` set and no Step, since the
+Steps they were raised on are gone. Replacing a Revision Round needs its
+`dispositions` again. It is still scoped against the last round the reviewer
+handed off, not against the Walkthrough you replaced.
+
+Never call dbn's `/abandon` endpoint: discarding a review is the reviewer's
+decision, not yours.
+
 ## Concluding a review
 
 A review that ends this way — the reviewer handing off having raised nothing — is
@@ -192,5 +218,6 @@ the loop. There is nothing more you must do.
 For any other ending — you decide to stop, or the reviewer declines everything and
 you will post no further round — call `conclude` with the `review_id` from
 `post_walkthrough`. Concluding does not discard anything; it tells dbn the review
-is over so it can release the daemon it started for you. A review you never
+is over so it can release the daemon it started for you. A `post_walkthrough`
+after that starts a new review with a new `review_id`. A review you never
 conclude just leaves the daemon holding it, which is untidy, not harmful.

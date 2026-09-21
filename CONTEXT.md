@@ -174,6 +174,14 @@ hands a Walkthrough off having raised nothing. Lines it has already shown are pr
 coverage does not demand them again, and they cost nothing against a Step's budget.
 _Avoid_: fix pass, iteration, follow-up
 
+**Replacement**:
+A Walkthrough the Authoring Agent posts in place of the one still under review,
+because the Reviewer asked for a change mid-round or the plan was wrong (ADR-0004).
+It is the same review and the same round: the id stays, the Reviewer's Comments
+carry over without their Steps, and a replaced Revision Round is still scoped
+against the round before it. Not a Revision Round, which needs a Hand Off first.
+_Avoid_: re-post, amendment
+
 **Hand Off**:
 The Reviewer ending a round and passing the baton back: it locks their own edits
 until they resume, and authorizes the Authoring Agent to respond to the Reviewer's

@@ -53,8 +53,9 @@ const (
 	// RejectedMalformedDisposition means a Revision Round does not account for the
 	// previous round's Comments correctly.
 	RejectedMalformedDisposition RejectionReason = "malformed_disposition"
-	// RejectedUnknownReview means a conclude names a review id that is not the one
-	// currently under review.
+	// RejectedUnknownReview means a conclude or a replacement names a review id
+	// that is not the one currently under review — including one that has been
+	// concluded, which is no longer under review at all.
 	RejectedUnknownReview RejectionReason = "unknown_review"
 	// RejectedAlreadyReRaised means a resolution the Reviewer disputed already has
 	// a Comment standing against it this round, so re-raising again would only

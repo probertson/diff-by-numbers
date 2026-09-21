@@ -146,6 +146,9 @@ type ViewModel struct {
 	// Dispositions accounts for the previous round's Comments in a Revision
 	// Round — shown before any code, so a decline is seen before the fix.
 	Dispositions []ResolvedDisposition
+	// Replaced reports that the Walkthrough on screen replaced another in place,
+	// so a surface can say why the review changed under the Reviewer.
+	Replaced bool
 }
 
 // View reports what should be on screen right now.
@@ -179,6 +182,7 @@ func (s *Session) View() ViewModel {
 		Finished:     s.finished,
 		Concluded:    s.isConcluded(),
 		Dispositions: s.Dispositions(),
+		Replaced:     s.replaced,
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)
@@ -224,7 +228,7 @@ type drawnIn struct {
 // before-only.
 func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	view := ExcerptView{Excerpt: excerpt, ChangedOnDisk: s.changedOnDisk(excerpt)}
-	lines, err := s.resolver.Resolve(excerpt, s.round)
+	lines, err := s.resolver.Resolve(excerpt, s.latest.Round)
 	if err != nil {
 		view.Problem = err.Error()
 		return view
@@ -351,7 +355,7 @@ func (s *Session) beforeRows(c Correspondence, in drawnIn) []Line {
 		before, err := s.resolver.Resolve(Excerpt{
 			Repository: c.Repository, File: c.File, Side: OldSide,
 			FirstLine: run.first, LastLine: run.last,
-		}, s.round)
+		}, s.latest.Round)
 		if err != nil {
 			// The before-side is accounted for by being drawn here, so it must not
 			// vanish silently, or a covered line would go unshown. Mark the gap.

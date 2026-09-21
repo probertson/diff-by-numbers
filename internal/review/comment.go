@@ -16,6 +16,10 @@ type Comment struct {
 	// being re-raised over and over, and what tells the agent that repeating the
 	// same reasoning is not an answer.
 	ReRaisedFrom int
+	// CarriedOver marks a Comment raised on a Walkthrough that has since been
+	// replaced in place. Its Step is gone, so it belongs to none; its Anchor
+	// still quotes the code it was raised on.
+	CarriedOver bool
 }
 
 // RaiseComment anchors a note to a selection in the Step in view and

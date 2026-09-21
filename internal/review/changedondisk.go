@@ -29,7 +29,7 @@ func (s *Session) changedOnDisk(e Excerpt) bool {
 	if !ok {
 		return false
 	}
-	snapshot, ok := s.round.Snapshots[e.Repository]
+	snapshot, ok := s.latest.Snapshots[e.Repository]
 	if !ok {
 		return false
 	}

@@ -157,6 +157,10 @@ type model struct {
 	// Persistent for the same reason daemonVersion is: it is a standing fact about
 	// this install, not a response to a keypress.
 	updateNotice string
+	// replacedNotice tells the Reviewer the agent replaced the Walkthrough under
+	// them. Unlike the other notices it is about a moment rather than a standing
+	// fact, so the next navigation clears it.
+	replacedNotice string
 	// waiting is set while no daemon has ever answered. Distinct from lostErr,
 	// which is a daemon that answered and then went away: the Reviewer waiting
 	// for their agent to start one needs different words from the Reviewer whose
@@ -548,7 +552,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				positionChanged = true
 			}
 			// How the Reviewer left each Step belongs to one Walkthrough: a new
-			// review, a Revision Round or a restarted daemon starts every Step fresh.
+			// review, a Revision Round, a Replacement or a restarted daemon starts
+			// every Step fresh.
 			// A restarted daemon counts its postings from the start again, so the
 			// review id it mints is what tells its Walkthrough from the last one.
 			if msg.view != nil && (m.view == nil || !msg.view.Posted ||
@@ -569,6 +574,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if newWalkthrough {
 			m.leftSteps = nil
+		}
+		switch {
+		case newWalkthrough && m.view.Replaced:
+			// The Walkthrough the Reviewer was in has gone, so whatever screen they
+			// were on belongs to it: they start again from the Overview.
+			m.replacedNotice = replacementNotice(m.view.Comments)
+			m.mode = modeReview
+			m.resizeViewport()
+		case newWalkthrough || positionChanged:
+			if m.replacedNotice != "" {
+				m.replacedNotice = ""
+				m.resizeViewport()
+			}
 		}
 		if positionChanged || newWalkthrough {
 			m.enterStep()
@@ -1479,9 +1497,9 @@ func (m model) commentItem(i int, comment daemon.CommentWire) []string {
 	if i == m.commentCursor {
 		cursor = accentSt.Render("▸ ")
 	}
-	where := fmt.Sprintf("Step %d", comment.Step)
-	if comment.ReRaised() {
-		where = "re-raised"
+	where := comment.Stepless()
+	if where == "" {
+		where = fmt.Sprintf("Step %d", comment.Step)
 	}
 	rows := []string{fmt.Sprintf("%s%s  %s", cursor, where, dimSt.Render(comment.Location))}
 
@@ -1616,20 +1634,22 @@ func (m model) stepsSeenLine() string {
 
 // commentsWaitingCallOut is the sentence in the handed-off screen's box: how
 // much is waiting for the agent, and what to do about it. "Across N Steps"
-// counts flagged Steps, so re-raised Comments — which belong to no current Step
-// — are named separately; with only those there is no Step span to give.
+// counts flagged Steps, so re-raised and carried-over Comments — which belong to
+// no current Step — are named separately; with only those there is no Step span
+// to give.
 func (m model) commentsWaitingCallOut() string {
 	_, flagged := m.stepCounts()
 	raised := len(m.view.Comments)
-	reRaised := 0
-	for _, comment := range m.view.Comments {
-		if comment.ReRaised() {
-			reRaised++
+	byKind := steplessCounts(m.view.Comments)
+	count := pluralize(raised, "Comment")
+	var stepless []string
+	for _, kind := range []string{daemon.ReRaised, daemon.CarriedOver} {
+		if n := byKind[kind]; n > 0 {
+			stepless = append(stepless, fmt.Sprintf("%d %s", n, kind))
 		}
 	}
-	count := pluralize(raised, "Comment")
-	if reRaised > 0 {
-		count += fmt.Sprintf(" (%d re-raised)", reRaised)
+	if len(stepless) > 0 {
+		count += " (" + strings.Join(stepless, ", ") + ")"
 	}
 	if flagged > 0 {
 		count += " across " + pluralize(flagged, "Step")
@@ -1874,7 +1894,33 @@ func (m model) notice() string {
 	if mismatch := m.daemonMismatchNotice(); mismatch != "" {
 		return mismatch
 	}
+	if m.replacedNotice != "" {
+		return m.replacedNotice
+	}
 	return m.updateNotice
+}
+
+// steplessCounts counts the Comments that belong to no Step of this round, by
+// why they belong to none.
+func steplessCounts(comments []daemon.CommentWire) map[string]int {
+	counts := map[string]int{}
+	for _, comment := range comments {
+		if kind := comment.Stepless(); kind != "" {
+			counts[kind]++
+		}
+	}
+	return counts
+}
+
+// replacementNotice says the agent replaced the Walkthrough, and how many of the
+// Reviewer's Comments carried over to it — each is still theirs to withdraw if
+// the replacement dealt with it.
+func replacementNotice(comments []daemon.CommentWire) string {
+	carried := steplessCounts(comments)[daemon.CarriedOver]
+	if carried == 0 {
+		return "The agent replaced this Walkthrough"
+	}
+	return fmt.Sprintf("The agent replaced this Walkthrough — %s carried over (l to review them)", pluralize(carried, "Comment"))
 }
 
 // olderDaemon stands in for the version of a daemon too old to have a status

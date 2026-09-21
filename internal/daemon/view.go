@@ -115,6 +115,8 @@ type ViewWire struct {
 	Finished     bool              `json:"finished"`
 	Concluded    bool              `json:"concluded"`
 	Dispositions []DispositionWire `json:"dispositions,omitempty"`
+	// Replaced says the Walkthrough on screen replaced another in place.
+	Replaced bool `json:"replaced,omitempty"`
 }
 
 // SegmentWire is one side-qualified range of an Anchor's extent. An Anchor taken
@@ -139,12 +141,37 @@ type CommentWire struct {
 	// ReRaisedFrom is the previous round's Comment this one disputes, or 0 for a
 	// Comment raised on this round's code.
 	ReRaisedFrom int `json:"re_raised_from,omitempty"`
+	// CarriedOver marks a Comment raised on a Walkthrough the agent has since
+	// replaced in place, which belongs to no Step of this one.
+	CarriedOver bool `json:"carried_over,omitempty"`
 }
 
 // ReRaised reports whether the Comment was carried over from a previous round
 // rather than raised on a Step of this one — which is exactly the Comments that
 // name the resolution they dispute.
 func (comment CommentWire) ReRaised() bool { return comment.ReRaisedFrom != 0 }
+
+// Why a Comment belongs to no Step of the Walkthrough on screen, as Stepless
+// reports it.
+const (
+	ReRaised    = "re-raised"
+	CarriedOver = "carried over"
+)
+
+// Stepless says why a Comment belongs to no Step of the Walkthrough on screen —
+// re-raised from an earlier round, or carried over from a Walkthrough since
+// replaced — or "" for a Comment raised on one of its Steps. A re-raise that was
+// also carried over is still a re-raise: that is what the Reviewer needs to
+// know about it.
+func (comment CommentWire) Stepless() string {
+	switch {
+	case comment.ReRaised():
+		return ReRaised
+	case comment.CarriedOver:
+		return CarriedOver
+	}
+	return ""
+}
 
 // Covers reports whether the Comment is anchored over a row of the
 // rendering. It tests every segment, so a Comment spanning a removal and
@@ -189,6 +216,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Seen:      v.Seen,
 		Finished:  v.Finished,
 		Concluded: v.Concluded,
+		Replaced:  v.Replaced,
 	}
 	for _, st := range v.StepStatuses {
 		wire.StepStatuses = append(wire.StepStatuses, string(st))
@@ -204,6 +232,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 
 			Acknowledgement: comment.Anchor.Acknowledgement,
 			ReRaisedFrom:    comment.ReRaisedFrom,
+			CarriedOver:     comment.CarriedOver,
 		})
 	}
 	for _, repository := range v.Repositories {

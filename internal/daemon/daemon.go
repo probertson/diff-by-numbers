@@ -531,7 +531,8 @@ func (d *Daemon) mcpServer() *mcp.Server {
 			"Send it once and completely: the Reviewer navigates it without involving you. " +
 			"Order Steps so each is comprehensible given only the Steps before it, and send " +
 			"line ranges rather than code — dbn reads the working tree itself. " +
-			"It returns a review id; record it, and pass it to conclude when the review is done.",
+			"It returns a review id; record it, and pass it to conclude when the review is done. " +
+			"To update a review still under review, post again with replaces set to its id.",
 	}, d.postWalkthrough)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -558,7 +559,13 @@ func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in w
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if err := d.session.Post(in.toDomain()); err != nil {
+	var err error
+	if in.Replaces != "" {
+		err = d.session.Replace(in.Replaces, in.toDomain())
+	} else {
+		err = d.session.Post(in.toDomain())
+	}
+	if err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
 			return nil, postResult{Accepted: false, Problems: problemsOf(rejection)}, nil

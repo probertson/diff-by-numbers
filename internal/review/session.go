@@ -39,18 +39,22 @@ type Session struct {
 	comments      []Comment
 	nextCommentID int
 	finished      bool
-	// round is where the accepted Walkthrough's code is read from.
-	round Round
-	// prior is what the previous accepted round left behind — its snapshots,
-	// bases and the atoms it showed — which is what a Revision Round is scoped
+	// latest is the accepted round on screen: its Round, which its code is read
+	// from, and the atoms it showed. It is what the next Revision Round is scoped
 	// against (ADR-0014).
-	prior roundState
+	latest roundState
+	// answering is the earlier round the Walkthrough on screen is a revision
+	// of, or nil for a first round. A replacement answers to it too.
+	answering *earlierRound
+	// replaced records that the Walkthrough on screen replaced another in place,
+	// so a surface can tell the Reviewer why it changed under them.
+	replaced bool
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code.
 	dispositions []ResolvedDisposition
 	// id is the review's identity, minted when a new review is first posted and
-	// preserved across its Revision Rounds, so the Authoring Agent can refer back
-	// to the review to conclude it.
+	// preserved across its Revision Rounds and Replacements, so the Authoring
+	// Agent can refer back to the review to replace or conclude it.
 	id string
 	// label is the optional human-readable name carried on the Walkthrough.
 	label string
@@ -60,7 +64,8 @@ type Session struct {
 	// mint generates a new review id. Injected so tests can assert on a known id.
 	mint func() string
 	// postings counts the Walkthroughs accepted, so a surface can tell when a
-	// different one — a new review, or a Revision Round — has taken the screen.
+	// different one — a new review, a Revision Round or a Replacement — has taken
+	// the screen.
 	postings int
 }
 
@@ -101,23 +106,63 @@ func (s *Session) Label() string { return s.label }
 
 // Post submits a Walkthrough for review. Posting after the previous Walkthrough
 // was handed off is a Revision Round: it re-derives the full Change Set, pre-marks
-// what is unchanged, and must account for the previous round's Comments.
+// what is unchanged, and must account for the previous round's Comments. Posting
+// once the review is concluded starts a new review.
 func (s *Session) Post(w Walkthrough) error {
-	revision := s.walkthrough != nil && s.finished
-	if s.walkthrough != nil && !s.finished {
+	if s.walkthrough != nil && !s.finished && !s.concluded {
 		return reject(RejectedWalkthroughActive,
-			"a Walkthrough is already under review; the Reviewer must hand it off, or you must abandon it, first")
+			"a Walkthrough is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
+			s.id, s.id)
 	}
+	if s.walkthrough != nil && s.finished && !s.concluded {
+		return s.accept(w, &earlierRound{state: s.latest, comments: s.comments}, false)
+	}
+	return s.accept(w, nil, false)
+}
+
+// Replace puts a Walkthrough in place of the one under review, for when the
+// Reviewer asks for a change mid-review or the agent sees its plan was wrong.
+// It is the same review: the id stays, the Reviewer's Comments carry over, and a
+// Revision Round's replacement answers to the same earlier round the replaced
+// one did. What changes is what the Reviewer walks, so they start it afresh.
+func (s *Session) Replace(id string, w Walkthrough) error {
+	if s.walkthrough == nil || id != s.id {
+		return reject(RejectedUnknownReview,
+			"no review with id %q is under review, so there is nothing to replace", id)
+	}
+	if s.concluded {
+		return reject(RejectedUnknownReview,
+			"review %q is concluded; post without replaces to start a new review", id)
+	}
+	if s.finished {
+		return reject(RejectedWalkthroughFinished,
+			"this round is handed off; post a Revision Round instead")
+	}
+	return s.accept(w, s.answering, true)
+}
+
+// earlierRound is what a Revision Round answers to: the round before it, as it
+// was scoped, and the Comments that round raised.
+type earlierRound struct {
+	state    roundState
+	comments []Comment
+}
+
+// accept validates a Walkthrough and, if it passes, makes it the one under
+// review. earlier is the round it answers to, or nil for a first round;
+// replacing says it takes the place of the Walkthrough under review, which
+// makes it the same review and the same round.
+func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) error {
 	if rejection := validate(w); rejection != nil {
 		return rejection
 	}
 
 	// The snapshot is taken before anything else reads the working tree. It is
 	// what the round will be shown from, so it is also what the post is checked
-	// against: a file edited mid-post can then only make the post fail, never
-	// leave an accepted Walkthrough that its own snapshot cannot show. It is
-	// also what the next Revision Round is scoped against, and it is kept only
-	// once the post is accepted.
+	// against: every Excerpt an accepted Walkthrough names is one its own
+	// snapshot can show. (The Change Set is still derived from the working tree
+	// a moment later; see #104.) It is also what the next Revision Round is
+	// scoped against, and it is kept only once the post is accepted.
 	var snapshots map[string]string
 	if snapshotter, ok := s.deriver.(Snapshotter); ok {
 		snapshots = snapshotAll(snapshotter, w.ChangeSet)
@@ -136,9 +181,10 @@ func (s *Session) Post(w Walkthrough) error {
 	// What a Revision Round has already shown is worked out here rather than
 	// among the checks, and marked on the ledger itself: normalisation and every
 	// stage-2 check asks its questions of the round's scope, not of the raw
-	// Change Set.
-	if revision {
-		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, round))
+	// Change Set. It is always the earlier accepted round that decides this —
+	// never a Walkthrough being replaced, which the Reviewer may not have read.
+	if earlier != nil {
+		ledger = ledger.withPreMarking(s.preMarkUnchanged(ledger, w.ChangeSet, round, earlier.state))
 	}
 
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
@@ -157,8 +203,8 @@ func (s *Session) Post(w Walkthrough) error {
 	}
 
 	var dispositions []ResolvedDisposition
-	if revision {
-		resolved, rejection := s.resolveDispositions(w.Dispositions)
+	if earlier != nil {
+		resolved, rejection := resolveDispositions(w.Dispositions, earlier.comments)
 		add(rejection)
 		dispositions = resolved
 	} else if len(w.Dispositions) > 0 {
@@ -183,24 +229,34 @@ func (s *Session) Post(w Walkthrough) error {
 	s.ledger = ledger
 	s.position = 0
 	s.seen = map[int]bool{}
-	s.comments = nil
-	s.nextCommentID = 0
 	s.finished = false
-	s.round = round
 	s.dispositions = dispositions
-	s.prior = captureRound(ledger, round)
+	s.answering = earlier
+	s.latest = captureRound(ledger, round)
+	s.replaced = replacing
 	s.postings++
 
-	// A new review mints an id and takes the Walkthrough's label as given; a
-	// Revision Round keeps the id and only updates the label if one is supplied,
-	// so an agent that omits it on a later round does not blank it. Either way,
-	// posting a round means the review is active again.
-	if revision {
-		if w.Label != "" {
-			s.label = w.Label
+	// A replacement keeps the Reviewer's Comments: each quotes its own code, so
+	// it stands without the Step it was raised on, which the replacement no
+	// longer has. Any other posting starts a round with none.
+	if replacing {
+		for i := range s.comments {
+			s.comments[i].Step = 0
+			s.comments[i].CarriedOver = true
 		}
 	} else {
+		s.comments = nil
+		s.nextCommentID = 0
+	}
+
+	// A new review mints an id and takes the Walkthrough's label as given; a
+	// later posting keeps the id and only updates the label if one is supplied,
+	// so an agent that omits it does not blank it. Either way, posting means
+	// the review is active again.
+	if earlier == nil && !replacing {
 		s.id = s.mint()
+		s.label = w.Label
+	} else if w.Label != "" {
 		s.label = w.Label
 	}
 	s.concluded = false

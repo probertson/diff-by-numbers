@@ -99,16 +99,16 @@ func captureRound(l ledger, round Round) roundState {
 //
 // Anything that cannot be worked out is simply not pre-marked, which demands the
 // line — the same conservative answer as a daemon restart.
-func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[ChangedLine]bool, map[fileRef]bool) {
+func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round, earlier roundState) (map[ChangedLine]bool, map[fileRef]bool) {
 	snapshotter, ok := s.deriver.(Snapshotter)
-	if !ok || s.prior.Snapshots == nil {
+	if !ok || earlier.Snapshots == nil {
 		return nil, nil
 	}
 
 	preShown := map[ChangedLine]bool{}
 	preShownOpaque := map[fileRef]bool{}
 	for _, repo := range set.Repositories {
-		previous, had := s.prior.Snapshots[repo.Root]
+		previous, had := earlier.Snapshots[repo.Root]
 		now, took := current.Snapshots[repo.Root]
 		if !had || !took {
 			continue
@@ -117,7 +117,7 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[
 		if err != nil {
 			continue
 		}
-		oldSide := s.oldSideMapping(snapshotter, repo, current, forward)
+		oldSide := oldSideMapping(snapshotter, repo, current, earlier, forward)
 
 		for _, line := range l.lines {
 			if line.Repository != repo.Root {
@@ -135,7 +135,7 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[
 				continue
 			}
 			was := ChangedLine{Repository: repo.Root, File: at.File, Side: line.Side, Line: at.Line}
-			if s.prior.lines[was] {
+			if earlier.lines[was] {
 				preShown[line] = true
 			}
 		}
@@ -151,13 +151,13 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[
 		// Opaque Change the Reviewer would be shown while leaving both working
 		// trees byte-identical. Rather than compare those facts separately, a
 		// moved base simply demands them again.
-		sameBase := s.prior.Bases[repo.Root] == current.Bases[repo.Root] && current.Bases[repo.Root] != ""
+		sameBase := earlier.Bases[repo.Root] == current.Bases[repo.Root] && current.Bases[repo.Root] != ""
 		for _, opaque := range l.opaque {
 			if opaque.Repository != repo.Root || !sameBase || forward.Touched(opaque.File) {
 				continue
 			}
 			ref := fileRef{opaque.Repository, opaque.File}
-			if s.prior.opaque[ref] {
+			if earlier.opaque[ref] {
 				preShownOpaque[ref] = true
 			}
 		}
@@ -172,8 +172,8 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round) (map[
 // commit they have not moved at all, and identityMapping says so. If the branch
 // was rebased under the review the base itself changed, and the two bases are
 // diffed exactly as two snapshots are.
-func (s *Session) oldSideMapping(snapshotter Snapshotter, repo Repository, current Round, forward RoundMapping) RoundMapping {
-	previous, had := s.prior.Bases[repo.Root]
+func oldSideMapping(snapshotter Snapshotter, repo Repository, current Round, earlier roundState, forward RoundMapping) RoundMapping {
+	previous, had := earlier.Bases[repo.Root]
 	now, have := current.Bases[repo.Root]
 	if !had || !have {
 		return nil
@@ -209,8 +209,7 @@ func (u unmovedSince) PathIn(file string) string { return u.forward.PathIn(file)
 // resolveDispositions pairs each posted Disposition with the previous round's
 // Comment it names, and refuses a Revision Round that does not account for
 // every one — addressed, or answered or declined with a response.
-func (s *Session) resolveDispositions(dispositions []Disposition) ([]ResolvedDisposition, *Rejection) {
-	prior := s.comments
+func resolveDispositions(dispositions []Disposition, prior []Comment) ([]ResolvedDisposition, *Rejection) {
 	byID := make(map[int]Comment, len(prior))
 	for _, comment := range prior {
 		byID[comment.ID] = comment

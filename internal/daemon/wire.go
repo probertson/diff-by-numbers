@@ -59,8 +59,9 @@ type wireWalkthrough struct {
 	Brief        wireBrief         `json:"brief"`
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
-	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit for a first Walkthrough"`
+	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit for a first Walkthrough"`
 	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
+	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the review under review, to replace its Walkthrough in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the review, or you see your Walkthrough is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
 }
 
 type postResult struct {
@@ -94,7 +95,8 @@ type commentWire struct {
 	Note     string `json:"note" jsonschema:"What the Reviewer said: a change they want, or a question"`
 	// ReRaisedFrom is only set when the Reviewer pushed back on how you resolved a
 	// Comment last round.
-	ReRaisedFrom int `json:"re_raised_from,omitempty" jsonschema:"Set when the Reviewer re-raised the Comment you declined or answered as #N: they did not accept your reasoning. Answer the point or change the code — repeating the same reasoning is not a response"`
+	ReRaisedFrom int  `json:"re_raised_from,omitempty" jsonschema:"Set when the Reviewer re-raised the Comment you declined or answered as #N: they did not accept your reasoning. Answer the point or change the code — repeating the same reasoning is not a response"`
+	CarriedOver  bool `json:"carried_over,omitempty" jsonschema:"Set when the Comment was raised on a Walkthrough you since replaced in place. Its step is 0, since that Walkthrough's Steps are gone; its anchor still quotes the code it was raised on"`
 }
 
 type stepReportWire struct {
@@ -190,6 +192,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 			Note:     comment.Note,
 
 			ReRaisedFrom: comment.ReRaisedFrom,
+			CarriedOver:  comment.CarriedOver,
 		})
 	}
 	for _, sr := range r.StepReports {
