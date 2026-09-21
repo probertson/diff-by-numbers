@@ -1,6 +1,9 @@
 package review
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Line is one row of resolved file content, tagged with the Side it belongs to
 // and whether git considers it a Changed Line (versus reference context the
@@ -16,7 +19,16 @@ type Line struct {
 	// than code itself. It is drawn — a line that rode along must not vanish
 	// silently — but it is not content, so nothing may quote it as if it were.
 	Unreadable bool
+	// Signpost marks a row standing where a before-side would go, when other
+	// Steps draw it instead. Like Unreadable it is drawn but is not content: it
+	// cannot be selected or anchored, and it counts toward nothing.
+	Signpost bool
 }
+
+// Content reports whether a row is code, rather than a stand-in drawn in its
+// place — an unreadable before-side, or a signpost to one drawn elsewhere. Only
+// content may be selected, quoted or anchored.
+func (l Line) Content() bool { return !l.Unreadable && !l.Signpost }
 
 // Resolver turns an Excerpt into the lines it names. The core performs no I/O:
 // whoever constructs the Session supplies the thing that reads bytes, and
@@ -183,8 +195,8 @@ func (s *Session) stepView(position int) *StepView {
 		}
 	}
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
-	for _, excerpt := range step.Excerpts {
-		excerpts = append(excerpts, s.resolveExcerpt(excerpt))
+	for i, excerpt := range step.Excerpts {
+		excerpts = append(excerpts, s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.walkthrough.Steps}))
 	}
 	acknowledgements := make([]AcknowledgementView, 0, len(step.Acknowledgements))
 	for _, ack := range step.Acknowledgements {
@@ -200,6 +212,15 @@ func (s *Session) stepView(position int) *StepView {
 	}
 }
 
+// drawnIn is where an Excerpt is being rendered: which Step it belongs to, its
+// position among that Step's Excerpts, and the Steps the Walkthrough is made of.
+// Together those decide which of a modification's before-side lines it draws.
+type drawnIn struct {
+	step Step
+	at   int
+	all  []Step
+}
+
 // resolveExcerpt reads an Excerpt's lines and marks the Changed ones, or records
 // why it could not be read. dbn never renders code it could not actually read.
 //
@@ -207,19 +228,54 @@ func (s *Session) stepView(position int) *StepView {
 // before-side of each edit it shows injected as removed lines just above their
 // replacement. An old-side Excerpt is a deliberately shown deletion and renders
 // before-only.
-func (s *Session) resolveExcerpt(excerpt Excerpt) ExcerptView {
+func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	lines, err := s.resolver.Resolve(excerpt)
 	if err != nil {
 		return ExcerptView{Excerpt: excerpt, Problem: err.Error()}
 	}
 	if excerpt.Side == NewSide {
-		return ExcerptView{Excerpt: excerpt, Lines: s.interleaveBefore(excerpt, lines)}
+		return ExcerptView{Excerpt: excerpt, Lines: s.interleaveBefore(excerpt, in, lines)}
 	}
-	for i := range lines {
-		lines[i].Side = excerpt.Side
-		lines[i].Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, lines[i].Number)
+	// An old-side Excerpt that assigns a rewrite's before-side has already been
+	// drawn, interleaved above the after-side it replaced. Drawing it again as a
+	// standalone block would show the same removal twice in one Step; what falls
+	// outside any modification the Step shows — a deliberate deletion — still
+	// renders here, which is what an old-side Excerpt was for.
+	interleaved := s.interleavedOld(in)
+	kept := make([]Line, 0, len(lines))
+	for _, line := range lines {
+		if interleaved[fileLine{excerpt.Repository, excerpt.File, line.Number}] {
+			continue
+		}
+		line.Side = excerpt.Side
+		line.Changed = s.ledger.isChanged(excerpt.Repository, excerpt.File, excerpt.Side, line.Number)
+		kept = append(kept, line)
 	}
-	return ExcerptView{Excerpt: excerpt, Lines: lines}
+	return ExcerptView{Excerpt: excerpt, Lines: kept}
+}
+
+// fileLine identifies one before-side line of one file, so a Step can be asked
+// which of them it has already drawn by interleaving.
+type fileLine struct {
+	repository string
+	file       string
+	line       int
+}
+
+// interleavedOld is every before-side line this Step draws beside an after-side.
+func (s *Session) interleavedOld(in drawnIn) map[fileLine]bool {
+	out := map[fileLine]bool{}
+	for _, excerpt := range in.step.Excerpts {
+		if excerpt.Side != NewSide {
+			continue
+		}
+		for _, c := range s.ledger.modificationsShownBy(excerpt) {
+			for _, n := range assignedBefore(c, in.step, in.all) {
+				out[fileLine{c.Repository, c.File, n}] = true
+			}
+		}
+	}
+	return out
 }
 
 // interleaveBefore turns a new-side Excerpt's after-side lines into a unified
@@ -232,7 +288,7 @@ func (s *Session) resolveExcerpt(excerpt Excerpt) ExcerptView {
 // a Reviewer's selection against these rows, so it is what decides which lines sit
 // between two selected endpoints (#57). Changing the interleaving changes what a
 // selection spanning a removal and its replacement contains.
-func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
+func (s *Session) interleaveBefore(excerpt Excerpt, in drawnIn, after []Line) []Line {
 	afterText := map[int]string{}
 	for _, line := range after {
 		afterText[line.Number] = line.Text
@@ -249,29 +305,26 @@ func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
 	var out []Line
 	cursor := excerpt.FirstLine
 	for _, c := range s.ledger.modificationsShownBy(excerpt) {
-		for n := cursor; n < c.NewFirst && n <= excerpt.LastLine; n++ {
+		// Where this Excerpt first shows the replacement, which is where its
+		// before-side belongs — the modification may have begun before the range.
+		start := c.NewFirst
+		if start < excerpt.FirstLine {
+			start = excerpt.FirstLine
+		}
+		for n := cursor; n < start && n <= excerpt.LastLine; n++ {
 			out = append(out, newLine(n))
 		}
-		before, err := s.resolver.Resolve(Excerpt{
-			Repository: excerpt.Repository, File: excerpt.File, Side: OldSide,
-			FirstLine: c.OldFirst, LastLine: c.OldLast,
-		})
-		if err != nil {
-			// The before-side rode along, so it is accounted for — it must not vanish
-			// silently, or a covered line would go unshown. Mark the gap instead.
-			out = append(out, Line{Number: c.OldFirst, Side: OldSide, Unreadable: true,
-				Text: fmt.Sprintf("(the before-side could not be read: %v)", err)})
-		}
-		for _, line := range before {
-			line.Side = OldSide
-			line.Changed = true
-			out = append(out, line)
+		// The before-side belongs to the Step, not to each of its ranges: a Step
+		// showing one rewrite through several Excerpts draws the removal once,
+		// above the first of them, rather than repeating it beside each.
+		if firstShowing(in.step, c) == in.at {
+			out = append(out, s.beforeRows(c, in)...)
 		}
 		last := c.NewLast
 		if last > excerpt.LastLine {
 			last = excerpt.LastLine
 		}
-		for n := c.NewFirst; n <= last; n++ {
+		for n := start; n <= last; n++ {
 			out = append(out, newLine(n))
 		}
 		cursor = last + 1
@@ -280,6 +333,70 @@ func (s *Session) interleaveBefore(excerpt Excerpt, after []Line) []Line {
 		out = append(out, newLine(n))
 	}
 	return out
+}
+
+// beforeRows are the removed lines drawn above a modification's replacement in
+// one Step: the before-side assigned to it, or — when another Step has all of it
+// — a signpost saying so, rather than an after-side with nothing to read it
+// against.
+func (s *Session) beforeRows(c Correspondence, in drawnIn) []Line {
+	assigned := assignedBefore(c, in.step, in.all)
+	if len(assigned) == 0 {
+		return []Line{{
+			Number: c.OldFirst, Side: OldSide, Signpost: true,
+			Text: signpostText(c, in),
+		}}
+	}
+
+	var out []Line
+	for _, run := range runsOf(assigned) {
+		before, err := s.resolver.Resolve(Excerpt{
+			Repository: c.Repository, File: c.File, Side: OldSide,
+			FirstLine: run.first, LastLine: run.last,
+		})
+		if err != nil {
+			// The before-side is accounted for by being drawn here, so it must not
+			// vanish silently, or a covered line would go unshown. Mark the gap.
+			out = append(out, Line{Number: run.first, Side: OldSide, Unreadable: true,
+				Text: fmt.Sprintf("(the before-side could not be read: %v)", err)})
+			continue
+		}
+		for _, line := range before {
+			line.Side = OldSide
+			line.Changed = true
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// signpostText says where a modification's before-side went, so a Step showing
+// only part of a rewrite does not read as an addition out of nowhere. It names
+// every Step holding part of it: a rewrite split three ways has its before-side
+// split too, and naming only the first would send the Reviewer to a Step that
+// has half of what they are looking for.
+func signpostText(c Correspondence, in drawnIn) string {
+	var holders []string
+	for i, other := range in.all {
+		if len(assignedBefore(c, other, in.all)) > 0 {
+			holders = append(holders, fmt.Sprintf("%d", i+1))
+		}
+	}
+	return fmt.Sprintf("⋯ replaces old %d-%d%s", c.OldFirst, c.OldLast, shownIn(holders))
+}
+
+// shownIn reads a list of Step numbers as a phrase, or says nothing when no Step
+// holds the before-side at all.
+func shownIn(holders []string) string {
+	switch len(holders) {
+	case 0:
+		return ""
+	case 1:
+		return ", shown in Step " + holders[0]
+	default:
+		return ", shown in Steps " +
+			strings.Join(holders[:len(holders)-1], ", ") + " and " + holders[len(holders)-1]
+	}
 }
 
 // acknowledgementView builds the manifest for one Acknowledgement from the
@@ -342,8 +459,10 @@ func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptVi
 	}
 	ack := step.Acknowledgements[ackIndex]
 
+	parts := s.acknowledgedParts(ack)
 	var views []ExcerptView
-	for _, part := range s.acknowledgedParts(ack) {
+	for i := range parts {
+		part := parts[i]
 		if part.opaque != nil {
 			views = append(views, ExcerptView{
 				Excerpt: Excerpt{Repository: ack.Repository, File: part.opaque.File},
@@ -351,9 +470,31 @@ func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptVi
 			})
 			continue
 		}
-		views = append(views, s.resolveExcerpt(part.excerpt))
+		views = append(views, s.resolveExcerpt(part.excerpt, expansionContext(parts, i)))
 	}
 	return views, nil
+}
+
+// expansionContext makes an Acknowledgement's expansion its own Walkthrough of
+// one Step, positioned at the part being drawn.
+//
+// An expansion is a complete account of a file's changes, not a Step's editorial
+// selection, so it draws every before-side it covers regardless of what the
+// Steps around it claim — a claim made elsewhere in the Walkthrough must not
+// take a removal out of the diff the Reviewer asked to see in full.
+func expansionContext(parts []acknowledgedPart, at int) drawnIn {
+	step := Step{}
+	position := -1
+	for i, part := range parts {
+		if part.opaque != nil {
+			continue
+		}
+		if i == at {
+			position = len(step.Excerpts)
+		}
+		step.Excerpts = append(step.Excerpts, part.excerpt)
+	}
+	return drawnIn{step: step, at: position, all: []Step{step}}
 }
 
 // acknowledgedPart is one piece of what an Acknowledgement expands into: an

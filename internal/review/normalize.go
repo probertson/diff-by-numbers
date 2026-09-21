@@ -178,16 +178,20 @@ func unaccountedRuns(l ledger, key fileSide, steps []Step) []span {
 		numbers = append(numbers, line.Line)
 	}
 	sort.Ints(numbers)
+	return runsOf(numbers)
+}
 
-	var runs []span
+// runsOf turns sorted line numbers into the contiguous runs they form.
+func runsOf(numbers []int) []span {
+	var out []span
 	for i := 0; i < len(numbers); {
 		run := span{first: numbers[i], last: numbers[i]}
 		for i++; i < len(numbers) && numbers[i] == run.last+1; i++ {
 			run.last = numbers[i]
 		}
-		runs = append(runs, run)
+		out = append(out, run)
 	}
-	return runs
+	return out
 }
 
 // absorber picks the Excerpt an unaccounted-for run joins: the first one it touches, in

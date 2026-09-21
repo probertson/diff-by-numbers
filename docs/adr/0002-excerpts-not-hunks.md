@@ -96,3 +96,40 @@ The live coverage the Reviewer sees is deliberately not filtered this way. It
 counts every atom in the Change Set, because it answers "how much of this review
 is behind me", which is a different question from "how much does this Step ask
 of me now".
+
+## Amendment (#68): an old-side Excerpt may also assign a rewrite's before-side
+
+A Walkthrough that split the after-side of one rewrite across Steps by idea —
+exactly the authoring the Reviewer asked for, including splitting inside a
+function — put the whole before-side in whichever Step happened to show the
+rewrite's first new line. That Step was enormous and mostly showed removals
+belonging to code it did not display, and the others lost the before → after
+framing that is the point of pointing once at a change.
+
+git gives no pairing inside a rewrite, so dbn cannot derive the split and must not
+invent one: a guessed pairing would put removed code under an explanation that
+does not describe it, which is the failure this tool exists to prevent. The
+Authoring Agent says so instead, with old-side Excerpts. That gives an old-side
+range a second job beyond ADR-0002's "a standalone deletion": it also assigns
+part of a rewrite's before-side to the Step that replaced it. Whatever no Step
+claims still goes to the Step showing the replacement's first line, so a
+Walkthrough that says nothing behaves exactly as before.
+
+Two consequences run against the amendments above, and are narrower than they
+look:
+
+- Amendment (#85) says absorption "only ever widens: nothing the agent selected is
+  dropped". A claimed line no longer renders as a standalone block, because it has
+  already been drawn interleaved above the after-side it replaced. Nothing is
+  dropped — the line is shown exactly once, in the place that makes it legible —
+  and what falls outside any modification the Step shows still renders standalone.
+- Amendment (#23) limits the cross-side correspondence to "two mechanical purposes
+  only". This is a third: deciding which Step draws which removed lines. It stays
+  mechanical and stays invisible to the agent, which still authors Side-qualified
+  ranges and never sees a hunk.
+
+The signpost row is the one thing dbn puts on screen that it did not read from a
+file. It is not content and cannot be quoted: it carries no code, the cursor
+passes over it, and an Anchor drops it rather than quoting it as source. It exists
+because the alternative — an after-side with nothing to read it against and no
+explanation of why — is worse than a row saying where to look.

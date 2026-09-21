@@ -36,7 +36,16 @@ const (
 	// Change, or code that could not be read. It is drawn so nothing the
 	// Acknowledgement claims goes unseen, but the cursor never lands on it.
 	kindNote
+	// kindSignpost stands where a before-side would go, saying which Steps draw
+	// it instead. Like a note it is drawn but is not code: the cursor passes over
+	// it, and nothing can be selected, copied or commented from it.
+	kindSignpost
 )
+
+// passedOver reports whether the cursor skips a row rather than resting on it.
+// Both kinds are drawn — nothing goes unseen — but neither is a place in the
+// code, so stopping on one would offer the Reviewer actions it cannot perform.
+func (k lineKind) passedOver() bool { return k == kindNote || k == kindSignpost }
 
 // codeLine is one row of a Step's pane the cursor knows about: a code line, an
 // Acknowledgement's stop, or a note in an expansion. ack is the Acknowledgement
@@ -84,10 +93,7 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 	var lines []codeLine
 	for ei, excerpt := range step.Excerpts {
 		for _, line := range excerpt.Lines {
-			lines = append(lines, codeLine{
-				kind: kindCode, ack: -1, excerpt: ei,
-				number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
-			})
+			lines = append(lines, rowFor(line, excerpt, -1, ei))
 		}
 	}
 	for k := range step.Acknowledgements {
@@ -98,14 +104,33 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 				continue
 			}
 			for _, line := range excerpt.Lines {
-				lines = append(lines, codeLine{
-					kind: kindCode, ack: k, excerpt: ei,
-					number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
-				})
+				lines = append(lines, rowFor(line, excerpt, k, ei))
 			}
 		}
 	}
-	return stepCursor{lines: lines, cursor: 0, sel: -1, expanded: expanded}
+	// A Step can open on a row the cursor may not rest on: a Step showing the
+	// tail of a rewrite begins with the signpost saying where its before-side is.
+	cursor := 0
+	for cursor < len(lines) && lines[cursor].kind.passedOver() {
+		cursor++
+	}
+	if cursor == len(lines) {
+		cursor = 0
+	}
+	return stepCursor{lines: lines, cursor: cursor, sel: -1, expanded: expanded}
+}
+
+// rowFor turns one rendered line into a cursor row, keeping a signpost out of
+// the code kind so it cannot be selected or quoted as source.
+func rowFor(line daemon.LineWire, excerpt daemon.ExcerptWire, ack, ei int) codeLine {
+	kind := kindCode
+	if line.Signpost {
+		kind = kindSignpost
+	}
+	return codeLine{
+		kind: kind, ack: ack, excerpt: ei,
+		number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
+	}
 }
 
 // isExpanded reports whether Acknowledgement k is showing its code.
@@ -180,7 +205,7 @@ func (c *stepCursor) move(delta int) (blocked bool) {
 	target := c.cursor
 	for ; count > 0; count-- {
 		next := target + direction
-		for next >= 0 && next < len(c.lines) && c.lines[next].kind == kindNote {
+		for next >= 0 && next < len(c.lines) && c.lines[next].kind.passedOver() {
 			next += direction
 		}
 		if next < 0 || next >= len(c.lines) {
@@ -658,7 +683,7 @@ func stickyHeaders(row paneRow) []string {
 func countLines(cur stepCursor, rows []paneRow) int {
 	seen := map[int]bool{}
 	for _, row := range rows {
-		if row.line >= 0 && cur.lines[row.line].kind != kindNote {
+		if row.line >= 0 && !cur.lines[row.line].kind.passedOver() {
 			seen[row.line] = true
 		}
 	}
@@ -720,9 +745,13 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			lastAck, lastExcerpt = line.ack, line.excerpt
 		}
 
-		if line.kind == kindNote {
+		if line.kind.passedOver() {
+			note := line.text
+			if line.kind == kindNote {
+				note = expansionNote(cur.excerptOf(step, line))
+			}
 			rows = append(rows, paneRow{
-				text: "    " + dimSt.Render(expansionNote(cur.excerptOf(step, line))), line: i,
+				text: "    " + dimSt.Render(note), line: i,
 				fileHeader: fileHeader, ackHeader: ackHeader,
 			})
 			continue

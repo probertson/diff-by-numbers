@@ -71,6 +71,13 @@ one git hunk. Plan them so:
   the path it came from — listing both is fine too. The Reviewer sees the new
   path either way. The exception is a path the same branch reused for a new
   file: that name now means the new file, so cover the two separately.
+- **Splitting one edit across Steps: say which old lines went where.** Changes in
+  contiguous code that are about different things belong in different Steps, even
+  inside one function. When that splits a single edit's after-side across Steps,
+  give each Step an `old`-side Excerpt over the lines its new lines replaced, and
+  dbn draws each before → after pair in its own Step. Say nothing and the whole
+  before-side stays with the Step showing the edit's first new line, and the other
+  Steps get a signpost saying where to find it.
 - **One Step may span several files** if one idea touches several.
 - **Prefer more, smaller Steps.** A Step should be comprehensible at a glance —
   don't make the reviewer hold two functions in their head at once. Because an

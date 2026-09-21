@@ -249,7 +249,7 @@ func (l ledger) accountedFor(line ChangedLine, steps []Step) bool {
 	// A before-side line rides along when a Step shows the after-side of the edit
 	// that removed it: pointing once at a change accounts for the lines it
 	// replaced, without the agent naming the old side.
-	if l.riddenAlong(line, steps) {
+	if l.riddenAlong(line, steps, steps) {
 		return true
 	}
 	return anyStep(steps, func(s Step) bool { return stepCoversLine(s, line) })
@@ -320,7 +320,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 	// the budget was the outlier.
 	var over []oversizedStep
 	for i, step := range steps {
-		count := l.changedLinesIn(step)
+		count := l.changedLinesIn(step, steps)
 		if count > StepBudget && step.OversizeJustification == "" {
 			over = append(over, oversizedStep{position: i + 1, name: step.Name, count: count})
 		}
@@ -373,7 +373,7 @@ func (o oversizedStep) entry() string {
 
 // changedLinesIn counts the distinct Changed Lines a Step asks the Reviewer to
 // read. A line shown by two of the Step's Excerpts counts once.
-func (l ledger) changedLinesIn(step Step) int {
+func (l ledger) changedLinesIn(step Step, all []Step) int {
 	seen := map[ChangedLine]bool{}
 	code := l.budgetedLines()
 	for _, line := range code {
@@ -384,11 +384,13 @@ func (l ledger) changedLinesIn(step Step) int {
 			}
 		}
 	}
-	// Before-side lines this Step rides along render as `-` rows beside their
+	// Before-side lines this Step draws render as `-` rows beside their
 	// replacements, so they cost against the budget too: a rewrite is not cheaper
 	// to read than an addition of the same size (status quo — both sides count).
+	// A Step draws only the before-side assigned to it, so a split rewrite is not
+	// billed to one Step and drawn in another.
 	for _, line := range code {
-		if line.Side == OldSide && !seen[line] && l.riddenAlong(line, []Step{step}) {
+		if line.Side == OldSide && !seen[line] && l.riddenAlong(line, []Step{step}, all) {
 			seen[line] = true
 		}
 	}
@@ -445,7 +447,7 @@ func (l ledger) seenBy(steps []Step, position int) int {
 	// A before-side line the Reviewer has passed rides along with the after-side
 	// that replaced it, so it counts as seen once its Step is behind them.
 	for _, line := range l.lines {
-		if line.Side == OldSide && !seenLines[line] && l.riddenAlong(line, visible) {
+		if line.Side == OldSide && !seenLines[line] && l.riddenAlong(line, visible, steps) {
 			seenLines[line] = true
 		}
 	}

@@ -15,6 +15,23 @@ type LineWire struct {
 	// diff whose rows mix the after-side with the before-side it replaced.
 	Side    string `json:"side,omitempty"`
 	Changed bool   `json:"changed"`
+	// Signpost marks a row that stands where a before-side would go, saying which
+	// Steps draw it instead. It is not code: the cursor never lands on it, and
+	// nothing may be selected, copied or commented from it.
+	Signpost bool `json:"signpost,omitempty"`
+}
+
+// toLineWire carries one rendered row to the TUI, including whether it is code
+// at all — a signpost drawn as an ordinary removed line would read as deleted
+// source and invite the Reviewer to quote it.
+func toLineWire(line review.Line) LineWire {
+	return LineWire{
+		Number:   line.Number,
+		Text:     line.Text,
+		Side:     string(line.Side),
+		Changed:  line.Changed,
+		Signpost: line.Signpost,
+	}
 }
 
 type ExcerptWire struct {
@@ -221,7 +238,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 				Problem:    excerpt.Problem,
 			}
 			for _, line := range excerpt.Lines {
-				excerptWire.Lines = append(excerptWire.Lines, LineWire{Number: line.Number, Text: line.Text, Side: string(line.Side), Changed: line.Changed})
+				excerptWire.Lines = append(excerptWire.Lines, toLineWire(line))
 			}
 			step.Excerpts = append(step.Excerpts, excerptWire)
 		}
@@ -258,7 +275,7 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			Problem:    view.Problem,
 		}
 		for _, line := range view.Lines {
-			wire.Lines = append(wire.Lines, LineWire{Number: line.Number, Text: line.Text, Side: string(line.Side), Changed: line.Changed})
+			wire.Lines = append(wire.Lines, toLineWire(line))
 		}
 		wires = append(wires, wire)
 	}

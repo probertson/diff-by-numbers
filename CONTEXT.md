@@ -87,6 +87,24 @@ explicitly, except where only one is under review — then it may be left out an
 dbn fills it in, since there is nothing else it could mean.
 _Avoid_: hunk, chunk, block, fragment, snippet
 
+**Before-Side Claim**:
+An old-side Excerpt used to say which removed lines a Step's new lines replaced.
+git reports a rewrite as a single edit with no pairing inside it, so when the
+Authoring Agent splits its after-side across Steps by idea, dbn cannot tell which
+old lines belong with which new ones — and does not guess. Whatever a Step claims,
+it draws; whatever no Step claims goes to the Step showing the replacement's first
+line, which is where the whole before-side goes when nothing is claimed. A line
+claimed by two Steps is drawn in both and costs both their budget.
+_Avoid_: pairing, mapping, allocation, ownership
+
+**Signpost**:
+A row standing where a before-side would go, naming the Steps that draw it
+instead. It appears when a Step shows part of a rewrite but none of the lines that
+rewrite replaced, so the Reviewer is never left reading an addition out of nowhere.
+Drawn but not code: the cursor passes over it, and nothing can be selected, quoted
+or anchored from it.
+_Avoid_: pointer, placeholder, stub, marker
+
 **Changed Line**:
 A single line that differs between the two sides of the changes under review.
 The atom of coverage, and the only unit dbn derives for itself. Git hunks are

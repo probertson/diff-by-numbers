@@ -77,7 +77,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	}
 
 	step := s.walkthrough.Steps[s.position-1]
-	excerpt, reason, err := s.anchoredExcerpt(step, target)
+	excerpt, in, reason, err := s.anchoredExcerpt(step, target)
 	if err != nil {
 		return Anchor{}, err
 	}
@@ -98,7 +98,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 
 	// The Excerpt's rendering is the authority on which rows exist and what order
 	// they are in, so the selection is resolved against it rather than re-derived.
-	view := s.resolveExcerpt(excerpt)
+	view := s.resolveExcerpt(excerpt, in)
 	if view.Problem != "" {
 		return Anchor{}, fmt.Errorf("could not read the selected code: %s", view.Problem)
 	}
@@ -122,12 +122,17 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		ackIndex = &index
 	}
 
-	lines := append([]Line(nil), view.Lines[start:end+1]...)
-	// A stand-in row for code that could not be read is honest on screen but would
-	// be a fabrication in an Anchor, which is quoted as source and acted on.
-	for _, line := range lines {
+	// A stand-in row is honest on screen but would be a fabrication in an Anchor,
+	// which is quoted as source and acted on. An unreadable before-side means the
+	// selection cannot be quoted at all; a signpost is only a reference to code
+	// drawn in another Step, so it is dropped and the rest still quotes.
+	var lines []Line
+	for _, line := range view.Lines[start : end+1] {
 		if line.Unreadable {
 			return Anchor{}, fmt.Errorf("could not read the selected code: %s", line.Text)
+		}
+		if line.Content() {
+			lines = append(lines, line)
 		}
 	}
 	return Anchor{
@@ -146,32 +151,33 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 // or one an Acknowledgement expands into — and, for the latter, the reason the
 // Acknowledgement gave. The expansion is derived by the same helper that drew it,
 // so what the Reviewer saw and what the Anchor resolves against cannot drift.
-func (s *Session) anchoredExcerpt(step Step, target AnchorTarget) (Excerpt, string, error) {
+func (s *Session) anchoredExcerpt(step Step, target AnchorTarget) (Excerpt, drawnIn, string, error) {
 	if target.Acknowledgement == nil {
 		if target.ExcerptIndex < 0 || target.ExcerptIndex >= len(step.Excerpts) {
-			return Excerpt{}, "", reject(RejectedBadSelection,
+			return Excerpt{}, drawnIn{}, "", reject(RejectedBadSelection,
 				"Step %d has no Excerpt %d", s.position, target.ExcerptIndex)
 		}
-		return step.Excerpts[target.ExcerptIndex], "", nil
+		return step.Excerpts[target.ExcerptIndex],
+			drawnIn{step: step, at: target.ExcerptIndex, all: s.walkthrough.Steps}, "", nil
 	}
 
 	ackIndex := *target.Acknowledgement
 	if ackIndex < 0 || ackIndex >= len(step.Acknowledgements) {
-		return Excerpt{}, "", reject(RejectedBadSelection,
+		return Excerpt{}, drawnIn{}, "", reject(RejectedBadSelection,
 			"Step %d has no Acknowledgement %d", s.position, ackIndex+1)
 	}
 	ack := step.Acknowledgements[ackIndex]
 	parts := s.acknowledgedParts(ack)
 	if target.ExcerptIndex < 0 || target.ExcerptIndex >= len(parts) {
-		return Excerpt{}, "", reject(RejectedBadSelection,
+		return Excerpt{}, drawnIn{}, "", reject(RejectedBadSelection,
 			"Acknowledgement %d of Step %d has no Excerpt %d", ackIndex+1, s.position, target.ExcerptIndex)
 	}
 	part := parts[target.ExcerptIndex]
 	if part.opaque != nil {
-		return Excerpt{}, "", reject(RejectedBadSelection,
+		return Excerpt{}, drawnIn{}, "", reject(RejectedBadSelection,
 			"%s is an Opaque Change (%s) with no lines to select", part.opaque.File, part.opaque.Kind)
 	}
-	return part.excerpt, ack.Reason, nil
+	return part.excerpt, expansionContext(parts, target.ExcerptIndex), ack.Reason, nil
 }
 
 // rowIndex finds the endpoint among an Excerpt's rendered rows. An endpoint that
@@ -183,6 +189,14 @@ func rowIndex(lines []Line, endpoint AnchorEndpoint, excerpt Excerpt) (int, erro
 		side = excerpt.Side
 	}
 	for i, line := range lines {
+		// A signpost is a reference to a before-side drawn in another Step, not a
+		// place in this one, so it is not somewhere a selection can start or end.
+		// An unreadable row is skipped here only in the sense that it still
+		// matches: it stands where real, accounted-for code is, and selecting it
+		// earns the refusal below rather than a "no such line".
+		if line.Signpost {
+			continue
+		}
 		if line.Side == side && line.Number == endpoint.Line {
 			return i, nil
 		}
