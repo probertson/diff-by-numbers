@@ -119,7 +119,24 @@ func copyIndex(root string) (path string, cleanup func(), err error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("could not read the git index at %s: %w", real, err)
 	}
-	return writeTemp("dbn-index-", content)
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not read the git index at %s: %w", real, err)
+	}
+	path, cleanup, err = writeTemp("dbn-index-", content)
+	if err != nil {
+		return "", nil, err
+	}
+	// The copy keeps the real index's timestamp, because git reads meaning into
+	// it. An entry no older than the index file is "racily clean": its stat data
+	// cannot rule out a rewrite in the same instant, so git compares content. A
+	// fresh timestamp on the copy made every such entry look safely clean, and a
+	// same-size rewrite dropped out of the Change Set without a trace.
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("could not date the copy of the git index: %w", err)
+	}
+	return path, cleanup, nil
 }
 
 // writeTemp puts content in a temporary file outside the repository and returns
