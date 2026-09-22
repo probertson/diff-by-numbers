@@ -206,6 +206,21 @@ which is why it is not called *finishing*, a word that reads as a synonym of
 leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete
 
+**Inbox**:
+Every review the daemon holds that is not yet concluded, listed for the Reviewer
+to pick from, with those that need the Reviewer first and those handed off and
+waiting on the Authoring Agent last. The TUI's home, empty or not. Which review
+is open is the window's business, not the daemon's, and every call about a review
+names it by its id (ADR-0015).
+_Avoid_: queue, dashboard, list
+
+**Dismissal**:
+The Reviewer discarding a review from the Inbox without handing it off, and with
+it any Comments raised. The daemon remembers the id as dismissed until the
+Authoring Agent has been told, so the agent hears "the Reviewer dismissed this"
+rather than "no such review".
+_Avoid_: abandon (which suggests someone walked away, as a silent agent does), delete, close
+
 **Round Snapshot**:
 A git tree object recording each repository's working tree as it stood when a
 Walkthrough was accepted. It does three jobs.
