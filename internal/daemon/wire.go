@@ -61,6 +61,32 @@ type wireRound struct {
 	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
 }
 
+// InboxWire is the Reviewer's Inbox: every review the daemon holds that is not
+// concluded, oldest first.
+type InboxWire struct {
+	Reviews []InboxRowWire `json:"reviews"`
+}
+
+// InboxRowWire is one review in the Inbox, as a window draws it.
+type InboxRowWire struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// State is whose turn the review is: see the State constants.
+	State string `json:"state"`
+}
+
+// The states a review can be in, as the Inbox reports them. They say whose turn
+// it is, which is what the Reviewer picks by — and what a window draws.
+const (
+	// StateNew is posted and never opened.
+	StateNew = "new"
+	// StateNeedsReviewer is opened and not yet handed off.
+	StateNeedsReviewer = "needs_you"
+	// StateWaitingOnAgent is handed off with Comments, so it is the Authoring
+	// Agent's turn.
+	StateWaitingOnAgent = "waiting_on_agent"
+)
+
 type postResult struct {
 	Accepted bool          `json:"accepted"`
 	ReviewID string        `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
@@ -134,7 +160,7 @@ type fetchInput struct {
 type openReviewWire struct {
 	ID    string `json:"id"`
 	Label string `json:"label" jsonschema:"The name the Authoring Agent gave it"`
-	State string `json:"state" jsonschema:"under_review while the Reviewer is working through it, handed_off once they have handed it back to you"`
+	State string `json:"state" jsonschema:"new if the Reviewer has not opened it yet, needs_you while they are working through it, waiting_on_agent once they have handed it back to you"`
 }
 
 type fetchResult struct {

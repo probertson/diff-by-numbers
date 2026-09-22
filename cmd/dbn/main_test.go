@@ -87,7 +87,7 @@ func TestRunHelpPrintsUsageAndReturnsCleanly(t *testing.T) {
 	usage := out.String()
 	for _, want := range []string{
 		"usage: dbn [-port N]",
-		"commands: serve, mcp, dump, abandon, update, version",
+		"commands: serve, mcp, dump, abandon <review-id>, update, version",
 		"-port int",
 	} {
 		if !strings.Contains(usage, want) {

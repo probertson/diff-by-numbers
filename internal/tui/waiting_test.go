@@ -177,7 +177,7 @@ func TestTheFirstConnectAsksWhichBuildTheDaemonIs(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	m := waitingModel(t)
-	m.client = client{base: server.URL}
+	m.client = client{base: server.URL, review: "a1"}
 
 	_, cmd := m.Update(refreshMsg{view: &daemon.ViewWire{}})
 

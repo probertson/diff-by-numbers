@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -32,9 +33,13 @@ const DefaultPort = 7373
 // because it is the part that is concurrent; the core stays free of it.
 type Daemon struct {
 	mu sync.Mutex
-	// session holds the Review the daemon is serving. A Session holds one Review
-	// for its whole life, so a new Review replaces it with a fresh one.
-	session *review.Session
+	// reviews are the Reviews the daemon is holding, keyed by review id: a
+	// Session each, since a Session holds one Review for its whole life. Several
+	// agent sessions posting at once is the workflow dbn is for (ADR-0015).
+	reviews map[string]*review.Session
+	// order is the ids in the order they were posted, so the Inbox lists the
+	// oldest first however Go happens to walk the map.
+	order []string
 
 	// selfExit is set when the daemon was auto-started (by the stdio shim) rather
 	// than run by hand. An auto-started daemon lets go of itself once nothing
@@ -65,7 +70,7 @@ func WithSelfExit() Option {
 
 func New(opts ...Option) *Daemon {
 	d := &Daemon{
-		session: newSession(),
+		reviews: map[string]*review.Session{},
 		quit:    make(chan struct{}),
 		port:    DefaultPort,
 	}
@@ -79,6 +84,44 @@ func New(opts ...Option) *Daemon {
 // newSession is an empty Session, ready for a Review's first Round.
 func newSession() *review.Session {
 	return review.NewSession(workingtree.NewResolver(), git.NewDeriver())
+}
+
+// review returns the Session holding the review named by id. Every call about a
+// review names it, so an id dbn is not holding is the caller's to hear about.
+func (d *Daemon) review(id string) (*review.Session, bool) {
+	session, ok := d.reviews[id]
+	return session, ok
+}
+
+// hold puts a newly opened review among those the daemon is serving, keeping the
+// order it was posted in.
+func (d *Daemon) hold(session *review.Session) {
+	d.reviews[session.ReviewID()] = session
+	d.order = append(d.order, session.ReviewID())
+}
+
+// release lets go of a review the Authoring Agent is done with: its results have
+// been fetched, or it said so itself with conclude. Until then a concluded review
+// is still held, so a late fetch is answered rather than read as a wrong id.
+func (d *Daemon) release(id string) {
+	delete(d.reviews, id)
+	for i, held := range d.order {
+		if held == id {
+			d.order = append(d.order[:i], d.order[i+1:]...)
+			break
+		}
+	}
+}
+
+// held walks the reviews in the order they were posted.
+func (d *Daemon) held() []*review.Session {
+	sessions := make([]*review.Session, 0, len(d.order))
+	for _, id := range d.order {
+		if session, ok := d.reviews[id]; ok {
+			sessions = append(sessions, session)
+		}
+	}
+	return sessions
 }
 
 // touch records that the daemon just saw activity, resetting the idle clock.
@@ -325,13 +368,47 @@ func (d *Daemon) Handler() http.Handler {
 		d.Shutdown()
 	})
 
+	// Every review the daemon holds, since dump is a Reviewer's whole-daemon
+	// look at what is going on rather than a read of one review.
 	mux.HandleFunc("GET /dump", func(w http.ResponseWriter, _ *http.Request) {
+		var out strings.Builder
 		d.mu.Lock()
-		defer d.mu.Unlock()
-		fmt.Fprint(w, d.session.Dump())
+		for _, session := range d.held() {
+			fmt.Fprintf(&out, "Review %s", session.ReviewID())
+			if label := session.Label(); label != "" {
+				fmt.Fprintf(&out, " (%s)", label)
+			}
+			fmt.Fprintf(&out, "\n\n%s\n", session.Dump())
+		}
+		d.mu.Unlock()
+		if out.Len() == 0 {
+			fmt.Fprint(w, "no Round is posted\n")
+			return
+		}
+		fmt.Fprint(w, out.String())
 	})
 
-	mux.HandleFunc("POST /comment", func(w http.ResponseWriter, r *http.Request) {
+	// One review, for a Reviewer who knows which they want.
+	mux.HandleFunc("GET /reviews/{review}/dump", d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
+		var dump string
+		_ = d.locked(func() error {
+			dump = session.Dump()
+			return nil
+		})
+		fmt.Fprint(w, dump)
+	}))
+
+	mux.HandleFunc("GET /inbox", func(w http.ResponseWriter, _ *http.Request) {
+		d.mu.Lock()
+		rows := d.inbox()
+		d.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(InboxWire{Reviews: rows}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	mux.HandleFunc("POST /reviews/{review}/comment", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			anchorRequest
 			Note string `json:"note"`
@@ -340,17 +417,18 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad comment", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		_, err := d.session.RaiseComment(req.target(), req.Note)
-		d.mu.Unlock()
+		err := d.locked(func() error {
+			_, err := session.RaiseComment(req.target(), req.Note)
+			return err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
-	})
+	}))
 
-	mux.HandleFunc("PUT /comment/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
@@ -363,36 +441,30 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad edit", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		err = d.session.EditComment(id, req.Note)
-		d.mu.Unlock()
-		if err != nil {
+		if err := d.locked(func() error { return session.EditComment(id, req.Note) }); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
-	})
+	}))
 
-	mux.HandleFunc("DELETE /comment/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		err = d.session.WithdrawComment(id)
-		d.mu.Unlock()
-		if err != nil {
+		if err := d.locked(func() error { return session.WithdrawComment(id) }); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
-	})
+	}))
 
-	mux.HandleFunc("POST /finish", d.navHandler(func() error { return d.session.Finish() }))
-	mux.HandleFunc("POST /reopen", d.navHandler(func() error { return d.session.Reopen() }))
+	mux.HandleFunc("POST /reviews/{review}/finish", d.navHandler((*review.Session).Finish))
+	mux.HandleFunc("POST /reviews/{review}/reopen", d.navHandler((*review.Session).Reopen))
 
-	mux.HandleFunc("POST /reraise/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /reviews/{review}/reraise/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
@@ -407,44 +479,53 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad re-raise", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		_, err = d.session.ReRaise(id, req.Note)
-		d.mu.Unlock()
+		err = d.locked(func() error {
+			_, err := session.ReRaise(id, req.Note)
+			return err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
-	})
+	}))
 
-	mux.HandleFunc("POST /anchor", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /reviews/{review}/anchor", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		var req anchorRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad anchor request", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		anchor, err := d.session.Anchor(req.target())
-		d.mu.Unlock()
+		var anchor review.Anchor
+		err := d.locked(func() error {
+			var err error
+			anchor, err = session.Anchor(req.target())
+			return err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, anchor.Render())
-	})
+	}))
 
-	mux.HandleFunc("GET /view", func(w http.ResponseWriter, _ *http.Request) {
-		d.mu.Lock()
-		view := toViewWire(d.session.View())
-		d.mu.Unlock()
+	mux.HandleFunc("GET /reviews/{review}/view", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		var view ViewWire
+		_ = d.locked(func() error {
+			// Reading a review is what opening it means, and the Inbox says which
+			// reviews the Reviewer has yet to look at.
+			session.MarkOpened()
+			view = toViewWire(session.View())
+			return nil
+		})
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(view); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-	})
+	}))
 
-	mux.HandleFunc("GET /expand/{step}/{ack}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /reviews/{review}/expand/{step}/{ack}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		step, err := strconv.Atoi(r.PathValue("step"))
 		if err != nil {
 			http.Error(w, "step must be a number", http.StatusBadRequest)
@@ -455,9 +536,12 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "ack must be a number", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		views, err := d.session.ExpandAcknowledgement(step, ack)
-		d.mu.Unlock()
+		var views []review.ExcerptView
+		err = d.locked(func() error {
+			var err error
+			views, err = session.ExpandAcknowledgement(step, ack)
+			return err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -466,37 +550,40 @@ func (d *Daemon) Handler() http.Handler {
 		if err := json.NewEncoder(w).Encode(toExcerptWires(views)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-	})
+	}))
 
-	mux.HandleFunc("POST /advance", d.navHandler(func() error { return d.session.Advance() }))
-	mux.HandleFunc("POST /since-previous", d.navHandler(func() error { return d.session.ToggleSincePreviousRound() }))
-	mux.HandleFunc("POST /back", d.navHandler(func() error { return d.session.Back() }))
-	mux.HandleFunc("POST /goto/{n}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /reviews/{review}/advance", d.navHandler((*review.Session).Advance))
+	mux.HandleFunc("POST /reviews/{review}/since-previous", d.navHandler((*review.Session).ToggleSincePreviousRound))
+	mux.HandleFunc("POST /reviews/{review}/back", d.navHandler((*review.Session).Back))
+	mux.HandleFunc("POST /reviews/{review}/goto/{n}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.Atoi(r.PathValue("n"))
 		if err != nil {
 			http.Error(w, "position must be a number", http.StatusBadRequest)
 			return
 		}
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		if err := d.session.GoTo(n); err != nil {
+		if err := d.locked(func() error { return session.GoTo(n) }); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
-	})
+	}))
 
 	// Abandoning is the Reviewer's act, so it is reachable from the CLI and not
 	// exposed as an MCP tool: an agent cannot dismiss a review of its own work.
-	mux.HandleFunc("POST /abandon", func(w http.ResponseWriter, _ *http.Request) {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		if err := d.session.Abandon(); err != nil {
+	mux.HandleFunc("POST /reviews/{review}/abandon", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		err := d.locked(func() error {
+			if err := session.Abandon(); err != nil {
+				return err
+			}
+			d.release(session.ReviewID())
+			return nil
+		})
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "Review dismissed")
-	})
+	}))
 	return d.withActivity(mux)
 }
 
@@ -504,7 +591,38 @@ func (d *Daemon) Handler() http.Handler {
 func (d *Daemon) activeReview() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.session.Active()
+	for _, session := range d.reviews {
+		if session.Active() {
+			return true
+		}
+	}
+	return false
+}
+
+// inbox lists the reviews the Reviewer can still pick from: everything the
+// daemon holds that is not concluded, oldest first. It answers under the
+// caller's lock.
+func (d *Daemon) inbox() []InboxRowWire {
+	rows := make([]InboxRowWire, 0, len(d.order))
+	for _, session := range d.held() {
+		open, ok := session.Open()
+		if !ok {
+			continue
+		}
+		rows = append(rows, InboxRowWire{ID: open.ID, Label: open.Label, State: inboxState(open)})
+	}
+	return rows
+}
+
+// inboxState says whose turn a review is, which is what the Reviewer picks by.
+func inboxState(open review.OpenReview) string {
+	switch {
+	case open.HandedOff:
+		return StateWaitingOnAgent
+	case open.Opened:
+		return StateNeedsReviewer
+	}
+	return StateNew
 }
 
 // withActivity resets the idle clock on every request, so a Reviewer's TUI poll,
@@ -520,16 +638,43 @@ func (d *Daemon) withActivity(next http.Handler) http.Handler {
 
 // navHandler adapts a no-argument navigation intent to an HTTP handler under the
 // daemon lock, so navigation stays serialized against posts and fetches.
-func (d *Daemon) navHandler(intent func() error) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		if err := intent(); err != nil {
+func (d *Daemon) navHandler(intent func(*review.Session) error) http.HandlerFunc {
+	return d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
+		if err := d.locked(func() error { return intent(session) }); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		fmt.Fprintln(w, "ok")
+	})
+}
+
+// onReview runs act on the review a Reviewer's request names, holding the lock
+// for it and no longer. A request naming a review dbn is not holding — one
+// released since the window last looked, usually — is answered 404, which is how
+// a window finds out its review has gone and returns to the Inbox.
+//
+// The answer is written after the lock is dropped: a Reviewer's terminal reading
+// slowly must not hold up the agent's next call.
+func (d *Daemon) onReview(act func(*review.Session, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("review")
+		d.mu.Lock()
+		session, ok := d.review(id)
+		d.mu.Unlock()
+		if !ok {
+			http.Error(w, fmt.Sprintf("no review with id %q", id), http.StatusNotFound)
+			return
+		}
+		act(session, w, r)
 	}
+}
+
+// locked runs act on a Session under the daemon's lock, which is what every
+// call into the core needs: the core is free of locking on purpose.
+func (d *Daemon) locked(act func() error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return act()
 }
 
 func (d *Daemon) mcpServer() *mcp.Server {
@@ -587,23 +732,7 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	var err error
-	switch {
-	case in.Replaces != "":
-		err = d.session.Replace(in.Replaces, in.toDomain())
-	case in.Revises != "":
-		err = d.session.Revise(in.Revises, in.toDomain())
-	case !d.session.Over():
-		err = d.session.Post(in.toDomain())
-	default:
-		// The Review the daemon held is over, so this is a new one, and it gets a
-		// Session of its own. The one it replaces stays until the post is accepted, so a
-		// refused post leaves a concluded Review still answering fetch_results.
-		fresh := newSession()
-		if err = fresh.Post(in.toDomain()); err == nil {
-			d.session = fresh
-		}
-	}
+	session, err := d.accept(in)
 	if err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
@@ -611,7 +740,49 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 		}
 		return nil, postResult{}, err
 	}
-	return nil, postResult{Accepted: true, ReviewID: d.session.ReviewID(), Message: postedMessage(d.session.LastPost(), d.port)}, nil
+	return nil, postResult{Accepted: true, ReviewID: session.ReviewID(), Message: postedMessage(session.LastPost(), d.port)}, nil
+}
+
+// accept puts a post where it belongs: a Revision Round or a Replacement into
+// the Session holding the review it names, and anything else into a Session of
+// its own. A new review's Session joins those held only once its first Round is
+// accepted, so a refused post leaves the daemon exactly as it was.
+func (d *Daemon) accept(in wireRound) (*review.Session, error) {
+	switch {
+	case in.Replaces != "":
+		session, ok := d.review(in.Replaces)
+		if !ok {
+			return nil, unknownReview(in.Replaces)
+		}
+		return session, session.Replace(in.Replaces, in.toDomain())
+	case in.Revises != "":
+		session, ok := d.review(in.Revises)
+		if !ok {
+			return nil, unknownReview(in.Revises)
+		}
+		return session, session.Revise(in.Revises, in.toDomain())
+	}
+	fresh := newSession()
+	if err := fresh.Post(in.toDomain()); err != nil {
+		return nil, err
+	}
+	d.hold(fresh)
+	return fresh, nil
+}
+
+// unknownReview is what a call naming a review the daemon is not holding gets:
+// the same refusal whether the id is wrong or the review has been released.
+func unknownReview(id string) error {
+	return &review.Rejection{Problems: []review.Problem{{
+		Reason: review.RejectedUnknownReview,
+		Detail: unknownReviewDetail(id),
+	}}}
+}
+
+// unknownReviewDetail is what an agent is told about an id dbn is not holding,
+// whichever call named it: the same words, and the way to find the right one.
+func unknownReviewDetail(id string) string {
+	return fmt.Sprintf("no review with id %q; call fetch_results without an id to see which reviews dbn is holding", id)
 }
 
 func (d *Daemon) describeChanges(_ context.Context, _ *mcp.CallToolRequest, in describeInput) (*mcp.CallToolResult, describeResult, error) {
@@ -621,9 +792,13 @@ func (d *Daemon) describeChanges(_ context.Context, _ *mcp.CallToolRequest, in d
 	var description review.ChangeDescription
 	var err error
 	if in.ReviewID == "" {
-		description, err = d.session.DescribeChanges(toChangeSet(in.Repositories))
+		// Nothing to scope against: a first round is described from the working
+		// tree alone, so a Session of its own is all it takes.
+		description, err = newSession().DescribeChanges(toChangeSet(in.Repositories))
+	} else if session, held := d.review(in.ReviewID); held {
+		description, err = session.DescribeRevision(in.ReviewID, toChangeSet(in.Repositories))
 	} else {
-		description, err = d.session.DescribeRevision(in.ReviewID, toChangeSet(in.Repositories))
+		err = unknownReview(in.ReviewID)
 	}
 	if err != nil {
 		var rejection *review.Rejection
@@ -639,7 +814,11 @@ func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in conclude
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if err := d.session.Conclude(in.ReviewID); err != nil {
+	session, ok := d.review(in.ReviewID)
+	if !ok {
+		return nil, concludeResult{Message: unknownReview(in.ReviewID).Error()}, nil
+	}
+	if err := session.Conclude(in.ReviewID); err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
 			return nil, concludeResult{
@@ -650,7 +829,10 @@ func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in conclude
 		}
 		return nil, concludeResult{}, err
 	}
-	return nil, concludeResult{Concluded: true, Message: "the review is concluded; dbn will release it once nothing else needs it"}, nil
+	// Concluding is the agent saying it is done, so nothing is waiting to be
+	// fetched: the review can go now.
+	d.release(in.ReviewID)
+	return nil, concludeResult{Concluded: true, Message: "the review is concluded and released"}, nil
 }
 
 func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetchInput) (*mcp.CallToolResult, fetchResult, error) {
@@ -660,19 +842,21 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 	if in.ReviewID == "" {
 		return nil, d.refuseUnnamedFetch(), nil
 	}
-	if in.ReviewID != d.session.ReviewID() || !d.session.Begun() {
+	session, ok := d.review(in.ReviewID)
+	if !ok {
 		return nil, fetchResult{
-			Message: fmt.Sprintf("no review with id %q; call fetch_results without an id to see what is open", in.ReviewID),
-			Problems: []problemWire{{
-				Reason: string(review.RejectedUnknownReview),
-				Detail: fmt.Sprintf("dbn is not holding a review with id %q", in.ReviewID),
-			}},
+			Message:  unknownReviewDetail(in.ReviewID),
+			Problems: []problemWire{{Reason: string(review.RejectedUnknownReview), Detail: unknownReviewDetail(in.ReviewID)}},
 		}, nil
 	}
 
-	results, err := d.session.Results()
+	results, err := session.Results()
 	if err != nil {
 		return nil, fetchResult{}, err
+	}
+	// The agent has what it came for, so a review that is over can go.
+	if session.Concluded() {
+		defer d.release(in.ReviewID)
 	}
 
 	message := "no Round is posted; post one before asking how the review went"
@@ -710,15 +894,15 @@ func (d *Daemon) refuseUnnamedFetch() fetchResult {
 // openReviews lists the reviews the daemon is holding, in the order it holds
 // them. It answers under the caller's lock.
 func (d *Daemon) openReviews() []openReviewWire {
-	open, ok := d.session.Open()
-	if !ok {
-		return nil
+	reviews := make([]openReviewWire, 0, len(d.order))
+	for _, session := range d.held() {
+		open, ok := session.Open()
+		if !ok {
+			continue
+		}
+		reviews = append(reviews, openReviewWire{ID: open.ID, Label: open.Label, State: inboxState(open)})
 	}
-	state := "under_review"
-	if open.HandedOff {
-		state = "handed_off"
-	}
-	return []openReviewWire{{ID: open.ID, Label: open.Label, State: state}}
+	return reviews
 }
 
 // problemsOf puts a rejection's problems on the wire in the order dbn found

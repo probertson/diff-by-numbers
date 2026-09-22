@@ -128,6 +128,13 @@ func (r *Rejection) Error() string {
 	return strings.Join(parts, "\n")
 }
 
+// Reject is a rejection composed outside the core, for a surface that has to
+// refuse a call before any Session sees it — a review id dbn is not holding,
+// say — and wants the agent to read the same shape of problem either way.
+func Reject(reason RejectionReason, format string, args ...any) *Rejection {
+	return reject(reason, format, args...)
+}
+
 func reject(reason RejectionReason, format string, args ...any) *Rejection {
 	return &Rejection{Problems: []Problem{{Reason: reason, Detail: fmt.Sprintf(format, args...)}}}
 }

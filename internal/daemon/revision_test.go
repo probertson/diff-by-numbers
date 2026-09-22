@@ -56,9 +56,9 @@ type viewShape struct {
 	} `json:"comments"`
 }
 
-func getView(t *testing.T, baseURL string) viewShape {
+func getView(t *testing.T, baseURL, reviewID string) viewShape {
 	t.Helper()
-	response, err := http.Get(baseURL + "/view")
+	response, err := http.Get(reviewURL(baseURL, reviewID) + "/view")
 	if err != nil {
 		t.Fatalf("GET /view: %v", err)
 	}
@@ -97,9 +97,9 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 		"label": "LABEL-the-review",
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 	})
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, first.ReviewID), 0, 4, 4, "please rename this")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 
 	// Round 2: a Revision Round declining the one Comment.
 	// No label: a Revision Round keeps the one the review was given.
@@ -112,7 +112,7 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	if !strings.HasPrefix(revised.Message, "The Revision Round is posted. The Reviewer opens it by running dbn") {
 		t.Errorf("expected the Revision Round to be announced as one, got %q", revised.Message)
 	}
-	view := getView(t, server.URL)
+	view := getView(t, server.URL, first.ReviewID)
 	if len(view.Dispositions) != 1 || view.Dispositions[0].Status != "declined" || view.Dispositions[0].Response == "" {
 		t.Fatalf("expected one declined disposition with a response on the view, got %+v", view.Dispositions)
 	}
@@ -121,9 +121,9 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	}
 
 	// The Reviewer re-raises the decline.
-	httpPost(t, server.URL+"/reraise/1")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/reraise/1")
 
-	after := getView(t, server.URL)
+	after := getView(t, server.URL, first.ReviewID)
 	if len(after.Comments) != 1 {
 		t.Fatalf("expected the re-raised Comment to stand, got %d", len(after.Comments))
 	}
@@ -133,7 +133,7 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 		t.Errorf("expected the re-raise to name Comment 1, got %d", after.Comments[0].ReRaisedFrom)
 	}
 
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 	results := decodeResult[struct {
 		Comments []struct {
 			ID           int `json:"id"`
@@ -166,16 +166,16 @@ func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps}
 
 	first := postRound(t, server.URL, body)
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, first.ReviewID), 0, 4, 4, "please rename this")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 	withDecline := map[string]any{"revises": first.ReviewID, "brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "deliberate"}}}
 	postRound(t, server.URL, withDecline)
-	httpPost(t, server.URL+"/reraise/1")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/reraise/1")
 
-	second, err := http.Post(server.URL+"/reraise/1", "text/plain", nil)
+	second, err := http.Post(reviewURL(server.URL, first.ReviewID)+"/reraise/1", "text/plain", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
 	if second.StatusCode == http.StatusOK {
 		t.Error("a decline with a re-raise standing must not be re-raised again")
 	}
-	if got := len(getView(t, server.URL).Comments); got != 1 {
+	if got := len(getView(t, server.URL, first.ReviewID).Comments); got != 1 {
 		t.Errorf("the refused re-raise must not leave a duplicate, got %d Comments", got)
 	}
 }

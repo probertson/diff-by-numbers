@@ -226,9 +226,10 @@ say the review is complete.
 
 ## Updating a Round while it is under review
 
-A post that names neither `revises` nor `replaces` is a new review, and dbn
-refuses one while it is holding a review that is not over. To change the round
-under review in place, post again with `replaces` set to its `review_id`. Do
+A post that names neither `revises` nor `replaces` opens a new review, however
+many the daemon already holds: the reviewer picks between them in their Inbox.
+So never post new work hoping it lands in a review already open — to change the
+round under review in place, post again with `replaces` set to its `review_id`. Do
 that only when:
 
 - the reviewer asked you, in the chat, for a change during the review, or
@@ -245,8 +246,8 @@ Steps they were raised on are gone. Replacing a Revision Round needs its
 `dispositions` again. It is still scoped against the last round the reviewer
 handed off, not against the Round you replaced.
 
-Never call dbn's `/abandon` endpoint: discarding a review is the reviewer's
-decision, not yours.
+Never dismiss a review yourself: discarding one is the reviewer's decision, not
+yours.
 
 ## Concluding a review
 

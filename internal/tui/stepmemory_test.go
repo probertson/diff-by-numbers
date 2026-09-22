@@ -27,7 +27,7 @@ func walkAwayAndBack(m model, step *daemon.StepWire) model {
 
 func memoryModel(t *testing.T, step *daemon.StepWire) model {
 	t.Helper()
-	m := model{client: client{base: expandServer(t).URL}, mode: modeReview}
+	m := model{client: client{base: expandServer(t).URL, review: "a1"}, mode: modeReview}
 	return arrive(m, 1, 1, step)
 }
 

@@ -23,7 +23,7 @@ func comparedRoundModel(t *testing.T, since bool) (model, *[]string) {
 	}))
 	t.Cleanup(server.Close)
 	return model{
-		client: client{base: server.URL}, mode: modeReview, width: 100, height: 40, ready: true,
+		client: client{base: server.URL, review: "a1"}, mode: modeReview, width: 100, height: 40, ready: true,
 		viewport: viewport.New(100, 40), note: newNote(100),
 		view: &daemon.ViewWire{
 			Posted: true, Position: 0, StepCount: 2,
@@ -61,7 +61,7 @@ func TestBOffersTheOtherComparisonAndSwitchesToIt(t *testing.T) {
 	if !strings.Contains(keys, "show all changes under review") {
 		t.Errorf("expected b to offer all changes, got %q", keys)
 	}
-	if len(*hits) != 1 || (*hits)[0] != "POST /since-previous" {
+	if len(*hits) != 1 || (*hits)[0] != "POST /reviews/a1/since-previous" {
 		t.Errorf("expected b to ask the daemon to switch, got %v", *hits)
 	}
 	all, _ := comparedRoundModel(t, false)

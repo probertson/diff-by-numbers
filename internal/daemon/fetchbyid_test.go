@@ -119,7 +119,7 @@ func TestFetchResultsAfterADismissalReportsNothingPosted(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	posted := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/abandon")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/abandon")
 
 	results := fetchByReviewID(t, server.URL, map[string]any{"review_id": posted.ReviewID})
 

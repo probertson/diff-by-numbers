@@ -51,7 +51,7 @@ func Run(port int) error {
 // up when it appears.
 func attach(port int) (model, error) {
 	client := client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
-	view, err := client.view()
+	inbox, err := client.inbox()
 	if err != nil {
 		if !worthWaitingThrough(err) {
 			return model{}, onPort(port, err)
@@ -59,10 +59,30 @@ func attach(port int) (model, error) {
 		return model{client: client, port: port, waiting: true, waitingSince: time.Now()}, nil
 	}
 
-	return model{client: client, port: port, view: view}, nil
+	m := model{client: client, port: port, inbox: inbox, mode: modeInbox}
+	m.settleInboxCursor()
+
+	return m, nil
 }
 
-type client struct{ base string }
+// client talks to the daemon. Which review its calls are about is the window's
+// business, not the daemon's, so every one of them names it (ADR-0015).
+type client struct {
+	base string
+	// review is the review the window has open, or "" at the Inbox.
+	review string
+}
+
+// on returns a client whose calls are about the review named by id.
+func (c client) on(reviewID string) client { return client{base: c.base, review: reviewID} }
+
+// url is a path about the review this client has open.
+func (c client) url(path string) string { return c.base + "/reviews/" + c.review + path }
+
+// errReleased is the daemon no longer holding the review the window has open:
+// the agent has fetched its results, or the Reviewer dismissed it. The window
+// falls back to the Inbox rather than reporting a lost daemon.
+var errReleased = errors.New("the daemon has released this review")
 
 // errNoDaemon marks nothing answering on the port at all, as against a server
 // that answers but is not dbn. Only the first is worth waiting through: a daemon
@@ -87,11 +107,14 @@ func worthWaitingThrough(err error) bool {
 func onPort(port int, err error) error { return fmt.Errorf("port %d: %w", port, err) }
 
 func (c client) view() (*daemon.ViewWire, error) {
-	response, err := http.Get(c.base + "/view")
+	response, err := http.Get(c.url("/view"))
 	if err != nil {
 		return nil, errNoDaemon{err}
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, errReleased
+	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("the server answered %s — is that dbn?", response.Status)
 	}
@@ -102,8 +125,25 @@ func (c client) view() (*daemon.ViewWire, error) {
 	return &view, nil
 }
 
+// inbox is what the daemon is holding, which is the window's home screen.
+func (c client) inbox() ([]daemon.InboxRowWire, error) {
+	response, err := http.Get(c.base + "/inbox")
+	if err != nil {
+		return nil, errNoDaemon{err}
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the server answered %s — is that dbn?", response.Status)
+	}
+	var listed daemon.InboxWire
+	if err := json.NewDecoder(response.Body).Decode(&listed); err != nil {
+		return nil, err
+	}
+	return listed.Reviews, nil
+}
+
 func (c client) intent(path string) {
-	response, err := http.Post(c.base+path, "text/plain", nil)
+	response, err := http.Post(c.url(path), "text/plain", nil)
 	if err != nil {
 		return // the next poll will surface the daemon being gone
 	}
@@ -119,7 +159,7 @@ func (c client) reopen() {
 // or a counter-argument where they did not.
 func (c client) reraise(id int, note string) bool {
 	body, _ := json.Marshal(map[string]any{"note": note})
-	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.base, id), "application/json", bytes.NewReader(body))
+	response, err := http.Post(fmt.Sprintf("%s/reraise/%d", c.url(""), id), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
@@ -128,8 +168,11 @@ func (c client) reraise(id int, note string) bool {
 }
 
 type refreshMsg struct {
-	view *daemon.ViewWire
-	err  error
+	view  *daemon.ViewWire
+	inbox []daemon.InboxRowWire
+	// released is the daemon no longer holding the review the window had open.
+	released bool
+	err      error
 }
 
 type tickMsg struct{}
@@ -149,6 +192,14 @@ type updateMsg struct{ notice string }
 type model struct {
 	client client
 	view   *daemon.ViewWire
+	// inbox is what the daemon is holding, as the home screen lists it.
+	inbox []daemon.InboxRowWire
+	// openReview is the review this window has open, or "" at the Inbox. It
+	// belongs to the window: two windows can have two reviews open (ADR-0015).
+	openReview string
+	// inboxCursor is the review the Inbox cursor is on, held by id rather than
+	// by row so an arrival never moves what Enter opens.
+	inboxCursor string
 	// daemonVersion is the build the daemon reported, kept in its own field
 	// because the notice it drives is persistent — m.status is a transient line
 	// that many keys clear.
@@ -253,6 +304,10 @@ const (
 	modeDone                   // the hand-off summary
 	modeReraise                // choosing a declined Comment to re-raise
 	modeConclusion             // reached by advancing past the last Step: the pre-hand-off on-ramp
+	// modeInbox is the window's home: every review the daemon holds, to pick
+	// from. It is last so the zero value stays modeReview, which several
+	// "where does leaving here go" fields rely on.
+	modeInbox
 )
 
 func (m *model) inStep() bool {
@@ -394,7 +449,7 @@ func (c client) raiseComment(run selectedRun, note string) bool {
 	payload := anchorBody(run)
 	payload["note"] = note
 	body, _ := json.Marshal(payload)
-	response, err := http.Post(c.base+"/comment", "application/json", bytes.NewReader(body))
+	response, err := http.Post(c.url("/comment"), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
@@ -404,7 +459,7 @@ func (c client) raiseComment(run selectedRun, note string) bool {
 
 func (c client) editComment(id int, note string) bool {
 	body, _ := json.Marshal(map[string]any{"note": note})
-	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/comment/%d", c.base, id), bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/comment/%d", c.url(""), id), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -415,7 +470,7 @@ func (c client) editComment(id int, note string) bool {
 }
 
 func (c client) withdraw(id int) {
-	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/comment/%d", c.base, id), nil)
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/comment/%d", c.url(""), id), nil)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()
 	}
@@ -462,7 +517,7 @@ func (m *model) copyAnchor() tea.Cmd {
 
 // expand asks the daemon for the code an Acknowledgement stands in for.
 func (c client) expand(step, ack int) ([]daemon.ExcerptWire, bool) {
-	response, err := http.Get(fmt.Sprintf("%s/expand/%d/%d", c.base, step, ack))
+	response, err := http.Get(fmt.Sprintf("%s/expand/%d/%d", c.url(""), step, ack))
 	if err != nil {
 		return nil, false
 	}
@@ -477,10 +532,106 @@ func (c client) expand(step, ack int) ([]daemon.ExcerptWire, bool) {
 	return views, true
 }
 
+// toInbox leaves the review this window had open and goes home. The review
+// itself is untouched: where the Reviewer is in it lives in the daemon.
+func (m model) toInbox() model {
+	m.mode = modeInbox
+	m.openReview = ""
+	m.client = m.client.on("")
+	m.view = nil
+	m.leftSteps = nil
+	m.expanded = nil
+	m.replacedNotice = ""
+	m.confirmingQuit = false
+	if m.ready {
+		m.viewport.SetContent(m.content())
+		m.viewport.GotoTop()
+	}
+	return m
+}
+
+// settleInboxCursor keeps the cursor on the review it was on. A review that has
+// gone leaves it on the row that took its place, and an empty Inbox clears it.
+func (m *model) settleInboxCursor() {
+	for _, row := range m.inbox {
+		if row.ID == m.inboxCursor {
+			return
+		}
+	}
+	if len(m.inbox) == 0 {
+		m.inboxCursor = ""
+		return
+	}
+	m.inboxCursor = m.inbox[0].ID
+}
+
+// inboxAt is the row the cursor is on, or -1 for an empty Inbox.
+func (m model) inboxAt() int {
+	for i, row := range m.inbox {
+		if row.ID == m.inboxCursor {
+			return i
+		}
+	}
+	return -1
+}
+
+// inboxKey is the whole of the Inbox's keyboard: move, open, quit.
+func (m model) inboxKey(key string) (tea.Model, tea.Cmd) {
+	at := m.inboxAt()
+	switch key {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "j", "down":
+		if at >= 0 && at+1 < len(m.inbox) {
+			m.inboxCursor = m.inbox[at+1].ID
+		}
+	case "k", "up":
+		if at > 0 {
+			m.inboxCursor = m.inbox[at-1].ID
+		}
+	case "enter":
+		if at < 0 {
+			return m, nil
+		}
+		return m.open(m.inbox[at].ID)
+	}
+	if m.ready {
+		m.viewport.SetContent(m.content())
+	}
+	return m, nil
+}
+
+// open picks a review up where the Reviewer left it: the daemon holds their
+// position, the Steps they have seen and what they raised, so the window asks
+// for it rather than deciding anything itself.
+func (m model) open(reviewID string) (tea.Model, tea.Cmd) {
+	m.openReview = reviewID
+	m.inboxCursor = reviewID
+	m.client = m.client.on(reviewID)
+	m.mode = modeReview
+	m.view = nil
+	m.leftSteps = nil
+	if m.ready {
+		m.viewport.SetContent(m.content())
+		m.viewport.GotoTop()
+	}
+	return m, m.refresh()
+}
+
 func (m model) refresh() tea.Cmd {
 	return func() tea.Msg {
+		inbox, err := m.client.inbox()
+		if err != nil {
+			return refreshMsg{err: err}
+		}
+		if m.openReview == "" {
+			return refreshMsg{inbox: inbox}
+		}
 		view, err := m.client.view()
-		return refreshMsg{view: view, err: err}
+		if errors.Is(err, errReleased) {
+			return refreshMsg{inbox: inbox, released: true}
+		}
+		return refreshMsg{view: view, inbox: inbox, err: err}
 	}
 }
 
@@ -531,6 +682,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case refreshMsg:
+		if msg.err == nil {
+			m.inbox = msg.inbox
+			m.settleInboxCursor()
+		}
+		if msg.released {
+			// The daemon has let go of the review this window had open: the agent
+			// has its results, or the Reviewer dismissed it elsewhere. Home is the
+			// Inbox, which is where a review that is over leaves the Reviewer.
+			m.lostErr = nil
+			m.waiting = false
+			return m.toInbox(), nil
+		}
 		positionChanged := false
 		newRound := false
 		newConnection := false
@@ -547,6 +710,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Otherwise the poll failing is the wait itself: nothing has been lost
 			// until something has answered.
+		} else if msg.view == nil {
+			// Nothing to draw for a review: this window is at the Inbox, and the
+			// daemon answering at all is the end of any wait.
+			m.lostErr = nil
+			endedWait := m.waiting
+			m.waiting = false
+			if m.openReview == "" {
+				m.mode = modeInbox
+			}
+			if m.ready {
+				m.viewport.SetContent(m.content())
+			}
+			if endedWait {
+				return m, m.readStatus()
+			}
+			return m, nil
 		} else {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true
@@ -613,6 +792,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		if m.mode == modeInbox {
+			return m.inboxKey(key)
+		}
+		if key == "i" && m.openReview != "" && m.mode != modeNote {
+			// Setting a review aside is not handing it off: it keeps its place,
+			// its Comments and its Steps seen, and the Reviewer comes back to
+			// exactly this.
+			return m.toInbox(), nil
+		}
 
 		if m.confirmingQuit {
 			// The heads-up is informational, not an are-you-sure: a repeat q exits,
@@ -1268,16 +1457,16 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeConclusion:
 		body = m.conclusionView()
-		persistent = keybar("← back", "g Overview", "l list", "h hand off", "q exit")
+		persistent = keybar("← back", "g Overview", "l list", "h hand off", "i inbox", "q exit")
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
 	case modeDone:
 		body = m.doneView()
 		if m.doneState() == doneRevision {
-			persistent = keybar("enter review revision", "q exit")
+			persistent = keybar("enter review revision", "i inbox", "q exit")
 		} else {
-			persistent = keybar("r resume", "q exit")
+			persistent = keybar("r resume", "i inbox", "q exit")
 		}
 	default:
 		if m.inStep() {
@@ -1332,13 +1521,19 @@ func (m model) globalKeys() string {
 	if m.view == nil || !m.view.Posted {
 		return keybar("q exit")
 	}
-	return keybar(m.navHint(), "g Overview", "l list", "h hand off", "q exit")
+	return keybar(m.navHint(), "g Overview", "l list", "h hand off", "i inbox", "q exit")
 }
 
 // modeKeys is the blue row: the actions available on the current page only. It
 // changes with the cursor — code selection on a line of code, expansion on an
 // Acknowledgement — while the global row underneath stays put.
 func (m model) modeKeys() string {
+	if m.mode == modeInbox {
+		if len(m.inbox) == 0 {
+			return keybar("q exit")
+		}
+		return keybar("↑/↓ move", "enter open", "q exit")
+	}
 	if m.view == nil || !m.view.Posted {
 		return ""
 	}
@@ -1610,7 +1805,7 @@ func (m model) doneView() string {
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review complete") + "\n\n")
 		b.WriteString("You handed off having raised nothing, so the review is over.\n\n")
-		b.WriteString(dimSt.Render("Press q to exit — or r to resume, if you changed your mind.") + "\n")
+		b.WriteString(dimSt.Render("This screen stays until your agent collects the result; dbn then returns you to the Inbox. Press i to go back now, q to exit — or r to resume, if you changed your mind.") + "\n")
 		return b.String()
 	case doneRevision:
 		var inner strings.Builder
@@ -1976,6 +2171,11 @@ func (m model) headerLine() string {
 		return headerSt.Render("dbn") + dimSt.Render(" — waiting for the dbn daemon")
 	case m.lostErr != nil:
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
+	case m.mode == modeInbox:
+		if len(m.inbox) == 0 {
+			return headerSt.Render("dbn — Inbox") + dimSt.Render("  ·  nothing to review")
+		}
+		return headerSt.Render("dbn — Inbox") + dimSt.Render("  ·  "+pluralize(len(m.inbox), "review"))
 	case m.view == nil || !m.view.Posted:
 		return headerSt.Render("dbn") + dimSt.Render(" — no Round posted")
 	case m.mode == modeDone:
@@ -2078,6 +2278,9 @@ func (m model) content() string {
 	if m.waiting {
 		return m.waitingView()
 	}
+	if m.mode == modeInbox {
+		return m.inboxView()
+	}
 	if m.view == nil || !m.view.Posted {
 		return dimSt.Render("An Authoring Agent posts a Round over MCP; it will appear here.")
 	}
@@ -2085,6 +2288,39 @@ func (m model) content() string {
 		return m.brief()
 	}
 	return m.step()
+}
+
+// inboxView is the window's home: every review the daemon holds, to pick from.
+// An Inbox with nothing in it is still the Inbox — one screen to learn, whose
+// keys do not move about with how many reviews happen to be open (ADR-0015).
+func (m model) inboxView() string {
+	if len(m.inbox) == 0 {
+		return dimSt.Render(wrapTo(
+			"Nothing to review. An Authoring Agent posts a Round over MCP and it appears here.",
+			m.viewport.Width))
+	}
+	var b strings.Builder
+	for _, row := range m.inbox {
+		marker := "  "
+		label := row.Label
+		if row.ID == m.inboxCursor {
+			marker = "▸ "
+			label = accentSt.Render(label)
+		}
+		b.WriteString(marker + label + "  " + dimSt.Render(inboxState(row.State)) + "\n")
+	}
+	return b.String()
+}
+
+// inboxState says whose turn a review is in the Reviewer's own words.
+func inboxState(state string) string {
+	switch state {
+	case "waiting_on_agent":
+		return "waiting on agent"
+	case "needs_you":
+		return "needs you"
+	}
+	return "new"
 }
 
 // waitingView is what the Reviewer reads while no daemon has answered yet. It

@@ -17,6 +17,9 @@ type OpenReview struct {
 	// HandedOff is the Reviewer having handed the round back, so the review is
 	// waiting on the Authoring Agent rather than on them.
 	HandedOff bool
+	// Opened is the Reviewer having looked at the review at all, which is what
+	// tells one waiting to be picked up from one left part-way through.
+	Opened bool
 }
 
 // Side qualifies a line range. Deleted lines exist only on the old side, added

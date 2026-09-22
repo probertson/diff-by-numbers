@@ -98,7 +98,7 @@ func (s *Session) Open() (OpenReview, bool) {
 	if !s.Active() {
 		return OpenReview{}, false
 	}
-	return OpenReview{ID: s.id, Label: s.label, HandedOff: s.finished}, true
+	return OpenReview{ID: s.id, Label: s.label, HandedOff: s.finished, Opened: s.opened}, true
 }
 
 // Concluded reports whether the posted review is over. It is false when nothing

@@ -33,9 +33,9 @@ type roundView struct {
 	} `json:"step"`
 }
 
-func getRoundView(t *testing.T, baseURL string) roundView {
+func getRoundView(t *testing.T, baseURL, reviewID string) roundView {
 	t.Helper()
-	response, err := http.Get(baseURL + "/view")
+	response, err := http.Get(reviewURL(baseURL, reviewID) + "/view")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +67,9 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 	first := postRound(t, server.URL, walkthrough)
 	// A Comment keeps the review going into a Revision Round: a hand-off with
 	// nothing raised would end it.
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "rename this")
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, first.ReviewID), 0, 4, 4, "rename this")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 	if err := os.WriteFile(filepath.Join(root, "FILE-src/fetch.ts"), []byte("a\nb\nc\nREWRITTEN\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 	walkthrough["revises"] = first.ReviewID
 	delete(walkthrough, "label") // a Revision Round keeps the label the review was given
 	postRound(t, server.URL, walkthrough)
-	httpPost(t, server.URL+"/goto/1")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
 
-	since := getRoundView(t, server.URL)
-	httpPost(t, server.URL+"/since-previous")
-	all := getRoundView(t, server.URL)
+	since := getRoundView(t, server.URL, first.ReviewID)
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/since-previous")
+	all := getRoundView(t, server.URL, first.ReviewID)
 
 	if since.Round != 2 || since.PreviousRound != 1 || !since.SincePreviousRound {
 		t.Fatalf("expected round 2 shaded since round 1, got %+v", since)

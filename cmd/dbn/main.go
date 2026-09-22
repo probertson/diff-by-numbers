@@ -56,7 +56,7 @@ func parseTUIArgs(args []string, usage io.Writer) (int, error) {
 	flags.Usage = func() {
 		fmt.Fprintf(usage, `usage: dbn [-port N]                 open the review TUI
        dbn <command> [flags]
-commands: serve, mcp, dump, abandon, update, version
+commands: serve, mcp, dump, abandon <review-id>, update, version
 run `+"`dbn <command> -h`"+` for a command's flags
 
   -port int
@@ -164,7 +164,12 @@ func run(args []string, out io.Writer) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		return abandon(*port, out)
+		// The daemon holds several reviews, so abandoning names the one to
+		// discard; `dbn dump` lists what it is holding.
+		if flags.NArg() != 1 {
+			return fmt.Errorf("abandon needs the id of the review to discard: `dbn abandon <review-id>`")
+		}
+		return abandon(*port, flags.Arg(0), out)
 
 	default:
 		return fmt.Errorf("unknown command %q; run `dbn -h` for usage", args[0])
@@ -203,8 +208,8 @@ func dump(port int, out io.Writer) error {
 	return nil
 }
 
-func abandon(port int, out io.Writer) error {
-	response, err := http.Post(daemonURL(port)+"/abandon", "text/plain", nil)
+func abandon(port int, reviewID string, out io.Writer) error {
+	response, err := http.Post(daemonURL(port)+"/reviews/"+reviewID+"/abandon", "text/plain", nil)
 	if err != nil {
 		return fmt.Errorf("no dbn daemon on port %d — start one with `dbn serve`: %w", port, err)
 	}

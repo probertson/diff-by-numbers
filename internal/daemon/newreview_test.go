@@ -16,8 +16,8 @@ func TestAPostAfterAConcludeStartsANewReview(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	first := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "never answered")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, first.ReviewID), 0, 4, 4, "never answered")
 	callTool(t, server.URL, "conclude", map[string]any{"review_id": first.ReviewID})
 
 	second := postRound(t, server.URL, minimalRound(root))
@@ -25,7 +25,7 @@ func TestAPostAfterAConcludeStartsANewReview(t *testing.T) {
 	if second.ReviewID == first.ReviewID {
 		t.Errorf("expected a new review after a conclude, got the same id %q", first.ReviewID)
 	}
-	if view := getView(t, server.URL); len(view.Comments) != 0 || len(view.Dispositions) != 0 {
+	if view := getView(t, server.URL, second.ReviewID); len(view.Comments) != 0 || len(view.Dispositions) != 0 {
 		t.Errorf("a new review starts with nothing carried from the concluded one, got %+v", view)
 	}
 }
@@ -36,7 +36,7 @@ func TestAPostAfterADismissalStartsANewReview(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	first := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/abandon")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/abandon")
 
 	second := postRound(t, server.URL, minimalRound(root))
 
@@ -52,7 +52,7 @@ func TestARefusedPostAfterAHandOffLeavesTheConcludedReviewAnswerable(t *testing.
 	defer server.Close()
 	root := featureRepo(t)
 	posted := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/finish")
 	broken := minimalRound(root)
 	broken["steps"] = broken["steps"].([]any)[:1]
 
@@ -72,15 +72,15 @@ func TestAPostAfterAHandOffWithNothingRaisedIsRoundOne(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/finish")
+	first := postRound(t, server.URL, minimalRound(root))
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 
-	postRound(t, server.URL, minimalRound(root))
+	second := postRound(t, server.URL, minimalRound(root))
 
 	var view struct {
 		Round int `json:"round"`
 	}
-	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
+	if err := json.Unmarshal([]byte(get(t, reviewURL(server.URL, second.ReviewID)+"/view")), &view); err != nil {
 		t.Fatalf("decode /view: %v", err)
 	}
 	if view.Round != 1 {

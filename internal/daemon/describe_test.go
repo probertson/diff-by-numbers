@@ -63,7 +63,7 @@ func TestDescribeChangesLeavesAReviewUnderWayAlone(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	postRound(t, server.URL, map[string]any{
+	posted := postRound(t, server.URL, map[string]any{
 		"label":        "LABEL-the-review",
 		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
@@ -73,15 +73,15 @@ func TestDescribeChangesLeavesAReviewUnderWayAlone(t *testing.T) {
 			"acknowledgements": []any{map[string]any{"files": []any{"LOCKFILE"}, "reason": "generated"}},
 		}},
 	})
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "a point")
-	before := get(t, server.URL+"/view")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, posted.ReviewID), 0, 4, 4, "a point")
+	before := get(t, reviewURL(server.URL, posted.ReviewID)+"/view")
 
 	callTool(t, server.URL, "describe_changes", map[string]any{
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 	})
 
-	if after := get(t, server.URL+"/view"); after != before {
+	if after := get(t, reviewURL(server.URL, posted.ReviewID)+"/view"); after != before {
 		t.Errorf("describe_changes must not change the review:\nbefore %s\nafter  %s", before, after)
 	}
 }

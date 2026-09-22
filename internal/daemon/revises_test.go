@@ -26,21 +26,24 @@ func TestARevisionRoundNamesTheReviewItRevises(t *testing.T) {
 	}
 }
 
-// Without `revises`, a post after a Hand Off is new work, not a Revision Round
-// of whatever the daemon happened to be holding.
+// Without `revises`, a post after a Hand Off is new work: a Review of its own,
+// held alongside the one waiting on the agent, never a Revision Round of it.
 func TestAPostAfterAHandOffWithoutRevisesIsNotARevisionRound(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	handedOffWithAComment(t, server.URL, root, "GOAL-first")
+	handedOff := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", minimalRound(root)))
+	posted := postRound(t, server.URL, minimalRound(root))
 
-	if outcome.Accepted {
-		t.Fatalf("a post naming no Review should not become a Revision Round of the open one, got id %q", outcome.ReviewID)
+	if posted.ReviewID == handedOff {
+		t.Fatal("a post naming no Review must not join the Review that was handed off")
 	}
-	if !outcome.has("walkthrough_active") {
-		t.Errorf("expected the open Review to be named as the reason, got %s", outcome.summary())
+	if !strings.HasPrefix(posted.Message, "Posted.") {
+		t.Errorf("expected the post announced as a new review, got %q", posted.Message)
+	}
+	if view := viewOf(t, server.URL, handedOff); len(view.Comments) != 1 {
+		t.Errorf("the handed-off Review keeps its Comment, got %+v", view.Comments)
 	}
 }
 
@@ -80,7 +83,7 @@ func TestRevisesNamingAConcludedReviewIsRefused(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	posted := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/finish")
 	revision := minimalRound(root)
 	revision["revises"] = posted.ReviewID
 

@@ -23,7 +23,7 @@ func reraiseServer(t *testing.T) (*reraiseRecorder, string) {
 	t.Helper()
 	rec := &reraiseRecorder{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/reraise/") {
+		if !strings.Contains(r.URL.Path, "/reraise/") {
 			return
 		}
 		var body struct {
@@ -42,7 +42,7 @@ func pushbackModel(t *testing.T, dispositions []daemon.DispositionWire, comments
 	t.Helper()
 	_, base := reraiseServer(t)
 	return model{
-		client:   client{base: base},
+		client:   client{base: base, review: "a1"},
 		mode:     modeReview,
 		width:    80,
 		height:   30,
@@ -142,7 +142,7 @@ func TestReRaisingOpensTheEditorOverTheOriginal(t *testing.T) {
 func TestEscapingTheEditorAbandonsTheReRaise(t *testing.T) {
 	rec, base := reraiseServer(t)
 	m := pushbackModel(t, []daemon.DispositionWire{unresolved(1, "declined")})
-	m.client = client{base: base}
+	m.client = client{base: base, review: "a1"}
 	m.mode = modeReraise
 	opened, _ := m.updateReraise("enter")
 
@@ -159,7 +159,7 @@ func TestEscapingTheEditorAbandonsTheReRaise(t *testing.T) {
 func TestSavingTheEditorSendsTheReRaiseWithWhatWasWritten(t *testing.T) {
 	rec, base := reraiseServer(t)
 	m := pushbackModel(t, []daemon.DispositionWire{unresolved(1, "declined")})
-	m.client = client{base: base}
+	m.client = client{base: base, review: "a1"}
 	m.mode = modeReraise
 	opened, _ := m.updateReraise("enter")
 	om := opened.(model)
@@ -167,7 +167,7 @@ func TestSavingTheEditorSendsTheReRaiseWithWhatWasWritten(t *testing.T) {
 
 	saved, _ := om.updateNote(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if rec.hits != 1 || rec.path != "/reraise/1" {
+	if rec.hits != 1 || rec.path != "/reviews/a1/reraise/1" {
 		t.Fatalf("expected one re-raise of Comment 1, got %d at %q", rec.hits, rec.path)
 	}
 	if rec.note != "I still disagree, and here is why" {

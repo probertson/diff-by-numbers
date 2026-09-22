@@ -35,9 +35,9 @@ func TestFetchResultsSpeaksOfHandingOff(t *testing.T) {
 		t.Errorf("expected the advisory to say the Reviewer has not handed off, got: %s", waiting.Message)
 	}
 
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, posted.ReviewID), 0, 4, 4, "please rename this")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/finish")
 
 	handed := fetchResults(t, server.URL, posted.ReviewID)
 
@@ -55,7 +55,7 @@ func TestFetchResultsCallsAHandOffWithNothingRaisedComplete(t *testing.T) {
 	root := featureRepo(t)
 
 	posted := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/finish")
 
 	complete := fetchResults(t, server.URL, posted.ReviewID)
 

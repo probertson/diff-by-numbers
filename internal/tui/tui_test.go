@@ -743,8 +743,11 @@ func TestTheCompleteScreenOffersExitRatherThanQuit(t *testing.T) {
 
 	out := m.doneView()
 
-	if !strings.Contains(out, "Press q to exit") {
+	if !strings.Contains(out, "q to exit") || strings.Contains(out, "quit") {
 		t.Errorf("expected exit rather than quit, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Inbox") {
+		t.Errorf("the complete screen says where it goes when the agent collects the result, got:\n%s", out)
 	}
 }
 
@@ -956,7 +959,7 @@ func acceptingServer(t *testing.T) *httptest.Server {
 func listEditModel(t *testing.T, comments ...daemon.CommentWire) model {
 	t.Helper()
 	m := model{
-		client:     client{base: acceptingServer(t).URL},
+		client:     client{base: acceptingServer(t).URL, review: "a1"},
 		mode:       modeNote,
 		noteReturn: modeList,
 		editingID:  comments[0].ID,
@@ -1010,7 +1013,7 @@ func TestDeletingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
 func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *testing.T) {
 	filter := commentFilter{active: true, file: "a.go", side: "after", line: 12}
 	m := model{
-		client:        client{base: acceptingServer(t).URL},
+		client:        client{base: acceptingServer(t).URL, review: "a1"},
 		mode:          modeList,
 		commentFilter: filter,
 		note:          newNote(80),
@@ -1036,7 +1039,7 @@ func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *tes
 func TestAnEditOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
 	base := func() model {
 		m := model{
-			client:    client{base: acceptingServer(t).URL},
+			client:    client{base: acceptingServer(t).URL, review: "a1"},
 			mode:      modeNote,
 			editingID: 7,
 			note:      newNote(80),
@@ -1167,7 +1170,7 @@ func TestLeavingAListOpenedFromAStepStillReturnsToTheStep(t *testing.T) {
 
 func TestEditingFromTheConclusionScreensListReturnsToTheListThenTheConclusionScreen(t *testing.T) {
 	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n", Anchor: "code"})
-	m.client = client{base: acceptingServer(t).URL}
+	m.client = client{base: acceptingServer(t).URL, review: "a1"}
 	m.note = newNote(80)
 
 	opened, _ := m.updateConclusion("l")
@@ -1191,7 +1194,7 @@ func TestConclusionFooterOffersTheListAndHandOff(t *testing.T) {
 
 	out := m.View()
 
-	want := keybar("← back", "g Overview", "l list", "h hand off", "q exit")
+	want := keybar("← back", "g Overview", "l list", "h hand off", "i inbox", "q exit")
 	if !strings.Contains(out, want) {
 		t.Errorf("expected the conclusion footer %q, got:\n%s", want, out)
 	}

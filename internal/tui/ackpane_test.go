@@ -204,7 +204,7 @@ func TestAckCommentsCountsThoseRaisedInEachAcknowledgement(t *testing.T) {
 func expandServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/expand/") {
+		if !strings.Contains(r.URL.Path, "/expand/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -217,7 +217,7 @@ func expandServer(t *testing.T) *httptest.Server {
 func stepModel(t *testing.T, step *daemon.StepWire) model {
 	t.Helper()
 	m := model{
-		client: client{base: expandServer(t).URL},
+		client: client{base: expandServer(t).URL, review: "a1"},
 		mode:   modeReview,
 		view:   &daemon.ViewWire{Posted: true, Position: 1, StepCount: 1, Step: step},
 		width:  80, height: 40, ready: true,
@@ -284,7 +284,7 @@ func TestAnEntirelyOpaqueAcknowledgementKeepsTheCursorOnItsStop(t *testing.T) {
 	step := ackStep()
 	step.Excerpts = nil
 	m := stepModel(t, step)
-	m.client = client{base: server.URL}
+	m.client = client{base: server.URL, review: "a1"}
 
 	m = press(m, "x")
 

@@ -36,17 +36,13 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 		}
 	}
 	first := postRound(t, server.URL, walkthrough())
-	httpPost(t, server.URL+"/goto/1")
-	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(server.URL, first.ReviewID), 0, 4, 4, "please rename this")
 
-	refused := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", walkthrough()))
 	replacing := walkthrough()
 	replacing["replaces"] = first.ReviewID
 	replaced := postRound(t, server.URL, replacing)
 
-	if refused.Accepted || !strings.Contains(refused.summary(), `replaces: "`+first.ReviewID+`"`) {
-		t.Errorf("expected a second post to be refused, naming replaces, got %+v", refused)
-	}
 	if !strings.HasPrefix(first.Message, "Posted. The Reviewer opens it by running dbn in a terminal") {
 		t.Errorf("expected a first post to say how the Reviewer opens it, got %q", first.Message)
 	}
@@ -56,7 +52,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	if replaced.ReviewID != first.ReviewID {
 		t.Errorf("expected the replacement to keep review %q, got %q", first.ReviewID, replaced.ReviewID)
 	}
-	view := replacedView(t, server.URL)
+	view := replacedView(t, server.URL, first.ReviewID)
 	if !view.Replaced || len(view.Comments) != 1 || !view.Comments[0].CarriedOver {
 		t.Errorf("expected the view to show a replacement with one carried-over Comment, got %+v", view)
 	}
@@ -77,9 +73,9 @@ type replacedShape struct {
 	} `json:"comments"`
 }
 
-func replacedView(t *testing.T, baseURL string) replacedShape {
+func replacedView(t *testing.T, baseURL, reviewID string) replacedShape {
 	t.Helper()
-	response, err := http.Get(baseURL + "/view")
+	response, err := http.Get(reviewURL(baseURL, reviewID) + "/view")
 	if err != nil {
 		t.Fatalf("GET /view: %v", err)
 	}

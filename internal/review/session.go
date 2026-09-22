@@ -22,8 +22,9 @@ type Results struct {
 	StepReports []StepReport
 }
 
-// Session holds the one Review currently under way. Several concurrent
-// Reviews are deliberately out of scope until the Inbox exists.
+// Session holds one Review for its whole life: the Round on screen, where the
+// Reviewer is in it, and what they have raised. The daemon holds a Session per
+// Review, which is how several run at once (ADR-0015).
 type Session struct {
 	current  *Round
 	ledger   ledger
@@ -76,6 +77,9 @@ type Session struct {
 	concluded bool
 	// mint generates a new review id. Injected so tests can assert on a known id.
 	mint func() string
+	// opened records that the Reviewer has looked at this review, which is what
+	// tells a review waiting to be picked up from one left part-way through.
+	opened bool
 	// postings counts the Rounds this Review has accepted, so a surface can tell
 	// when a different one — a Revision Round or a Replacement — has taken the
 	// screen.
@@ -134,6 +138,10 @@ func (s *Session) LastPost() PostKind {
 	}
 	return PostedNewReview
 }
+
+// MarkOpened records that the Reviewer has looked at the review. A surface says
+// so when it draws it: dbn cannot tell reading from polling on its own.
+func (s *Session) MarkOpened() { s.opened = true }
 
 // Label returns the human-readable name the Authoring Agent gave the review, or
 // "" before its first Round is accepted.

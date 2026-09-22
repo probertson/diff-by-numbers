@@ -107,14 +107,14 @@ func TestTheWireRejectsProvenanceByName(t *testing.T) {
 	}
 }
 
-func viewedGoal(t *testing.T, baseURL string) string {
+func viewedGoal(t *testing.T, baseURL, reviewID string) string {
 	t.Helper()
 	var view struct {
 		Brief struct {
 			Goal string `json:"goal"`
 		} `json:"brief"`
 	}
-	if err := json.Unmarshal([]byte(get(t, baseURL+"/view")), &view); err != nil {
+	if err := json.Unmarshal([]byte(get(t, reviewURL(baseURL, reviewID)+"/view")), &view); err != nil {
 		t.Fatalf("decode /view: %v", err)
 	}
 	return view.Brief.Goal
@@ -134,9 +134,9 @@ func handedOffWithAComment(t *testing.T, baseURL, root, goal string) string {
 	round := minimalRound(root)
 	round["brief"].(map[string]any)["goal"] = goal
 	posted := postRound(t, baseURL, round)
-	httpPost(t, baseURL+"/goto/1")
-	raiseComment(t, baseURL, 0, 4, 4, "please rename this")
-	httpPost(t, baseURL+"/finish")
+	httpPost(t, reviewURL(baseURL, posted.ReviewID)+"/goto/1")
+	raiseComment(t, reviewURL(baseURL, posted.ReviewID), 0, 4, 4, "please rename this")
+	httpPost(t, reviewURL(baseURL, posted.ReviewID)+"/finish")
 	return posted.ReviewID
 }
 
@@ -159,7 +159,7 @@ func TestARevisionRoundCarriesTheGoalForward(t *testing.T) {
 
 	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"approach": "renamed it"}))
 
-	if goal := viewedGoal(t, server.URL); goal != "GOAL-first" {
+	if goal := viewedGoal(t, server.URL, reviewID); goal != "GOAL-first" {
 		t.Errorf("the Revision Round's Overview should carry round 1's Goal, got %q", goal)
 	}
 	if goal := fetchedGoal(t, server.URL, reviewID); goal != "GOAL-first" {
@@ -177,7 +177,7 @@ func TestARevisionRoundMayRestateTheGoal(t *testing.T) {
 
 	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"goal": "GOAL-changed", "approach": "renamed it"}))
 
-	if goal := viewedGoal(t, server.URL); goal != "GOAL-changed" {
+	if goal := viewedGoal(t, server.URL, reviewID); goal != "GOAL-changed" {
 		t.Errorf("a restated Goal should replace the old one, got %q", goal)
 	}
 }
@@ -195,7 +195,7 @@ func TestAReplacementMayLeaveTheGoalOut(t *testing.T) {
 
 	postRound(t, server.URL, replacement)
 
-	if goal := viewedGoal(t, server.URL); goal != "GOAL-first" {
+	if goal := viewedGoal(t, server.URL, posted.ReviewID); goal != "GOAL-first" {
 		t.Errorf("a Replacement without a Goal should keep the Review's, got %q", goal)
 	}
 }
@@ -232,22 +232,24 @@ func TestReplacingAHandedOffRoundIsRefusedAsHandedOff(t *testing.T) {
 	}
 }
 
-func TestNavigatingWithNoRoundPostedIsRefusedAsNoRound(t *testing.T) {
+// A window whose Review has been released — or that names one dbn never held —
+// is told so plainly, which is what sends it back to the Inbox.
+func TestNavigatingAReviewTheDaemonDoesNotHoldIsRefused(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 
-	response, err := http.Post(server.URL+"/advance", "text/plain", nil)
+	response, err := http.Post(reviewURL(server.URL, "no-such-id")+"/advance", "text/plain", nil)
 
 	if err != nil {
-		t.Fatalf("POST /advance: %v", err)
+		t.Fatalf("POST advance: %v", err)
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
-	if strings.Contains(string(body), "Walkthrough") {
-		t.Errorf("the refusal should speak of a Round, got %s", body)
+	if response.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for a review dbn is not holding, got %s", response.Status)
 	}
-	if !strings.Contains(string(body), "no_round") {
-		t.Errorf("advancing with nothing posted should be refused as no_round, got %s: %s", response.Status, body)
+	if !strings.Contains(string(body), "no-such-id") {
+		t.Errorf("the refusal should name the id, got %s", body)
 	}
 }
 

@@ -46,7 +46,7 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postRound(t, server.URL, map[string]any{
+	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
@@ -59,10 +59,10 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 			}},
 		}},
 	})
-	post(t, server.URL+"/advance", nil)
+	post(t, reviewURL(server.URL, posted.ReviewID)+"/advance", nil)
 
 	// From the removed row through the row that replaced it.
-	post(t, server.URL+"/comment", map[string]any{
+	post(t, reviewURL(server.URL, posted.ReviewID)+"/comment", map[string]any{
 		"excerpt_index": 0,
 		"start":         map[string]any{"side": "old", "line": 2},
 		"end":           map[string]any{"side": "new", "line": 2},
@@ -70,7 +70,7 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	})
 
 	var view daemon.ViewWire
-	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
+	if err := json.Unmarshal([]byte(get(t, reviewURL(server.URL, posted.ReviewID)+"/view")), &view); err != nil {
 		t.Fatalf("could not read the view: %v", err)
 	}
 	if len(view.Comments) != 1 {
@@ -102,7 +102,7 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postRound(t, server.URL, map[string]any{
+	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
@@ -115,10 +115,10 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 			}},
 		}},
 	})
-	post(t, server.URL+"/advance", nil)
+	post(t, reviewURL(server.URL, posted.ReviewID)+"/advance", nil)
 
 	// Line 3 exists on the after-side, but nothing removed a before-side line 3.
-	status := postStatus(t, server.URL+"/anchor", map[string]any{
+	status := postStatus(t, reviewURL(server.URL, posted.ReviewID)+"/anchor", map[string]any{
 		"excerpt_index": 0,
 		"start":         map[string]any{"side": "old", "line": 3},
 		"end":           map[string]any{"side": "new", "line": 3},
@@ -165,7 +165,7 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postRound(t, server.URL, map[string]any{
+	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
@@ -178,9 +178,9 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 			}},
 		}},
 	})
-	post(t, server.URL+"/advance", nil)
+	post(t, reviewURL(server.URL, posted.ReviewID)+"/advance", nil)
 
-	post(t, server.URL+"/comment", map[string]any{
+	post(t, reviewURL(server.URL, posted.ReviewID)+"/comment", map[string]any{
 		"acknowledgement_index": 0,
 		"excerpt_index":         0,
 		"start":                 map[string]any{"side": "old", "line": 2},
@@ -189,7 +189,7 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	})
 
 	var view daemon.ViewWire
-	if err := json.Unmarshal([]byte(get(t, server.URL+"/view")), &view); err != nil {
+	if err := json.Unmarshal([]byte(get(t, reviewURL(server.URL, posted.ReviewID)+"/view")), &view); err != nil {
 		t.Fatalf("could not read the view: %v", err)
 	}
 	if len(view.Comments) != 1 {

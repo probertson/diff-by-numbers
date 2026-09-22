@@ -28,7 +28,7 @@ func TestAPostAfterACompleteReviewStartsANewOneThroughTheDaemon(t *testing.T) {
 		}},
 	}
 	first := postRound(t, server.URL, walkthrough)
-	httpPost(t, server.URL+"/finish")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/finish")
 
 	second := postRound(t, server.URL, walkthrough)
 

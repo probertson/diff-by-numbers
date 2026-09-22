@@ -281,3 +281,9 @@ func TestASingleRepositoryPostMayOmitTheRepository(t *testing.T) {
 		}
 	}
 }
+
+// reviewURL is where a Reviewer's calls about one review go: every one of them
+// names the review it acts on (ADR-0015).
+func reviewURL(baseURL, reviewID string) string {
+	return baseURL + "/reviews/" + reviewID
+}
