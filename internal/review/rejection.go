@@ -58,6 +58,10 @@ const (
 	// that is not the one currently under review — including one that has been
 	// concluded, which is no longer under review at all.
 	RejectedUnknownReview RejectionReason = "unknown_review"
+	// RejectedReviewOver means a post was made to a Session whose Review has
+	// ended. A Session holds one Review for its whole life, so new work belongs in
+	// a new one.
+	RejectedReviewOver RejectionReason = "review_over"
 	// RejectedNoPreviousRound means the Reviewer asked to compare a first round
 	// with the round before it, which does not exist.
 	RejectedNoPreviousRound RejectionReason = "no_previous_round"

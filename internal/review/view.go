@@ -132,11 +132,13 @@ type Coverage struct {
 // Brief; positions 1..StepCount are Steps.
 type ViewModel struct {
 	Posted bool
-	// Posting identifies the Round on screen among those this Session has
-	// accepted: it changes exactly when a new one, or a Revision Round, replaces it.
+	// Posting identifies the Round on screen among those this Session's Review
+	// has accepted: it changes exactly when a Revision Round or a Replacement
+	// replaces it. A new Review starts counting again in a Session of its own.
 	Posting int
-	// ReviewID is the review on screen, which a restarted daemon mints afresh —
-	// so together with Posting it tells one Round from any other.
+	// ReviewID is the review on screen, new for every Review — including one a
+	// restarted daemon mints — so together with Posting it tells one Round from
+	// any other.
 	ReviewID     string
 	Brief        Brief
 	StepNames    []string

@@ -75,9 +75,9 @@ type Session struct {
 	concluded bool
 	// mint generates a new review id. Injected so tests can assert on a known id.
 	mint func() string
-	// postings counts the Rounds accepted, so a surface can tell when a
-	// different one — a new review, a Revision Round or a Replacement — has taken
-	// the screen.
+	// postings counts the Rounds this Review has accepted, so a surface can tell
+	// when a different one — a Revision Round or a Replacement — has taken the
+	// screen.
 	postings int
 }
 
@@ -138,13 +138,20 @@ func (s *Session) LastPost() PostKind {
 // the review, or "" if none was given.
 func (s *Session) Label() string { return s.label }
 
-// Post submits a Round for review. Posting after the previous Round
-// was handed off with Comments is a Revision Round: it re-derives the full Change
-// Set, pre-marks what is unchanged, and must account for those Comments. Posting
-// once the review is concluded — explicitly, or by a hand-off that raised
-// nothing — starts a new review.
+// Post submits a Round for review. The first is round 1 of the Session's
+// Review. Posting after the previous Round was handed off with Comments is a
+// Revision Round: it re-derives the full Change Set, pre-marks what is
+// unchanged, and must account for those Comments.
+//
+// A Session holds one Review for its whole life, so once that Review is over —
+// concluded explicitly, by a hand-off that raised nothing, or dismissed — it
+// takes no more posts. New work is a new Review, in a new Session.
 func (s *Session) Post(w Round) error {
-	if s.current != nil && !s.finished && !s.isConcluded() {
+	if s.Over() {
+		return reject(RejectedReviewOver,
+			"review %q is over; new work is a new review", s.id)
+	}
+	if s.current != nil && !s.finished {
 		return reject(RejectedWalkthroughActive,
 			"a Round is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
 			s.id, s.id)
@@ -156,10 +163,10 @@ func (s *Session) Post(w Round) error {
 // round just handed off, or — while one is under review — whatever that one
 // answers, which is what its Replacement answers too.
 //
-// A concluded review answers nothing, so the next post starts a new review. That
-// covers a round handed off with nothing raised as well as an explicit conclude:
-// fetch_results already calls that review complete, and posting new work as a
-// Revision Round of it pre-marked the new work against the finished review, so it
+// A concluded review answers nothing: it takes no further post, and describing
+// changes against it plans new work as a first round. That covers a round handed
+// off with nothing raised as well as an explicit conclude. Treating new work as a
+// Revision Round of a finished review would pre-mark it against that review, so it
 // could escape coverage.
 func (s *Session) nextAnswering() *earlierRound {
 	switch {
@@ -298,17 +305,15 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 		s.nextCommentID = 0
 	}
 
-	// A new review mints an id and takes the Round's label as given; a
-	// later posting keeps the id and only updates the label if one is supplied,
-	// so an agent that omits it does not blank it. Either way, posting means
-	// the review is active again.
-	if earlier == nil && !replacing {
+	// The Session's first Round mints the Review's id, which then never changes,
+	// and takes the Round's label as given; a later posting only updates the
+	// label if one is supplied, so an agent that omits it does not blank it.
+	if !s.begun() {
 		s.id = s.mint()
 		s.label = w.Label
 	} else if w.Label != "" {
 		s.label = w.Label
 	}
-	s.concluded = false
 	return nil
 }
 
@@ -384,11 +389,22 @@ func (s *Session) Abandon() error {
 		return reject(RejectedNoRound, "there is no Round to abandon")
 	}
 	s.current = nil
-	s.id = ""
-	s.label = ""
-	s.concluded = false
 	return nil
 }
+
+// Over reports whether the Session's Review has ended — concluded, or dismissed
+// — so it will take no further post. A Session with nothing yet posted has not
+// begun, so it is not over.
+func (s *Session) Over() bool {
+	if !s.begun() {
+		return false
+	}
+	return s.current == nil || s.isConcluded()
+}
+
+// begun reports whether the Session's Review has had its first Round accepted,
+// which is when it is given its id.
+func (s *Session) begun() bool { return s.id != "" }
 
 // Results reports how the review is going. It answers immediately, whether or
 // not the Reviewer has finished.

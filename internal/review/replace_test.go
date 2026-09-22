@@ -147,26 +147,6 @@ func TestPostingOverAReviewUnderReviewNamesReplaces(t *testing.T) {
 	assertDetailOmits(t, err, "abandon")
 }
 
-func TestPostingAfterAConcludedReviewStartsANewOne(t *testing.T) {
-	session, _ := underReview(t)
-	raise(t, session, 2, 2, "never answered")
-	if err := session.Conclude("rev-1"); err != nil {
-		t.Fatal(err)
-	}
-
-	err := session.Post(appRound([]review.Step{appStep(1, 3)}, nil))
-
-	if err != nil {
-		t.Fatalf("expected a concluded review to free the slot, got %v", err)
-	}
-	if got := session.ReviewID(); got != "rev-2" {
-		t.Errorf("expected a new review id, got %q", got)
-	}
-	if len(session.Comments()) != 0 || len(session.Dispositions()) != 0 {
-		t.Error("a new review starts with nothing carried from the concluded one")
-	}
-}
-
 // revisedTwice runs a first round with one Comment and hands it off, then posts
 // a Revision Round addressing it — the state a replacement of a Revision Round
 // starts from.

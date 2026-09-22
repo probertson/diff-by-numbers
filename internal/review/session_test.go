@@ -226,16 +226,31 @@ func TestDumpCountsASingleStepInTheSingular(t *testing.T) {
 	}
 }
 
-func TestARoundCanBePostedOnceTheLastIsAbandoned(t *testing.T) {
-	session := newSession()
-	mustPost(t, session, validRound())
-
-	if err := session.Abandon(); err != nil {
-		t.Fatalf("expected the Round to be abandoned, got %v", err)
+// A Session holds one Review for its whole life. Once that Review is over it
+// takes no more posts, and its id stays the one it was given: new work is a new
+// Review in a new Session, which the daemon creates.
+func TestASessionWhoseReviewIsOverTakesNoMorePosts(t *testing.T) {
+	endings := map[string]func(*review.Session) error{
+		"handed off with nothing raised": func(s *review.Session) error { return s.Finish() },
+		"concluded":                      func(s *review.Session) error { return s.Conclude(s.ReviewID()) },
+		"dismissed":                      func(s *review.Session) error { return s.Abandon() },
 	}
+	for name, end := range endings {
+		t.Run(name, func(t *testing.T) {
+			session := newSession()
+			mustPost(t, session, validRound())
+			id := session.ReviewID()
+			if err := end(session); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := session.Post(validRound()); err != nil {
-		t.Fatalf("expected a new Round to be accepted after abandoning, got %v", err)
+			err := session.Post(validRound())
+
+			assertRejected(t, err, review.RejectedReviewOver)
+			if session.ReviewID() != id {
+				t.Errorf("the Review's id should never change, was %q and is now %q", id, session.ReviewID())
+			}
+		})
 	}
 }
 
@@ -405,10 +420,8 @@ func TestEachAcceptedRoundIsANewPosting(t *testing.T) {
 
 	_ = session.Post(validRound()) // rejected: one is already under review
 	rejected := session.View().Posting
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-	mustPost(t, session, validRound()) // a new review: the hand-off raised nothing
+	handOffWithAComment(t, session)
+	mustPost(t, session, revising(validRound()))
 	revised := session.View().Posting
 
 	if first == 0 || rejected != first {

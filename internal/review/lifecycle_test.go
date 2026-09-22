@@ -223,29 +223,3 @@ func TestAbandonLeavesNoActiveReview(t *testing.T) {
 		t.Error("expected no active review after abandon")
 	}
 }
-
-// A round handed off with nothing raised ends the review: fetch_results calls it
-// complete, and the next post is new work, not a Revision Round of the old. Scoped
-// as a Revision Round, new work was pre-marked against the finished review and
-// could escape coverage.
-func TestAPostAfterAHandOffWithNothingRaisedStartsANewReview(t *testing.T) {
-	deriver := &roundDeriver{lines: changedApp(1, 3)}
-	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver, review.WithIDMinter(minter("rev-1", "rev-2")))
-	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Only line 3 shown: in a Revision Round, 1 and 2 would be pre-marked and
-	// this would pass.
-	err := session.Post(appRound([]review.Step{appStep(3, 3)}, nil))
-
-	assertRejected(t, err, review.RejectedUncoveredChanges)
-	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
-	if got := session.ReviewID(); got != "rev-2" {
-		t.Errorf("expected a new review, got id %q", got)
-	}
-	if session.View().Round != 1 {
-		t.Errorf("expected round 1 of the new review, got round %d", session.View().Round)
-	}
-}

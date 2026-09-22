@@ -75,13 +75,11 @@ func TestARejectedPostLeavesTheViewReadingTheRoundOnScreen(t *testing.T) {
 	deriver := &sequenceDeriver{fixedDeriver: fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, trees: []string{"tree-1", "tree-2"}}
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, validRound())
-	if err := session.Finish(); err != nil {
-		t.Fatal(err)
-	}
+	handOffWithAComment(t, session)
 	// Refused only once its snapshot has been taken: the disposition names a
 	// Comment the first round never raised.
-	misdisposed := validRound()
-	misdisposed.Dispositions = []review.Disposition{{CommentID: 7, Status: review.DispositionAddressed}}
+	misdisposed := revising(validRound())
+	misdisposed.Dispositions = append(misdisposed.Dispositions, review.Disposition{CommentID: 7, Status: review.DispositionAddressed})
 
 	err := session.Post(misdisposed)
 

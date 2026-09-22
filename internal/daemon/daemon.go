@@ -31,7 +31,9 @@ const DefaultPort = 7373
 // Daemon owns the review Session and serves it over MCP. It holds the lock
 // because it is the part that is concurrent; the core stays free of it.
 type Daemon struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// session holds the Review the daemon is serving. A Session holds one Review
+	// for its whole life, so a new Review replaces it with a fresh one.
 	session *review.Session
 
 	// selfExit is set when the daemon was auto-started (by the stdio shim) rather
@@ -63,7 +65,7 @@ func WithSelfExit() Option {
 
 func New(opts ...Option) *Daemon {
 	d := &Daemon{
-		session: review.NewSession(workingtree.NewResolver(), git.NewDeriver()),
+		session: newSession(),
 		quit:    make(chan struct{}),
 		port:    DefaultPort,
 	}
@@ -72,6 +74,11 @@ func New(opts ...Option) *Daemon {
 		opt(d)
 	}
 	return d
+}
+
+// newSession is an empty Session, ready for a Review's first Round.
+func newSession() *review.Session {
+	return review.NewSession(workingtree.NewResolver(), git.NewDeriver())
 }
 
 // touch records that the daemon just saw activity, resetting the idle clock.
@@ -576,10 +583,19 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 	defer d.mu.Unlock()
 
 	var err error
-	if in.Replaces != "" {
+	switch {
+	case in.Replaces != "":
 		err = d.session.Replace(in.Replaces, in.toDomain())
-	} else {
+	case !d.session.Over():
 		err = d.session.Post(in.toDomain())
+	default:
+		// The Review the daemon held is over, so this is a new one, and it gets a
+		// Session of its own. The one it replaces stays until the post is accepted, so a
+		// refused post leaves a concluded Review still answering fetch_results.
+		fresh := newSession()
+		if err = fresh.Post(in.toDomain()); err == nil {
+			d.session = fresh
+		}
 	}
 	if err != nil {
 		var rejection *review.Rejection
