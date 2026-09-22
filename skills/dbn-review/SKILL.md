@@ -1,18 +1,18 @@
 ---
 name: dbn-review
-description: Post a walkthrough of your own code changes to diff-by-numbers (dbn) for a human to review. Use this when you have finished a body of work and want it reviewed — instead of handing over a raw diff, plan a narrated, semantically-ordered walkthrough and post it over the dbn MCP server. Also use it to collect the reviewer's Comments and post a Revision Round.
+description: Post a Review of your own code changes to diff-by-numbers (dbn) for a human to review. Use this when you have finished a body of work and want it reviewed — instead of handing over a raw diff, plan a narrated, semantically-ordered Round and post it over the dbn MCP server. Also use it to collect the reviewer's Comments and post a Revision Round.
 ---
 
 # Reviewing your changes with dbn
 
 dbn is a channel for you to walk a human through the code you just wrote, in an
 order that makes sense for review rather than the order git happens to print.
-You post one complete **Walkthrough**; the reviewer navigates it themselves in a
+You post one complete **Round**; the reviewer navigates it themselves in a
 side terminal and raises **Comments** (requests for a change, or questions); you
 collect those and post a **Revision Round**. You never block waiting — you post,
 end your turn, and pick the results up later.
 
-The dbn daemon exposes four MCP tools: `describe_changes`, `post_walkthrough`,
+The dbn daemon exposes four MCP tools: `describe_changes`, `post_round`,
 `fetch_results`, and `conclude`. If they are not available, dbn's MCP server is
 not registered — see the project README for the one-time setup. (You do not need to start anything
 first: registering the shim is enough. It starts the daemon on demand the moment
@@ -28,7 +28,7 @@ The tools' exact schemas and parameters come from the running daemon, which
 cannot drift from itself — read them there rather than from anything written
 here.
 
-## Planning a Walkthrough
+## Planning a Round
 
 **Start with `describe_changes`**, giving it the same `repositories` you will
 post. It returns dbn's own account of the change set, worked out exactly as a
@@ -45,15 +45,18 @@ planning, and again before a Revision Round, when it also gives the
 `pre_marked_new`/`pre_marked_old` ranges you need not cover and how many lines
 are `still_to_cover`.
 
-A Walkthrough is a **Brief** followed by ordered **Steps**.
+A Round is a **Brief** followed by ordered **Steps**.
 
 **The Brief** sets context before any code:
-- `ask` — what the reviewer originally asked you for, in their words.
+- `goal` — what the work set out to achieve, as the reviewer asked for it, in
+  their words. Give it in round 1. The Goal belongs to the Review, so dbn
+  carries it forward: leave it out of a Revision Round or a replacement, and
+  give it again only if what the reviewer wants has changed.
 - `approach` — the approach you took, so they can judge it apart from the code.
-- `provenance` — `stated` if you were actually asked this (cite the session or
-  prompt in `citation`), or `inferred` if you are reverse-engineering the intent
-  from the changes. Be honest: a guessed intent reads as confidently as a known
-  one and deserves less trust.
+
+Only the agent that wrote the changes posts their Review; the point is to hear
+the story from the one who knows it. If you are working from a summary of that
+work — after compaction, say — say so in `approach`.
 
 **Steps** each carry one self-contained idea — "add retry with backoff to the
 fetch layer", "thread the tenant id through the callers" — not one file, and not
@@ -112,14 +115,14 @@ the reviewer sees the manifest and can expand it into the actual diff — and ra
 Comments against it.
 
 **Coverage is enforced.** dbn derives the changed lines from git and refuses a
-Walkthrough that leaves any of them shown by neither an Excerpt nor an
+Round that leaves any of them shown by neither an Excerpt nor an
 Acknowledgement. If your post is rejected as `uncovered_changes`, it names
 everything you missed, grouped by file and side — add it all and re-post.
 
-**A rejection lists every problem it found.** Once the Walkthrough is
+**A rejection lists every problem it found.** Once the Round is
 structurally sound, dbn runs all its checks and reports all of them in
 `problems`, rather than stopping at the first. Fix every entry before posting
-again: posting to discover the next one costs you the whole Walkthrough each
+again: posting to discover the next one costs you the whole Round each
 time. A structural fault — a malformed Brief or Step, a bad `base`, a Change
 Set that will not derive — comes back on its own, because the later checks
 cannot say anything useful until it is fixed.
@@ -137,12 +140,12 @@ everything from the merge-base of that ref and HEAD to the working tree,
 including uncommitted changes, so `HEAD~1..HEAD` is refused. For "the last
 commit", the base is `HEAD~1`.
 
-Call `post_walkthrough` once, complete. Name every repository under review in
+Call `post_round` once, complete. Name every repository under review in
 `repositories` (each with its own `base` ref, e.g. the default branch), then the
 `brief` and the ordered `steps`. You may add an optional `label` — a short name
 like "auth refactor" — to help a reviewer tell several reviews apart.
 
-`post_walkthrough` returns a `review_id`. **Record it**: you pass it back to
+`post_round` returns a `review_id`. **Record it**: you pass it back to
 `conclude` when the review is over. It also returns a `message`: **relay it** to
 the human, since it says how they open the review, and say you will pick up
 their feedback when they are done.
@@ -155,7 +158,7 @@ immediately (it never waits) with the reviewer's Comments, each carrying an
 anchored reference to the exact code it concerns. Respond to each: a Comment may
 ask for a change or ask a question.
 
-Then post a **Revision Round**: another `post_walkthrough`, over the full change
+Then post a **Revision Round**: another `post_round`, over the full change
 set again, but this time include `dispositions` — one entry per Comment you were
 handed, with a `status` you choose and a `response` the reviewer sees before any
 code:
@@ -182,7 +185,7 @@ a stronger argument than the one they already rejected — repeating the same
 reasoning is not a response.
 
 dbn re-derives everything and pre-marks as already-seen every line the reviewer
-read last round and nobody has touched since, so the new Walkthrough is scoped to
+read last round and nobody has touched since, so the new Round is scoped to
 exactly what you moved. You still plan Steps and coverage for the moved lines the
 same way.
 
@@ -202,20 +205,20 @@ A Comment whose anchor says the code was `acknowledged in Step "…"`
 disputes that Acknowledgement as well as the line: the reviewer read code you
 called mechanical and found something to say. When you resolve it, say in the
 Revision Round's Brief whether the "mechanical" claim still holds. Do not
-acknowledge the same kind of change again in a later Walkthrough without saying
+acknowledge the same kind of change again in a later Round without saying
 why it is mechanical this time.
 
 Repeat until the reviewer hands off having raised nothing — `fetch_results` will
 say the review is complete.
 
-## Updating a Walkthrough while it is under review
+## Updating a Round while it is under review
 
-`post_walkthrough` is refused while a review is under review and not handed off.
+`post_round` is refused while a Round is under review and not handed off.
 To change it in place, post again with `replaces` set to its `review_id`. Do
 that only when:
 
 - the reviewer asked you, in the chat, for a change during the review, or
-- you realise your Walkthrough is wrong before they have got far into it.
+- you realise your Round is wrong before they have got far into it.
 
 Do not use it to slip in changes nobody asked for. Edits the reviewer did not
 request wait for the Revision Round, so the review does not move under them.
@@ -225,7 +228,7 @@ The replacement is validated like any post and keeps the same `review_id`
 top. Their Comments carry over with `carried_over` set and no Step, since the
 Steps they were raised on are gone. Replacing a Revision Round needs its
 `dispositions` again. It is still scoped against the last round the reviewer
-handed off, not against the Walkthrough you replaced.
+handed off, not against the Round you replaced.
 
 Never call dbn's `/abandon` endpoint: discarding a review is the reviewer's
 decision, not yours.
@@ -234,12 +237,12 @@ decision, not yours.
 
 A review that ends this way — the reviewer handing off having raised nothing — is
 already concluded; dbn treats `fetch_results` reporting "complete" as the end of
-the loop. There is nothing more you must do, and your next `post_walkthrough`
+the loop. There is nothing more you must do, and your next `post_round`
 starts a new review with a new `review_id`, not a Revision Round of this one.
 
 For any other ending — you decide to stop, or the reviewer declines everything and
 you will post no further round — call `conclude` with the `review_id` from
-`post_walkthrough`. Concluding does not discard anything; it tells dbn the review
-is over so it can release the daemon it started for you. A `post_walkthrough`
+`post_round`. Concluding does not discard anything; it tells dbn the review
+is over so it can release the daemon it started for you. A `post_round`
 after that starts a new review with a new `review_id`. A review you never
 conclude just leaves the daemon holding it, which is untidy, not harmful.

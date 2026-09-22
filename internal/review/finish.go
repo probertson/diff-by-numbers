@@ -32,22 +32,22 @@ func (s *Session) stepStatus(step int) StepStatus {
 }
 
 func (s *Session) stepStatuses() []StepStatus {
-	statuses := make([]StepStatus, len(s.walkthrough.Steps))
+	statuses := make([]StepStatus, len(s.current.Steps))
 	for i := range statuses {
 		statuses[i] = s.stepStatus(i + 1)
 	}
 	return statuses
 }
 
-// Finish completes the Walkthrough. It refuses while any Changed Line is
+// Finish hands off the Round. It refuses while any Changed Line is
 // unaccounted for — an invariant the post-time coverage check already
 // guarantees, re-asserted here so the finish boundary stays honest if that ever
 // weakens.
 func (s *Session) Finish() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to hand off")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to hand off")
 	}
-	if rejection := s.ledger.validateCoverage(s.walkthrough.Steps); rejection != nil {
+	if rejection := s.ledger.validateCoverage(s.current.Steps); rejection != nil {
 		return rejection
 	}
 	s.finished = true
@@ -60,8 +60,8 @@ func (s *Session) Finish() error {
 // thought better of it is not locked out, and the daemon knows the review is
 // live again.
 func (s *Session) Reopen() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to resume")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to resume")
 	}
 	s.finished = false
 	s.concluded = false
@@ -73,8 +73,8 @@ func (s *Session) Reopen() error {
 // idempotent; concluding an id that is not the review under review is refused, so
 // a stale reference cannot end the wrong review.
 func (s *Session) Conclude(id string) error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no review to conclude")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no review to conclude")
 	}
 	if id != s.id {
 		return reject(RejectedUnknownReview,
@@ -94,11 +94,11 @@ func (s *Session) isConcluded() bool {
 // Concluded reports whether the posted review is over. It is false when nothing
 // is posted: there is no review to have concluded.
 func (s *Session) Concluded() bool {
-	return s.walkthrough != nil && s.isConcluded()
+	return s.current != nil && s.isConcluded()
 }
 
 // Active reports whether a posted review still needs the daemon — posted and not
 // yet concluded. It is what the daemon consults to decide it may exit.
 func (s *Session) Active() bool {
-	return s.walkthrough != nil && !s.isConcluded()
+	return s.current != nil && !s.isConcluded()
 }

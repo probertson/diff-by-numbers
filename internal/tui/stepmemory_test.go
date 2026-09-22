@@ -82,7 +82,7 @@ func TestLeavingAStepDropsASelection(t *testing.T) {
 	}
 }
 
-func TestANewWalkthroughForgetsHowStepsWereLeft(t *testing.T) {
+func TestANewRoundForgetsHowStepsWereLeft(t *testing.T) {
 	step := ackStep()
 	m := press(press(memoryModel(t, step), "down"), "x")
 	m = arrive(m, 1, 2, otherStep())
@@ -90,13 +90,13 @@ func TestANewWalkthroughForgetsHowStepsWereLeft(t *testing.T) {
 	m = arrive(m, 2, 1, step) // a Revision Round, back on Step 1
 
 	if m.cursor.isExpanded(0) || m.cursor.cursor != 0 {
-		t.Errorf("expected Step 1 fresh in the new Walkthrough, got cursor %d, expanded %v", m.cursor.cursor, m.cursor.isExpanded(0))
+		t.Errorf("expected Step 1 fresh in the new Round, got cursor %d, expanded %v", m.cursor.cursor, m.cursor.isExpanded(0))
 	}
 }
 
-func TestARestartedDaemonsWalkthroughForgetsHowStepsWereLeft(t *testing.T) {
+func TestARestartedDaemonsRoundForgetsHowStepsWereLeft(t *testing.T) {
 	// A fresh daemon counts its postings from the start again, so the same posting
-	// number under a different review id is still a different Walkthrough.
+	// number under a different review id is still a different Round.
 	step := ackStep()
 	m := press(press(memoryModel(t, step), "down"), "x")
 	m = arrive(m, 1, 2, otherStep())

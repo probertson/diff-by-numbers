@@ -12,7 +12,7 @@ import (
 // revision of the changes under review, the same baseline the Changed Lines are
 // derived from. It is exported so a caller can resolve it once and cache it: the
 // before-side is an immutable committed blob, so nothing about it changes while a
-// Walkthrough is under review.
+// Round is under review.
 func MergeBase(root, baseRef string) (string, error) {
 	return mergeBase(root, baseRef)
 }

@@ -17,7 +17,7 @@ func raise(t *testing.T, s *review.Session, first, last int, note string) review
 
 func TestARaisedCommentCarriesItsAnchorAndNote(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	comment := raise(t, session, 20, 22, "cap this retry at 3 attempts")
@@ -35,7 +35,7 @@ func TestARaisedCommentCarriesItsAnchorAndNote(t *testing.T) {
 
 func TestSeveralCommentsCanBeRaisedOnOneStepAndListed(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	raise(t, session, 20, 20, "first")
@@ -52,7 +52,7 @@ func TestSeveralCommentsCanBeRaisedOnOneStepAndListed(t *testing.T) {
 
 func TestACommentCanBeWithdrawn(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 	comment := raise(t, session, 20, 22, "reconsidered")
 
@@ -66,7 +66,7 @@ func TestACommentCanBeWithdrawn(t *testing.T) {
 
 func TestWithdrawingAnUnknownCommentIsRejected(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	err := session.WithdrawComment(999)
 
@@ -128,12 +128,12 @@ func TestFinishReportsEverythingTheAgentNeedsToReground(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !results.Finished {
-		t.Error("expected the Walkthrough to report finished")
+		t.Error("expected the Round to report finished")
 	}
 	if len(results.Comments) != 1 || results.Comments[0].Note != "narrow this" {
 		t.Errorf("expected the Comment in the results, got %+v", results.Comments)
 	}
-	if results.Brief.Ask == "" {
+	if results.Brief.Goal == "" {
 		t.Error("expected the Brief in the results so the agent can re-ground itself")
 	}
 	if len(results.StepReports) != 3 {
@@ -143,7 +143,7 @@ func TestFinishReportsEverythingTheAgentNeedsToReground(t *testing.T) {
 
 func TestACommentNoteCanBeEdited(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 	comment := raise(t, session, 20, 22, "original")
 
@@ -159,16 +159,16 @@ func TestACommentNoteCanBeEdited(t *testing.T) {
 
 func TestEditingAnUnknownCommentIsRejected(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	err := session.EditComment(999, "x")
 
 	assertRejected(t, err, review.RejectedNoSuchComment)
 }
 
-func TestAFinishedWalkthroughCanBeReopenedToAddMore(t *testing.T) {
+func TestAFinishedRoundCanBeReopenedToAddMore(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)

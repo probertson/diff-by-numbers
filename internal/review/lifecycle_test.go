@@ -18,8 +18,8 @@ func minter(ids ...string) func() string {
 	}
 }
 
-func labeledWalkthrough(label string, steps []review.Step) review.Walkthrough {
-	w := appWalkthrough(steps, nil)
+func labeledRound(label string, steps []review.Step) review.Round {
+	w := appRound(steps, nil)
 	w.Label = label
 	return w
 }
@@ -28,7 +28,7 @@ func TestANewReviewIsAssignedAnID(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver, review.WithIDMinter(minter("rev-1")))
 
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 
 	if got := session.ReviewID(); got != "rev-1" {
 		t.Errorf("expected the minted id rev-1, got %q", got)
@@ -38,11 +38,11 @@ func TestANewReviewIsAssignedAnID(t *testing.T) {
 func TestARevisionRoundKeepsTheSameID(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver, review.WithIDMinter(minter("rev-1", "rev-2")))
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	handOffWithAComment(t, session)
 
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(4, 4)}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil)))
 
 	if got := session.ReviewID(); got != "rev-1" {
 		t.Errorf("expected the id to persist across a Revision Round, got %q", got)
@@ -53,7 +53,7 @@ func TestTheAgentLabelIsCarried(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 
-	mustPost(t, session, labeledWalkthrough("auth refactor", []review.Step{appStep(1, 3)}))
+	mustPost(t, session, labeledRound("auth refactor", []review.Step{appStep(1, 3)}))
 
 	if got := session.Label(); got != "auth refactor" {
 		t.Errorf("expected the label to be carried, got %q", got)
@@ -63,11 +63,11 @@ func TestTheAgentLabelIsCarried(t *testing.T) {
 func TestALabelSurvivesARevisionThatOmitsIt(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, labeledWalkthrough("auth refactor", []review.Step{appStep(1, 3)}))
+	mustPost(t, session, labeledRound("auth refactor", []review.Step{appStep(1, 3)}))
 	handOffWithAComment(t, session)
 
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(4, 4)}, nil))) // no label
+	mustPost(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil))) // no label
 
 	if got := session.Label(); got != "auth refactor" {
 		t.Errorf("expected the label to persist across a Revision Round, got %q", got)
@@ -89,7 +89,7 @@ func TestANewReviewIsActive(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 
 	if !session.Active() {
 		t.Error("expected a freshly posted review to be active")
@@ -174,7 +174,7 @@ func TestConcludeWithoutAReviewIsRejected(t *testing.T) {
 
 	err := session.Conclude("anything")
 
-	assertRejected(t, err, review.RejectedNoWalkthrough)
+	assertRejected(t, err, review.RejectedNoRound)
 }
 
 func TestReopenUnconcludesAZeroCommentFinish(t *testing.T) {
@@ -213,7 +213,7 @@ func TestReopenUndoesAnExplicitConclude(t *testing.T) {
 func TestAbandonLeavesNoActiveReview(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 
 	if err := session.Abandon(); err != nil {
 		t.Fatal(err)
@@ -231,17 +231,17 @@ func TestAbandonLeavesNoActiveReview(t *testing.T) {
 func TestAPostAfterAHandOffWithNothingRaisedStartsANewReview(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver, review.WithIDMinter(minter("rev-1", "rev-2")))
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
 
 	// Only line 3 shown: in a Revision Round, 1 and 2 would be pre-marked and
 	// this would pass.
-	err := session.Post(appWalkthrough([]review.Step{appStep(3, 3)}, nil))
+	err := session.Post(appRound([]review.Step{appStep(3, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	if got := session.ReviewID(); got != "rev-2" {
 		t.Errorf("expected a new review, got id %q", got)
 	}

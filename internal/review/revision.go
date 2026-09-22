@@ -1,6 +1,6 @@
 package review
 
-// A Revision Round is a second Walkthrough posted after a Finish. It re-derives
+// A Revision Round is a Round posted after a Hand Off. It re-derives
 // the full Change Set, pre-marks as shown every Changed Line whose content is
 // unchanged since the previous round (ADR-0007), and accounts for every Comment
 // the previous round raised. All of this lives in memory: restarting the
@@ -43,7 +43,7 @@ type ResolvedDisposition struct {
 // which base it was derived from — and which lines and Opaque Changes the
 // Reviewer was shown.
 type roundState struct {
-	Round
+	RoundSource
 	lines  map[ChangedLine]bool
 	opaque map[fileRef]bool
 }
@@ -65,11 +65,11 @@ func snapshotAll(snapshotter Snapshotter, set ChangeSet) map[string]string {
 
 // captureRound records what this round showed, for the next round to scope
 // against.
-func captureRound(l ledger, round Round) roundState {
+func captureRound(l ledger, round RoundSource) roundState {
 	state := roundState{
-		Round:  round,
-		lines:  map[ChangedLine]bool{},
-		opaque: map[fileRef]bool{},
+		RoundSource: round,
+		lines:       map[ChangedLine]bool{},
+		opaque:      map[fileRef]bool{},
 	}
 	for _, line := range l.lines {
 		state.lines[line] = true
@@ -99,7 +99,7 @@ func captureRound(l ledger, round Round) roundState {
 //
 // Anything that cannot be worked out is simply not pre-marked, which demands the
 // line — the same conservative answer as a daemon restart.
-func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round, earlier roundState) (map[ChangedLine]bool, map[fileRef]bool) {
+func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current RoundSource, earlier roundState) (map[ChangedLine]bool, map[fileRef]bool) {
 	snapshotter, ok := s.deriver.(Snapshotter)
 	if !ok || earlier.Snapshots == nil {
 		return nil, nil
@@ -172,7 +172,7 @@ func (s *Session) preMarkUnchanged(l ledger, set ChangeSet, current Round, earli
 // commit they have not moved at all, and identityMapping says so. If the branch
 // was rebased under the review the base itself changed, and the two bases are
 // diffed exactly as two snapshots are.
-func oldSideMapping(snapshotter Snapshotter, repo Repository, current Round, earlier roundState, forward RoundMapping) RoundMapping {
+func oldSideMapping(snapshotter Snapshotter, repo Repository, current RoundSource, earlier roundState, forward RoundMapping) RoundMapping {
 	previous, had := earlier.Bases[repo.Root]
 	now, have := current.Bases[repo.Root]
 	if !had || !have {
@@ -284,8 +284,8 @@ func (s *Session) Dispositions() []ResolvedDisposition {
 // Comment frees it to be raised again.
 func (s *Session) ReRaise(commentID int, note string) (Comment, error) {
 	if s.finished {
-		return Comment{}, reject(RejectedWalkthroughFinished,
-			"this Walkthrough is handed off; resume it before re-raising")
+		return Comment{}, reject(RejectedRoundHandedOff,
+			"this Round is handed off; resume it before re-raising")
 	}
 	for _, disposition := range s.dispositions {
 		if disposition.Comment.ID != commentID {

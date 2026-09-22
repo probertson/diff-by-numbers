@@ -85,10 +85,8 @@ type StepWire struct {
 }
 
 type BriefWire struct {
-	Ask                string `json:"ask"`
-	Approach           string `json:"approach"`
-	ProvenanceKind     string `json:"provenance_kind"`
-	ProvenanceCitation string `json:"provenance_citation,omitempty"`
+	Goal     string `json:"goal"`
+	Approach string `json:"approach"`
 }
 
 type RepositoryWire struct {
@@ -129,7 +127,7 @@ type ViewWire struct {
 	Finished     bool              `json:"finished"`
 	Concluded    bool              `json:"concluded"`
 	Dispositions []DispositionWire `json:"dispositions,omitempty"`
-	// Replaced says the Walkthrough on screen replaced another in place.
+	// Replaced says the Round on screen replaced another in place.
 	Replaced bool `json:"replaced,omitempty"`
 	// Round is which round this is; PreviousRound the one it is compared with,
 	// 0 in a first round. SincePreviousRound says the code is shaded by what
@@ -174,7 +172,7 @@ type CommentWire struct {
 	// ReRaisedFrom is the previous round's Comment this one disputes, or 0 for a
 	// Comment raised on this round's code.
 	ReRaisedFrom int `json:"re_raised_from,omitempty"`
-	// CarriedOver marks a Comment raised on a Walkthrough the agent has since
+	// CarriedOver marks a Comment raised on a Round the agent has since
 	// replaced in place, which belongs to no Step of this one.
 	CarriedOver bool `json:"carried_over,omitempty"`
 }
@@ -184,15 +182,15 @@ type CommentWire struct {
 // name the resolution they dispute.
 func (comment CommentWire) ReRaised() bool { return comment.ReRaisedFrom != 0 }
 
-// Why a Comment belongs to no Step of the Walkthrough on screen, as Stepless
+// Why a Comment belongs to no Step of the Round on screen, as Stepless
 // reports it.
 const (
 	ReRaised    = "re-raised"
 	CarriedOver = "carried over"
 )
 
-// Stepless says why a Comment belongs to no Step of the Walkthrough on screen —
-// re-raised from an earlier round, or carried over from a Walkthrough since
+// Stepless says why a Comment belongs to no Step of the Round on screen —
+// re-raised from an earlier round, or carried over from a Round since
 // replaced — or "" for a Comment raised on one of its Steps. A re-raise that was
 // also carried over is still a re-raise: that is what the Reviewer needs to
 // know about it.
@@ -237,10 +235,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Posting:  v.Posting,
 		ReviewID: v.ReviewID,
 		Brief: BriefWire{
-			Ask:                v.Brief.Ask,
-			Approach:           v.Brief.Approach,
-			ProvenanceKind:     string(v.Brief.Provenance.Kind),
-			ProvenanceCitation: v.Brief.Provenance.Citation,
+			Goal:     v.Brief.Goal,
+			Approach: v.Brief.Approach,
 		},
 		StepNames: v.StepNames,
 		StepCount: v.StepCount,

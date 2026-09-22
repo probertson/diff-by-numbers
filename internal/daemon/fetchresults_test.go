@@ -27,7 +27,7 @@ func TestFetchResultsSpeaksOfHandingOff(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 
-	postWalkthrough(t, server.URL, minimalWalkthrough(root))
+	postRound(t, server.URL, minimalRound(root))
 
 	waiting := fetchResults(t, server.URL)
 
@@ -54,7 +54,7 @@ func TestFetchResultsCallsAHandOffWithNothingRaisedComplete(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 
-	postWalkthrough(t, server.URL, minimalWalkthrough(root))
+	postRound(t, server.URL, minimalRound(root))
 	httpPost(t, server.URL+"/finish")
 
 	complete := fetchResults(t, server.URL)

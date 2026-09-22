@@ -55,11 +55,11 @@ func sessionDeriving(lines []review.ChangedLine) *review.Session {
 }
 
 func TestAPlanCoveringEveryChangedLineIsAccepted(t *testing.T) {
-	// validWalkthrough's one Excerpt is src/fetch.ts:12-34 (new). Derive lines
+	// validRound's one Excerpt is src/fetch.ts:12-34 (new). Derive lines
 	// wholly inside it.
 	session := sessionDeriving(changed("src/fetch.ts", 20, 25))
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	if err != nil {
 		t.Fatalf("expected the plan to be accepted, got %v", err)
@@ -71,7 +71,7 @@ func TestAPlanLeavingChangedLinesUnshownIsRejectedNamingThem(t *testing.T) {
 	lines := append(changed("src/fetch.ts", 20, 22), review.ChangedLine{File: "src/fetch.ts", Side: review.NewSide, Line: 100})
 	session := sessionDeriving(lines)
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "100")
@@ -82,7 +82,7 @@ func TestUncoveredChangesRejectionPluralizesTheCount(t *testing.T) {
 	// properly: "1 change", never the lazy "change(s)".
 	session := sessionDeriving([]review.ChangedLine{{File: "src/fetch.ts", Side: review.NewSide, Line: 100}})
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "1 change")
@@ -93,13 +93,13 @@ func TestADeletedLineOnTheOldSideMustBeCoveredToo(t *testing.T) {
 	// A deletion the new-side Excerpt cannot cover.
 	session := sessionDeriving([]review.ChangedLine{{File: "src/fetch.ts", Side: review.OldSide, Line: 8}})
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 }
 
 func TestAChangedLineMayBeCoveredByMoreThanOneExcerpt(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// Two Excerpts overlapping the same changed line — allowed, not a complaint.
 	walkthrough.Steps[0].Excerpts = append(walkthrough.Steps[0].Excerpts, review.Excerpt{
 		Repository: "/repos/argus-portal", File: "src/fetch.ts", Side: review.NewSide, FirstLine: 20, LastLine: 40,
@@ -112,7 +112,7 @@ func TestAChangedLineMayBeCoveredByMoreThanOneExcerpt(t *testing.T) {
 }
 
 func TestAStepOverTheBudgetWithoutJustificationIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// One Excerpt spanning many lines, all of them changed.
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "big.ts", Side: review.NewSide, FirstLine: 1, LastLine: 200,
@@ -126,7 +126,7 @@ func TestAStepOverTheBudgetWithoutJustificationIsRejected(t *testing.T) {
 }
 
 func TestAnOversizedStepWithAJustificationIsAccepted(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "big.ts", Side: review.NewSide, FirstLine: 1, LastLine: 200,
 	}
@@ -139,7 +139,7 @@ func TestAnOversizedStepWithAJustificationIsAccepted(t *testing.T) {
 }
 
 func TestReferenceLinesDoNotCountTowardTheBudget(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// A 200-line Excerpt, but only 10 lines are actually changed; the rest are
 	// reference context and must not push the Step over budget.
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
@@ -153,7 +153,7 @@ func TestReferenceLinesDoNotCountTowardTheBudget(t *testing.T) {
 }
 
 func TestLiveCoverageCountsChangedLinesSeenSoFar(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{
 		{
 			Name: "First", Explanation: "first",
@@ -194,7 +194,7 @@ func mustAdvance(t *testing.T, session *review.Session) {
 }
 
 func TestResolvedLinesAreMarkedChangedOrReference(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// Excerpt covers 12-34; only 20-22 actually changed. The rest are reference.
 	session := sessionDeriving(changed("src/fetch.ts", 20, 22))
 	mustPost(t, session, walkthrough)
@@ -227,12 +227,12 @@ type bigStep struct {
 	lines int
 }
 
-// oversizedWalkthrough builds a Walkthrough whose Steps each show one file, and
+// oversizedRound builds a Round whose Steps each show one file, and
 // the Changed Lines that make those Steps the size they claim to be. Both come
 // from here so the two halves cannot drift: a test that derived the file names
 // itself would pass for the wrong reason the moment this helper renamed them.
-func oversizedWalkthrough(steps ...bigStep) (review.Walkthrough, []review.ChangedLine) {
-	walkthrough := validWalkthrough()
+func oversizedRound(steps ...bigStep) (review.Round, []review.ChangedLine) {
+	walkthrough := validRound()
 	walkthrough.Steps = nil
 	var lines []review.ChangedLine
 	for i, step := range steps {
@@ -251,11 +251,11 @@ func oversizedWalkthrough(steps ...bigStep) (review.Walkthrough, []review.Change
 }
 
 // An Authoring Agent used to find oversized Steps one rejected post at a time,
-// re-sending the whole Walkthrough — Brief, every Step, every Excerpt — to learn
+// re-sending the whole Round — Brief, every Step, every Excerpt — to learn
 // about the next one. All of them are present on the first attempt, so all of
 // them are reported on the first attempt.
 func TestEveryOversizedStepIsReportedInOneRejection(t *testing.T) {
-	walkthrough, lines := oversizedWalkthrough(
+	walkthrough, lines := oversizedRound(
 		bigStep{"Wire the flag through", 31},
 		bigStep{"New state on the model, and a new mode", 51},
 		bigStep{"Tests for the new mode", 44},
@@ -277,7 +277,7 @@ func TestEveryOversizedStepIsReportedInOneRejection(t *testing.T) {
 // Twenty Steps in, "Step 6" alone means counting positions in a JSON array to
 // find the one to fix.
 func TestAnOversizedStepIsNamedNotJustNumbered(t *testing.T) {
-	walkthrough, lines := oversizedWalkthrough(bigStep{"New state on the model, and a new mode", 51})
+	walkthrough, lines := oversizedRound(bigStep{"New state on the model, and a new mode", 51})
 	session := sessionDeriving(lines)
 
 	err := session.Post(walkthrough)
@@ -287,7 +287,7 @@ func TestAnOversizedStepIsNamedNotJustNumbered(t *testing.T) {
 }
 
 func TestAJustifiedStepIsLeftOutOfTheOversizedList(t *testing.T) {
-	walkthrough, lines := oversizedWalkthrough(
+	walkthrough, lines := oversizedRound(
 		bigStep{"Justified and huge", 90},
 		bigStep{"Unjustified and huge", 44},
 	)
@@ -304,7 +304,7 @@ func TestAJustifiedStepIsLeftOutOfTheOversizedList(t *testing.T) {
 
 // One offender keeps the single-sentence form: a list of one reads worse.
 func TestASingleOversizedStepUsesTheOneLineForm(t *testing.T) {
-	walkthrough, lines := oversizedWalkthrough(bigStep{"Only me", 51})
+	walkthrough, lines := oversizedRound(bigStep{"Only me", 51})
 	session := sessionDeriving(lines)
 
 	err := session.Post(walkthrough)
@@ -315,7 +315,7 @@ func TestASingleOversizedStepUsesTheOneLineForm(t *testing.T) {
 }
 
 func TestStepsWithinTheBudgetAreNotRejected(t *testing.T) {
-	walkthrough, lines := oversizedWalkthrough(
+	walkthrough, lines := oversizedRound(
 		bigStep{"Comfortably small", 10},
 		bigStep{"Right on the budget", 30},
 	)

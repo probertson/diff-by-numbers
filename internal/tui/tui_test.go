@@ -51,9 +51,7 @@ func newNote(width int) textarea.Model {
 	return ta
 }
 
-func TestBriefWrapsTheSourceCitation(t *testing.T) {
-	// A long provenance citation used to run off the right edge because the Source
-	// line was written without wrapping, unlike Goal and Approach.
+func TestBriefWrapsALongGoal(t *testing.T) {
 	const width = 60
 	m := model{
 		width:    width,
@@ -61,10 +59,8 @@ func TestBriefWrapsTheSourceCitation(t *testing.T) {
 		view: &daemon.ViewWire{
 			Posted: true,
 			Brief: daemon.BriefWire{
-				Ask:                "short ask",
-				Approach:           "short approach",
-				ProvenanceKind:     "stated",
-				ProvenanceCitation: "the session on 2026-09-01 where the reviewer asked for the retry backoff to be threaded through every caller of the fetch layer",
+				Goal:     "the session on 2026-09-01 where the reviewer asked for the retry backoff to be threaded through every caller of the fetch layer",
+				Approach: "short approach",
 			},
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
 			StepNames:    []string{"one"},
@@ -75,7 +71,7 @@ func TestBriefWrapsTheSourceCitation(t *testing.T) {
 	out := m.brief()
 
 	if over := widestLine(out); over > width {
-		t.Errorf("the Source citation is %d cells wide, over the %d viewport — it did not wrap:\n%s", over, width, out)
+		t.Errorf("the Goal is %d cells wide, over the %d viewport — it did not wrap:\n%s", over, width, out)
 	}
 }
 
@@ -847,7 +843,7 @@ func TestOverviewShowsAnsweredCommentsWithTheirResponse(t *testing.T) {
 		viewport: viewport.New(80, 40),
 		view: &daemon.ViewWire{
 			Posted: true,
-			Brief:  daemon.BriefWire{Ask: "ask", Approach: "approach", ProvenanceKind: "stated", ProvenanceCitation: "chat"},
+			Brief:  daemon.BriefWire{Goal: "ask", Approach: "approach"},
 			Dispositions: []daemon.DispositionWire{
 				{CommentID: 1, Status: "addressed", Note: "cap the retry", Response: "capped at 3"},
 				{CommentID: 2, Status: "answered", Note: "why this timeout?", Response: "the upstream SLA is 5s"},

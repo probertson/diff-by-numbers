@@ -66,7 +66,7 @@ func TestStatusReportsNoActiveReviewOnAFreshDaemon(t *testing.T) {
 	reported := status(t, server.URL)
 
 	if reported.ActiveReview {
-		t.Error("a daemon with no Walkthrough posted reports a review active")
+		t.Error("a daemon with no Round posted reports a review active")
 	}
 	if reported.Version != buildinfo.Version() {
 		t.Errorf("status reports version %q, want the build stamp %q", reported.Version, buildinfo.Version())
@@ -77,16 +77,16 @@ func TestStatusReportsNoActiveReviewOnAFreshDaemon(t *testing.T) {
 }
 
 // The active-review flag is what stops `dbn update` restarting a daemon out from
-// under a Reviewer mid-Walkthrough, so it has to follow the review's real life.
+// under a Reviewer mid-Round, so it has to follow the review's real life.
 func TestStatusReportsAnActiveReviewUntilItConcludes(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
 
-	id := postWalkthrough(t, server.URL, minimalWalkthrough(root)).ReviewID
+	id := postRound(t, server.URL, minimalRound(root)).ReviewID
 
 	if !status(t, server.URL).ActiveReview {
-		t.Error("a posted Walkthrough does not report as an active review")
+		t.Error("a posted Round does not report as an active review")
 	}
 
 	concluded := decodeResult[concludeOutcome](t, callTool(t, server.URL, "conclude", map[string]any{"review_id": id}))

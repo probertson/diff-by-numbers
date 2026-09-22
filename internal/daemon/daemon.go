@@ -488,7 +488,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		fmt.Fprintln(w, "Walkthrough abandoned")
+		fmt.Fprintln(w, "Review dismissed")
 	})
 	return d.withActivity(mux)
 }
@@ -532,23 +532,23 @@ func (d *Daemon) mcpServer() *mcp.Server {
 	}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "post_walkthrough",
-		Description: "Post a Walkthrough of your changes for the Reviewer to work through. " +
+		Name: "post_round",
+		Description: "Post a Round of your changes for the Reviewer to work through: a Brief and ordered Steps. " +
 			"Send it once and completely: the Reviewer navigates it without involving you. " +
 			"Order Steps so each is comprehensible given only the Steps before it, and send " +
 			"line ranges rather than code — dbn reads the working tree itself. " +
 			"It returns a review id; record it, and pass it to conclude when the review is done. " +
 			"To update a review still under review, post again with replaces set to its id.",
-	}, d.postWalkthrough)
+	}, d.postRound)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "describe_changes",
 		Description: "Describe the changes under review as dbn derives them, without posting: per " +
-			"file, its status and the Changed Line ranges a Walkthrough must cover, and the edits " +
+			"file, its status and the Changed Line ranges a Round must cover, and the edits " +
 			"whose removed lines ride along with their replacement. It is worked out exactly as " +
-			"post_walkthrough checks coverage, including what a Revision Round has already shown, " +
+			"post_round checks coverage, including what a Revision Round has already shown, " +
 			"so plan Excerpts from it rather than from git diff. It changes nothing; call it " +
-			"before planning a Walkthrough and again before a Revision Round.",
+			"before planning round 1 and again before a Revision Round.",
 	}, d.describeChanges)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -571,7 +571,7 @@ func (d *Daemon) mcpServer() *mcp.Server {
 	return server
 }
 
-func (d *Daemon) postWalkthrough(_ context.Context, _ *mcp.CallToolRequest, in wireWalkthrough) (*mcp.CallToolResult, postResult, error) {
+func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRound) (*mcp.CallToolResult, postResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -633,14 +633,14 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 		return nil, fetchResult{}, err
 	}
 
-	message := "no Walkthrough is posted; post one before asking how the review went"
+	message := "no Round is posted; post one before asking how the review went"
 	switch {
 	case results.Posted && results.Finished && len(results.Comments) == 0:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
 	case results.Posted && results.Finished:
 		message = "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
 	case results.Posted:
-		message = "the Reviewer has not handed off the Walkthrough yet"
+		message = "the Reviewer has not handed off the Round yet"
 	}
 
 	return nil, toFetchResult(results, message), nil

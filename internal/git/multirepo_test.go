@@ -23,12 +23,12 @@ func repoOn(t *testing.T, branch, initial string) string {
 	return root
 }
 
-// TestAWalkthroughSpansTwoRepositoriesWithDifferentDefaults derives a Change Set
+// TestARoundSpansTwoRepositoriesWithDifferentDefaults derives a Change Set
 // across two repositories whose default branches differ, and drives it through a
 // real review Session. dbn is never told a "session root" and runs git only in
 // the roots the Change Set names — so the two repos need share no parent, and the
 // test's own working directory is irrelevant.
-func TestAWalkthroughSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
+func TestARoundSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 	// Both repos have a file at the same relative path, so coverage can only pass
 	// if it distinguishes them by repository.
 	portal := repoOn(t, "main", "one\ntwo\n")
@@ -37,11 +37,10 @@ func TestAWalkthroughSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 	service := repoOn(t, "trunk", "alpha\n")
 	write(t, service, "app.ts", "alpha\nbeta\ngamma\n") // adds new-side lines 2, 3
 
-	walkthrough := review.Walkthrough{
+	walkthrough := review.Round{
 		Brief: review.Brief{
-			Ask:        "Change both repositories at once",
-			Approach:   "A Step per repository",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session x"},
+			Goal:     "Change both repositories at once",
+			Approach: "A Step per repository",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
 			{Root: portal, Base: "main"},
@@ -62,7 +61,7 @@ func TestAWalkthroughSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
 
 	if err := session.Post(walkthrough); err != nil {
-		t.Fatalf("expected a two-repository Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected a two-repository Round to be accepted, got %v", err)
 	}
 
 	view := session.View()
@@ -84,10 +83,9 @@ func TestCoverageDistinguishesSameNamedFilesAcrossRepositories(t *testing.T) {
 
 	// Both Steps excerpt the *portal's* app.ts; the service's change is covered by
 	// nothing, even though a same-named file was shown.
-	walkthrough := review.Walkthrough{
+	walkthrough := review.Round{
 		Brief: review.Brief{
-			Ask: "x", Approach: "y",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"},
+			Goal: "x", Approach: "y",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
 			{Root: portal, Base: "main"},

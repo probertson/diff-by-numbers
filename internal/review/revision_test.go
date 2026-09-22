@@ -99,7 +99,7 @@ func (m fakeMapping) PathIn(file string) string {
 // an edit on disk, so the same line number can carry different content per round.
 type textResolver struct{ text map[string]string }
 
-func (r *textResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
+func (r *textResolver) Resolve(e review.Excerpt, _ review.RoundSource) ([]review.Line, error) {
 	if e.Side == review.OldSide {
 		return nil, fmt.Errorf("old side unavailable")
 	}
@@ -122,9 +122,9 @@ func appStep(first, last int) review.Step {
 	}
 }
 
-func appWalkthrough(steps []review.Step, dispositions []review.Disposition) review.Walkthrough {
-	return review.Walkthrough{
-		Brief:        review.Brief{Ask: "x", Approach: "y", Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"}},
+func appRound(steps []review.Step, dispositions []review.Disposition) review.Round {
+	return review.Round{
+		Brief:        review.Brief{Goal: "x", Approach: "y"},
 		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: revRepo, Base: "main"}}},
 		Steps:        steps,
 		Dispositions: dispositions,
@@ -139,19 +139,19 @@ func changedApp(first, last int) []review.ChangedLine {
 	return lines
 }
 
-// finishFirstRound posts a first Walkthrough and finishes it, leaving the Session
+// finishFirstRound posts a first Round and finishes it, leaving the Session
 // ready for a Revision Round over whatever the deriver is then set to.
 func finishFirstRound(t *testing.T, deriver *roundDeriver, steps []review.Step) *review.Session {
 	t.Helper()
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough(steps, nil))
+	mustPost(t, session, appRound(steps, nil))
 	if err := session.Finish(); err != nil {
 		t.Fatalf("expected the first round to finish, got %v", err)
 	}
 	return session
 }
 
-// finishRound1 is the common case: a first Walkthrough over app.ts:1-3. It
+// finishRound1 is the common case: a first Round over app.ts:1-3. It
 // returns the deriver so the caller can re-derive a different Change Set, and
 // say what moved, for round two.
 func finishRound1(t *testing.T) (*review.Session, *roundDeriver) {
@@ -168,7 +168,7 @@ func TestARevisionRoundIsAcceptedAfterFinishAndScopedToWhatMoved(t *testing.T) {
 	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only the moved line is enough: 1-3 are pre-marked as shown.
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(4, 4)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(4, 4)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected a Revision Round covering only what moved to be accepted, got %v", err)
@@ -188,7 +188,7 @@ func TestARevisionRoundStillDemandsTheLinesThatMoved(t *testing.T) {
 	deriver.touched = map[string]bool{"app.ts:4": true}
 
 	// Covering only a pre-shown line leaves the moved line 4 unaccounted for.
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "4")
@@ -200,7 +200,7 @@ func TestARevisionRoundDemandsOnlyTheLineTheMappingSaysWasTouched(t *testing.T) 
 	deriver.touched = map[string]bool{"app.ts:2": true}
 
 	// Line 2 moved, 1 and 3 did not: covering only line 2 suffices.
-	if err := session.Post(revising(appWalkthrough([]review.Step{appStep(2, 2)}, nil))); err != nil {
+	if err := session.Post(revising(appRound([]review.Step{appStep(2, 2)}, nil))); err != nil {
 		t.Fatalf("expected covering the content-changed line to be accepted, got %v", err)
 	}
 	if seen := session.View().Coverage.Seen; seen != 2 {
@@ -208,11 +208,11 @@ func TestARevisionRoundDemandsOnlyTheLineTheMappingSaysWasTouched(t *testing.T) 
 	}
 }
 
-func TestAFirstWalkthroughRejectsDispositions(t *testing.T) {
+func TestAFirstRoundRejectsDispositions(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 3)},
+	err := session.Post(appRound([]review.Step{appStep(1, 3)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
@@ -223,7 +223,7 @@ func finishRound1WithComment(t *testing.T) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestARevisionRoundMustDisposeEveryPreviousComment(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)}, nil)) // no dispositions
+	err := session.Post(appRound([]review.Step{appStep(4, 4)}, nil)) // no dispositions
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
 	assertDetailContains(t, err, "1")
@@ -250,7 +250,7 @@ func TestADeclinedDispositionNeedsAReason(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
+	err := session.Post(appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined}}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
@@ -260,7 +260,7 @@ func TestAnAnsweredDispositionNeedsAResponse(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
+	err := session.Post(appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAnswered}}))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
@@ -271,7 +271,7 @@ func TestAnAnsweredDispositionCarriesItsResponse(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAnswered, Response: "it guards the retry loop"}}))
 
 	got := session.View().Dispositions
@@ -284,7 +284,7 @@ func TestAnAddressedDispositionMayCarryAResponse(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed, Response: "fixed, and the twin in retry.ts too"}}))
 
 	got := session.View().Dispositions
@@ -297,7 +297,7 @@ func TestADispositionForAnUnknownCommentIsRejected(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(4, 4)},
+	err := session.Post(appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{
 			{CommentID: 1, Status: review.DispositionAddressed},
 			{CommentID: 99, Status: review.DispositionAddressed},
@@ -310,7 +310,7 @@ func TestADispositionForAnUnknownCommentIsRejected(t *testing.T) {
 func TestDispositionsAreVisibleBeforeAnyCode(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined, Response: "the current behaviour is intended"}}))
 
 	view := session.View() // position 0 — the Brief, before any code
@@ -325,7 +325,7 @@ func TestDispositionsAreVisibleBeforeAnyCode(t *testing.T) {
 func TestADeclinedCommentCanBeReRaised(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionDeclined, Response: "intended"}}))
 
 	comment, err := session.ReRaise(1, "")
@@ -355,7 +355,7 @@ func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 2)}
 	resolver := &textResolver{text: map[string]string{"app.ts:1": "}", "app.ts:2": "keep"}}
 	session := review.NewSession(resolver, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 2)}, nil))
 	handOffWithAComment(t, session)
 
 	// The fix adds a brand-new line 3 whose text collides with line 1's "}" —
@@ -364,7 +364,7 @@ func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 	resolver.text["app.ts:3"] = "}"
 	deriver.touched = map[string]bool{"app.ts:3": true}
 
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "3")
@@ -373,7 +373,7 @@ func TestABrandNewLineIsDemandedEvenWhereItsTextRepeats(t *testing.T) {
 func TestOnlyADeclinedCommentCanBeReRaised(t *testing.T) {
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}))
 
 	_, err := session.ReRaise(1, "")
@@ -395,12 +395,12 @@ func (d *failingSnapshotDeriver) Snapshot(string) (string, error) {
 func TestAFailedSnapshotPreMarksNothing(t *testing.T) {
 	deriver := &failingSnapshotDeriver{roundDeriver{lines: changedApp(1, 3)}}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	handOffWithAComment(t, session)
 
 	// Round 2 moves nothing at all. With a working snapshot every line would be
 	// pre-marked; without one the agent must show them again.
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 1)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 1)}, nil)))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 }
@@ -410,7 +410,7 @@ func roundWith(t *testing.T, status review.DispositionStatus) *review.Session {
 	t.Helper()
 	session, deriver := finishRound1WithComment(t)
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(4, 4)},
+	mustPost(t, session, appRound([]review.Step{appStep(4, 4)},
 		[]review.Disposition{{CommentID: 1, Status: status, Response: "because"}}))
 	return session
 }
@@ -504,7 +504,7 @@ func TestAReRaiseWithNoFollowUpKeepsTheOriginalNote(t *testing.T) {
 }
 
 // handOffWithAComment raises one Comment on the first line of code the
-// Walkthrough shows, then hands the round off. A Comment is what keeps a review
+// Round shows, then hands the round off. A Comment is what keeps a review
 // going into a Revision Round: a hand-off with nothing raised ends the review,
 // and the next post starts a new one.
 func handOffWithAComment(t *testing.T, session *review.Session) {
@@ -529,22 +529,22 @@ func handOffWithAComment(t *testing.T, session *review.Session) {
 			}
 		}
 	}
-	t.Fatal("the Walkthrough shows no line to raise a Comment on")
+	t.Fatal("the Round shows no line to raise a Comment on")
 }
 
 // revising answers the one Comment handOffWithAComment raised, as a Revision
 // Round must.
-func revising(w review.Walkthrough) review.Walkthrough {
+func revising(w review.Round) review.Round {
 	w.Dispositions = append(w.Dispositions, review.Disposition{CommentID: 1, Status: review.DispositionAddressed})
 	return w
 }
 
-// keptOpenFirstRound posts a first Walkthrough and hands it off with a Comment,
+// keptOpenFirstRound posts a first Round and hands it off with a Comment,
 // so the next post is a Revision Round of it.
 func keptOpenFirstRound(t *testing.T, deriver *roundDeriver, steps []review.Step) *review.Session {
 	t.Helper()
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough(steps, nil))
+	mustPost(t, session, appRound(steps, nil))
 	handOffWithAComment(t, session)
 	return session
 }

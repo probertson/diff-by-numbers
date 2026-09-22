@@ -11,7 +11,7 @@ import (
 
 // TestEditingAFileMidReviewLeavesThePostedVersionOnScreen drives real components
 // — the git deriver, the working-tree resolver and the review core — to confirm
-// that a file edited after a Walkthrough is accepted goes on being shown, and
+// that a file edited after a Round is accepted goes on being shown, and
 // anchored, as it was posted, with the edit flagged rather than hidden.
 func TestEditingAFileMidReviewLeavesThePostedVersionOnScreen(t *testing.T) {
 	root := newRepo(t) // commits app.ts = "one\ntwo\nthree\n" on main
@@ -20,10 +20,9 @@ func TestEditingAFileMidReviewLeavesThePostedVersionOnScreen(t *testing.T) {
 	write(t, root, "other.ts", "x\ny\n")
 	run(t, root, "add", ".")
 
-	walkthrough := review.Walkthrough{
+	walkthrough := review.Round{
 		Brief: review.Brief{
-			Ask: "x", Approach: "y",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"},
+			Goal: "x", Approach: "y",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{
@@ -33,7 +32,7 @@ func TestEditingAFileMidReviewLeavesThePostedVersionOnScreen(t *testing.T) {
 	}
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
 	if err := session.Post(walkthrough); err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 
 	// The agent edits app.ts while the review is open: line 4 is rewritten and a

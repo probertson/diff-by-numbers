@@ -88,11 +88,10 @@ func TestAnOldSideExcerptNamingTheOldPathRendersTheBeforeSide(t *testing.T) {
 	run(t, root, "add", "-A")
 
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
-	err := session.Post(review.Walkthrough{
+	err := session.Post(review.Round{
 		Brief: review.Brief{
-			Ask:        "Move the fetch layer under src/ and drop the dead line",
-			Approach:   "One move, one deletion",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
+			Goal:     "Move the fetch layer under src/ and drop the dead line",
+			Approach: "One move, one deletion",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

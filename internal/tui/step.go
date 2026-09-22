@@ -13,7 +13,7 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// fileLabel names a file for a Step header or manifest. When a Walkthrough spans
+// fileLabel names a file for a Step header or manifest. When a Round spans
 // more than one repository the file alone is ambiguous, so it is prefixed with
 // the repository's base name; with a single repository that would be noise.
 func fileLabel(repository, file string, showRepo bool) string {

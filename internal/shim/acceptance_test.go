@@ -35,7 +35,7 @@ func TestShimAutoStartsADaemonThenServesTheTools(t *testing.T) {
 	ctx := context.Background()
 	session := connectShim(t, ctx, bin, env)
 
-	outcome := post(t, ctx, session, minimalWalkthrough(root))
+	outcome := post(t, ctx, session, minimalRound(root))
 
 	if !outcome.Accepted {
 		t.Fatalf("expected the post via the shim to be accepted, got %s", outcome.summary())
@@ -60,7 +60,7 @@ func TestShimConnectsToAnExistingDaemonRatherThanStartingASecond(t *testing.T) {
 	startServe(t, bin, env, port)
 	ctx := context.Background()
 	direct := connectHTTP(t, ctx, port)
-	posted := post(t, ctx, direct, minimalWalkthrough(root))
+	posted := post(t, ctx, direct, minimalRound(root))
 	direct.Close()
 	if !posted.Accepted {
 		t.Fatalf("precondition: direct post rejected: %s", posted.summary())
@@ -84,7 +84,7 @@ func TestDaemonSurvivesShimExitWhileAReviewIsUnconcluded(t *testing.T) {
 
 	ctx := context.Background()
 	session := connectShim(t, ctx, bin, env)
-	outcome := post(t, ctx, session, minimalWalkthrough(root))
+	outcome := post(t, ctx, session, minimalRound(root))
 	if !outcome.Accepted {
 		t.Fatalf("expected the post to be accepted, got %s", outcome.summary())
 	}
@@ -109,7 +109,7 @@ func TestDaemonSelfExitsOnceAReviewConcludesAndTheSessionEnds(t *testing.T) {
 
 	ctx := context.Background()
 	session := connectShim(t, ctx, bin, env)
-	outcome := post(t, ctx, session, minimalWalkthrough(root))
+	outcome := post(t, ctx, session, minimalRound(root))
 	if !outcome.Accepted {
 		t.Fatalf("expected the post to be accepted, got %s", outcome.summary())
 	}
@@ -272,9 +272,9 @@ type fetchOutcome struct {
 
 func post(t *testing.T, ctx context.Context, session *mcp.ClientSession, wt map[string]any) postOutcome {
 	t.Helper()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "post_walkthrough", Arguments: wt})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "post_round", Arguments: wt})
 	if err != nil {
-		t.Fatalf("post_walkthrough failed: %v", err)
+		t.Fatalf("post_round failed: %v", err)
 	}
 	return decode[postOutcome](t, result)
 }
@@ -343,12 +343,11 @@ func featureRepo(t *testing.T) string {
 	return root
 }
 
-func minimalWalkthrough(root string) map[string]any {
+func minimalRound(root string) map[string]any {
 	return map[string]any{
 		"brief": map[string]any{
-			"ask":        "ask",
-			"approach":   "approach",
-			"provenance": map[string]any{"kind": "stated", "citation": "session-x"},
+			"goal":     "goal",
+			"approach": "approach",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{

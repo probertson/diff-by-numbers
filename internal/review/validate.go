@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-// validate checks that a Walkthrough is structurally well-formed. It deliberately
+// validate checks that a Round is structurally well-formed. It deliberately
 // says nothing about whether Excerpt ranges resolve against real files or whether
 // coverage is complete: those need the Change Set derived from git, which arrives
 // with plan validation.
-func validate(w Walkthrough) *Rejection {
+func validate(w Round) *Rejection {
 	if rejection := validateChangeSet(w.ChangeSet); rejection != nil {
 		return rejection
 	}
@@ -51,7 +51,7 @@ func validateAcknowledgementUniqueness(steps []Step, changeSet ChangeSet) *Rejec
 
 func validateSteps(steps []Step, changeSet ChangeSet) *Rejection {
 	if len(steps) == 0 {
-		return reject(RejectedMalformedStep, "the Walkthrough contains no Steps")
+		return reject(RejectedMalformedStep, "the Round contains no Steps")
 	}
 	for i, step := range steps {
 		position := i + 1
@@ -174,32 +174,20 @@ func validateChangeSet(c ChangeSet) *Rejection {
 }
 
 func validateBrief(b Brief) *Rejection {
-	if b.Ask == "" {
+	if b.Goal == "" {
 		return reject(RejectedMalformedBrief,
-			"the Brief does not say what was asked for, which is the context the Reviewer cannot reconstruct from the diff")
+			"the Brief does not give the Goal, which is the context the Reviewer cannot reconstruct from the diff; round 1 must state it")
 	}
 	if b.Approach == "" {
 		return reject(RejectedMalformedBrief,
 			"the Brief does not state the approach taken, so the Reviewer cannot judge the approach separately from the code")
 	}
-	switch b.Provenance.Kind {
-	case ProvenanceInferred:
-		return nil
-	case ProvenanceStated:
-		if b.Provenance.Citation == "" {
-			return reject(RejectedMalformedBrief,
-				"stated Provenance must cite its source, otherwise the claim to know the intent is only an assertion")
-		}
-		return nil
-	default:
-		return reject(RejectedMalformedBrief,
-			"the Brief must declare Provenance as %q or %q", ProvenanceStated, ProvenanceInferred)
-	}
+	return nil
 }
 
 // validateFilePath keeps an Excerpt inside the repository that contains it. dbn
 // reads these paths off disk to render them, so an unchecked path is an
-// arbitrary file read driven by whatever posted the Walkthrough.
+// arbitrary file read driven by whatever posted the Round.
 func validateFilePath(file, where string) *Rejection {
 	if filepath.IsAbs(file) {
 		return reject(RejectedMalformedStep,

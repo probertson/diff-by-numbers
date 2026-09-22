@@ -21,7 +21,7 @@ type changesWithin struct {
 //
 // It is remembered for the round, under key: the round's content cannot change
 // while it is on screen, and the view is drawn every second.
-func (s *Session) changesWithinEdit(key string, removed, added Excerpt, removedFrom, addedFrom Round) changesWithin {
+func (s *Session) changesWithinEdit(key string, removed, added Excerpt, removedFrom, addedFrom RoundSource) changesWithin {
 	if found, ok := s.editChanges[key]; ok {
 		return found
 	}
@@ -47,7 +47,7 @@ func (s *Session) modificationChanges(c Correspondence) changesWithin {
 	return s.changesWithinEdit(key,
 		Excerpt{Repository: c.Repository, File: c.File, Side: OldSide, FirstLine: c.OldFirst, LastLine: c.OldLast},
 		Excerpt{Repository: c.Repository, File: c.File, Side: NewSide, FirstLine: c.NewFirst, LastLine: c.NewLast},
-		s.latest.Round, s.latest.Round)
+		s.latest.RoundSource, s.latest.RoundSource)
 }
 
 // roundEditChanges is what changed inside an edit made since the previous round:
@@ -60,7 +60,7 @@ func (s *Session) roundEditChanges(repository, file, earlierPath string, edit Ro
 	return s.changesWithinEdit(key,
 		Excerpt{Repository: repository, File: earlierPath, Side: NewSide, FirstLine: edit.OldFirst, LastLine: edit.OldFirst + edit.OldCount - 1},
 		Excerpt{Repository: repository, File: file, Side: NewSide, FirstLine: edit.NewFirst, LastLine: edit.NewFirst + edit.NewCount - 1},
-		s.previous.round, s.latest.Round)
+		s.previous.round, s.latest.RoundSource)
 }
 
 func textsOf(lines []Line) []string {

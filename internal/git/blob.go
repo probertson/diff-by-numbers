@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ReadBlob returns the lines of a file as a tree holds it. A Walkthrough's
+// ReadBlob returns the lines of a file as a tree holds it. A Round's
 // after-side is read this way from its Round Snapshot, so what the Reviewer
 // sees is what was posted however the working tree has moved since.
 func ReadBlob(root, tree, file string) ([]string, error) {

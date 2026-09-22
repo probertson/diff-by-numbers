@@ -7,7 +7,7 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// When the agent replaces the Walkthrough under review, the Reviewer is put back
+// When the agent replaces the Round under review, the Reviewer is put back
 // at the Overview and told why, and what became of their Comments.
 
 func carried(n int) []daemon.CommentWire {
@@ -30,7 +30,7 @@ func TestAReplacementIsAnnouncedWithTheCommentsItCarriedOver(t *testing.T) {
 
 	m = replacedBy(m, carried(3))
 
-	if got := m.notice(); got != "The agent replaced this Walkthrough — 3 Comments carried over (l to review them)" {
+	if got := m.notice(); got != "The agent replaced this Round — 3 Comments carried over (l to review them)" {
 		t.Errorf("unexpected notice: %q", got)
 	}
 }
@@ -40,7 +40,7 @@ func TestAReplacementWithNoCommentsIsStillAnnounced(t *testing.T) {
 
 	m = replacedBy(m, nil)
 
-	if got := m.notice(); got != "The agent replaced this Walkthrough" {
+	if got := m.notice(); got != "The agent replaced this Round" {
 		t.Errorf("unexpected notice: %q", got)
 	}
 }
@@ -72,7 +72,7 @@ func TestAReplacementReturnsTheReviewerFromTheEndOfTheReview(t *testing.T) {
 	m = replacedBy(m, nil)
 
 	if m.mode != modeReview {
-		t.Errorf("expected the Reviewer back walking the new Walkthrough, got mode %v", m.mode)
+		t.Errorf("expected the Reviewer back walking the new Round, got mode %v", m.mode)
 	}
 }
 

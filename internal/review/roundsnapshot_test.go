@@ -16,7 +16,7 @@ type treeResolver struct {
 	lengths map[string]int
 }
 
-func (r treeResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r treeResolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	tree := round.Snapshots[e.Repository]
 	if e.LastLine > r.lengths[tree] {
 		return nil, fmt.Errorf("%s has %d lines in %q", e.File, r.lengths[tree], tree)
@@ -49,7 +49,7 @@ func (d *sequenceDeriver) MapBetween(_, _, _ string) (review.RoundMapping, error
 func TestAStepShowsItsCodeFromTheRoundSnapshot(t *testing.T) {
 	resolver := treeResolver{lengths: map[string]int{"tree-1": 100, "": 100}}
 	session := review.NewSession(resolver, &sequenceDeriver{fixedDeriver: fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, trees: []string{"tree-1"}})
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	mustAdvance(t, session)
 
@@ -60,12 +60,12 @@ func TestAStepShowsItsCodeFromTheRoundSnapshot(t *testing.T) {
 
 func TestAPostIsCheckedAgainstTheSnapshotItWillBeShownFrom(t *testing.T) {
 	// The working tree still has every line the Excerpt names, but by the time
-	// the snapshot was taken the file had shrunk to 30: the Walkthrough would be
+	// the snapshot was taken the file had shrunk to 30: the Round would be
 	// shown from a snapshot that cannot satisfy it, so it must be refused.
 	resolver := treeResolver{lengths: map[string]int{"tree-1": 30, "": 100}}
 	session := review.NewSession(resolver, &sequenceDeriver{fixedDeriver: fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, trees: []string{"tree-1"}})
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedUnresolvableExcerpt)
 }
@@ -74,13 +74,13 @@ func TestARejectedPostLeavesTheViewReadingTheRoundOnScreen(t *testing.T) {
 	resolver := treeResolver{lengths: map[string]int{"tree-1": 100, "tree-2": 100}}
 	deriver := &sequenceDeriver{fixedDeriver: fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, trees: []string{"tree-1", "tree-2"}}
 	session := review.NewSession(resolver, deriver)
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
 	// Refused only once its snapshot has been taken: the disposition names a
 	// Comment the first round never raised.
-	misdisposed := validWalkthrough()
+	misdisposed := validRound()
 	misdisposed.Dispositions = []review.Disposition{{CommentID: 7, Status: review.DispositionAddressed}}
 
 	err := session.Post(misdisposed)

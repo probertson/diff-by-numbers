@@ -36,7 +36,7 @@ func NewResolver() *Resolver {
 // Resolve reads the named range as the Round holds it. It refuses rather than
 // approximates: a range the source cannot satisfy is a problem to show the
 // Reviewer, never a partial answer.
-func (r *Resolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r *Resolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	if e.Side == review.OldSide {
 		return r.resolveBefore(e, round)
 	}
@@ -63,7 +63,7 @@ func resolveOnDisk(e review.Excerpt) ([]review.Line, error) {
 }
 
 // resolveBefore reads a before-side range at the round's merge-base.
-func (r *Resolver) resolveBefore(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r *Resolver) resolveBefore(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	base, ok := round.Bases[e.Repository]
 	if !ok {
 		return nil, fmt.Errorf("the before-side of %s cannot be read: no merge-base is known for %s", e.File, e.Repository)

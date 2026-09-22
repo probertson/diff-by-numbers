@@ -32,7 +32,7 @@ func TestARemovedLineAndTheLineInItsPlaceCarryWhatChanged(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	mustPost(t, session, beforeAfterRound(1, 4))
 	mustAdvance(t, session)
 
 	got := emphasisOf(session.View().Step.Excerpts[0].Lines)
@@ -51,9 +51,9 @@ func TestSinceThePreviousRoundAnEditedLineCarriesWhatChanged(t *testing.T) {
 	}
 	resolver := roundTextResolver{first: []string{"call()", "retry(transport, 3)"}, second: []string{"call()", "retry(transport, 5)"}}
 	session := review.NewSession(resolver, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 2)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 2)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 2)}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 2)}, nil)))
 	mustAdvance(t, session)
 
 	got := emphasisOf(session.View().Step.Excerpts[0].Lines)
@@ -82,7 +82,7 @@ func TestNothingIsMatchedAcrossTwoEdits(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	w := beforeAfterWalkthrough(1, 4)
+	w := beforeAfterRound(1, 4)
 	w.Steps[0].Excerpts = append(w.Steps[0].Excerpts,
 		review.Excerpt{Repository: "/repos/argus-portal", File: "src/fetch.ts", Side: review.OldSide, FirstLine: 3, LastLine: 3})
 	mustPost(t, session, w)
@@ -113,7 +113,7 @@ func TestAnEditShownInTwoRangesIsMatchedWhole(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	w := beforeAfterWalkthrough(1, 2)
+	w := beforeAfterRound(1, 2)
 	w.Steps[0].Excerpts = append(w.Steps[0].Excerpts,
 		review.Excerpt{Repository: "/repos/argus-portal", File: "src/fetch.ts", Side: review.NewSide, FirstLine: 3, LastLine: 4})
 	mustPost(t, session, w)

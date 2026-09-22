@@ -89,12 +89,11 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 		},
 	}
 	brief := map[string]any{
-		"ask": "x", "approach": "y",
-		"provenance": map[string]any{"kind": "stated", "citation": "s"},
+		"goal": "x", "approach": "y",
 	}
 
 	// Round 1: post, flag the code Step, finish.
-	postWalkthrough(t, server.URL, map[string]any{
+	postRound(t, server.URL, map[string]any{
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 	})
 	httpPost(t, server.URL+"/goto/1")
@@ -102,7 +101,7 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	httpPost(t, server.URL+"/finish")
 
 	// Round 2: a Revision Round declining the one Comment.
-	revised := postWalkthrough(t, server.URL, map[string]any{
+	revised := postRound(t, server.URL, map[string]any{
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "the name is deliberate"}},
 	})
@@ -159,19 +158,18 @@ func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
 		"name": "Mechanical", "explanation": "the lockfile",
 		"acknowledgements": []any{map[string]any{"repository": root, "files": []any{"LOCKFILE"}, "reason": "generated"}},
 	}}
-	brief := map[string]any{"ask": "x", "approach": "y",
-		"provenance": map[string]any{"kind": "stated", "citation": "s"}}
+	brief := map[string]any{"goal": "x", "approach": "y"}
 	body := map[string]any{"brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps}
 
-	postWalkthrough(t, server.URL, body)
+	postRound(t, server.URL, body)
 	httpPost(t, server.URL+"/goto/1")
 	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
 	httpPost(t, server.URL+"/finish")
 	withDecline := map[string]any{"brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "deliberate"}}}
-	postWalkthrough(t, server.URL, withDecline)
+	postRound(t, server.URL, withDecline)
 	httpPost(t, server.URL+"/reraise/1")
 
 	second, err := http.Post(server.URL+"/reraise/1", "text/plain", nil)

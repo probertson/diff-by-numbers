@@ -2,7 +2,7 @@ package review
 
 import "sort"
 
-// normalize rewrites a Walkthrough's Excerpts into the ranges dbn will actually
+// normalize rewrites a Round's Excerpts into the ranges dbn will actually
 // use, before anything judges them. It runs once the ledger is derived, so it
 // can take account of what git says changed, and its result is what gets stored:
 // rendering, coverage, the budget and anchoring all see one set of ranges, so
@@ -89,7 +89,7 @@ func aliasAcknowledged(acknowledgements []Acknowledgement, l ledger) {
 }
 
 // copySteps deep-copies everything normalisation rewrites, so it never writes
-// through to the Walkthrough the caller handed in. A post that is then rejected
+// through to the Round the caller handed in. A post that is then rejected
 // must leave the agent's own value exactly as it sent it, and keeping that
 // guarantee here means no later pass has to remember to make its own copy.
 func copySteps(steps []Step) []Step {
@@ -148,8 +148,8 @@ func absorbWhitespace(steps []Step, l ledger) {
 	}
 }
 
-// excerptsByFileSide groups the Walkthrough's Excerpts by what they show,
-// keeping the Walkthrough's own order within each group.
+// excerptsByFileSide groups the Round's Excerpts by what they show,
+// keeping the Round's own order within each group.
 func excerptsByFileSide(steps []Step) map[fileSide]showing {
 	out := map[fileSide]showing{}
 	for i := range steps {
@@ -197,7 +197,7 @@ func runsOf(numbers []int) []span {
 // absorber picks the Excerpt an unaccounted-for run joins: the first one it touches, in
 // Step order and then Excerpt order. A run between two Excerpts therefore goes
 // to whichever of them the Reviewer reaches first, so the blank lines arrive
-// with a section the Walkthrough has already introduced rather than ahead of one
+// with a section the Round has already introduced rather than ahead of one
 // it has not.
 func (s showing) absorber(run span) *Excerpt {
 	for _, excerpt := range s {

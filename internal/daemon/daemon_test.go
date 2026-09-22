@@ -40,7 +40,7 @@ func featureRepo(t *testing.T) string {
 	git("commit", "-qm", "initial")
 	git("checkout", "-q", "-b", "feature")
 	os.WriteFile(path, []byte("a\nb\nc\nADDED\n"), 0o644) // adds new-side line 4
-	// A mechanical file the Walkthrough will acknowledge rather than excerpt.
+	// A mechanical file the Round will acknowledge rather than excerpt.
 	// Staged so it appears in the diff against the base, like any tracked change.
 	os.WriteFile(filepath.Join(root, "LOCKFILE"), []byte("dep-1\ndep-2\ndep-3\n"), 0o644)
 	git("add", "LOCKFILE")
@@ -58,12 +58,8 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 	root := featureRepo(t)
 	posted := map[string]any{
 		"brief": map[string]any{
-			"ask":      "ASK-tenant-scoping",
+			"goal":     "GOAL-tenant-scoping",
 			"approach": "APPROACH-thread-the-id-through",
-			"provenance": map[string]any{
-				"kind":     "stated",
-				"citation": "CITATION-session-51e67df2",
-			},
 		},
 		"repositories": []any{
 			map[string]any{"root": root, "base": "main"},
@@ -97,14 +93,12 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 		},
 	}
 
-	postWalkthrough(t, server.URL, posted)
+	postRound(t, server.URL, posted)
 
 	dump := get(t, server.URL+"/dump")
 	for _, want := range []string{
-		"ASK-tenant-scoping",
+		"GOAL-tenant-scoping",
 		"APPROACH-thread-the-id-through",
-		"stated",
-		"CITATION-session-51e67df2",
 		root,
 		"main",
 		"NAME-add-the-retrier",
@@ -190,11 +184,11 @@ func (o postOutcome) has(reason string) bool {
 	return false
 }
 
-func postWalkthrough(t *testing.T, baseURL string, walkthrough map[string]any) postOutcome {
+func postRound(t *testing.T, baseURL string, walkthrough map[string]any) postOutcome {
 	t.Helper()
-	outcome := decodeResult[postOutcome](t, callTool(t, baseURL, "post_walkthrough", walkthrough))
+	outcome := decodeResult[postOutcome](t, callTool(t, baseURL, "post_round", walkthrough))
 	if !outcome.Accepted {
-		t.Fatalf("expected the Walkthrough to be accepted, got %s", outcome.summary())
+		t.Fatalf("expected the Round to be accepted, got %s", outcome.summary())
 	}
 	return outcome
 }
@@ -215,14 +209,13 @@ func get(t *testing.T, url string) string {
 	return string(body)
 }
 
-// walkthroughWithRepository is the smallest valid post, with the repository
+// roundWithRepository is the smallest valid post, with the repository
 // entry supplied by the caller so a test can vary just that.
-func walkthroughWithRepository(root string, repository map[string]any) map[string]any {
+func roundWithRepository(root string, repository map[string]any) map[string]any {
 	return map[string]any{
 		"brief": map[string]any{
-			"ask":        "ASK-tenant-scoping",
-			"approach":   "APPROACH-thread-the-id-through",
-			"provenance": map[string]any{"kind": "stated", "citation": "CITATION-session-51e67df2"},
+			"goal":     "GOAL-tenant-scoping",
+			"approach": "APPROACH-thread-the-id-through",
 		},
 		"repositories": []any{repository},
 		"steps": []any{
@@ -254,11 +247,10 @@ func TestASingleRepositoryPostMayOmitTheRepository(t *testing.T) {
 	defer server.Close()
 
 	root := featureRepo(t)
-	postWalkthrough(t, server.URL, map[string]any{
+	postRound(t, server.URL, map[string]any{
 		"brief": map[string]any{
-			"ask":        "ASK-tenant-scoping",
-			"approach":   "APPROACH-thread-the-id-through",
-			"provenance": map[string]any{"kind": "inferred"},
+			"goal":     "GOAL-tenant-scoping",
+			"approach": "APPROACH-thread-the-id-through",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{

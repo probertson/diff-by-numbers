@@ -11,7 +11,7 @@ import (
 // stubResolver fabricates deterministic lines so view tests need no filesystem.
 type stubResolver struct{}
 
-func (stubResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
+func (stubResolver) Resolve(e review.Excerpt, _ review.RoundSource) ([]review.Line, error) {
 	lines := make([]review.Line, 0, e.LastLine-e.FirstLine+1)
 	for n := e.FirstLine; n <= e.LastLine; n++ {
 		lines = append(lines, review.Line{Number: n, Text: fmt.Sprintf("%s line %d", e.File, n)})
@@ -19,7 +19,7 @@ func (stubResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, er
 	return lines, nil
 }
 
-// emptyDeriver derives no Changed Lines, so a Walkthrough's Excerpts are all
+// emptyDeriver derives no Changed Lines, so a Round's Excerpts are all
 // reference lines: coverage and the budget are trivially satisfied. Tests that
 // care about derivation supply their own deriver.
 type emptyDeriver struct{}
@@ -44,12 +44,12 @@ func TestTheViewBeforeAnyPostSaysNothingIsPosted(t *testing.T) {
 
 func TestTheViewOpensAtTheBrief(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	view := session.View()
 
 	if !view.Posted {
-		t.Fatal("expected the view to report a posted Walkthrough")
+		t.Fatal("expected the view to report a posted Round")
 	}
 	if view.Position != 0 {
 		t.Errorf("expected the view to open at the Brief (position 0), got %d", view.Position)
@@ -57,8 +57,8 @@ func TestTheViewOpensAtTheBrief(t *testing.T) {
 	if view.Step != nil {
 		t.Error("expected no Step to be in view at the Brief")
 	}
-	if view.Brief.Ask != "Add retry with backoff to the fetch layer" {
-		t.Errorf("expected the Brief's ask, got %q", view.Brief.Ask)
+	if view.Brief.Goal != "Add retry with backoff to the fetch layer" {
+		t.Errorf("expected the Brief's ask, got %q", view.Brief.Goal)
 	}
 	if view.StepCount != 1 {
 		t.Errorf("expected a count of 1 Step, got %d", view.StepCount)
@@ -70,7 +70,7 @@ func TestTheViewOpensAtTheBrief(t *testing.T) {
 
 func TestAdvancingFromTheBriefShowsTheFirstStepResolved(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	if err := session.Advance(); err != nil {
 		t.Fatalf("expected to advance from the Brief, got %v", err)
@@ -107,7 +107,7 @@ func TestAdvancingFromTheBriefShowsTheFirstStepResolved(t *testing.T) {
 
 func TestAdvancingStopsAtTheLastStep(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	for range 5 {
 		if err := session.Advance(); err != nil {
@@ -125,7 +125,7 @@ func TestAdvancingWithNothingPostedIsRejected(t *testing.T) {
 
 	err := session.Advance()
 
-	assertRejected(t, err, review.RejectedNoWalkthrough)
+	assertRejected(t, err, review.RejectedNoRound)
 }
 
 func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
@@ -133,7 +133,7 @@ func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
 	// the render, where a resolver failure must surface as a problem rather than
 	// as fabricated code.
 	session := review.NewSession(failingResolver{}, emptyDeriver{})
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0].Side = review.OldSide
 	mustPost(t, session, walkthrough)
 
@@ -152,6 +152,6 @@ func TestAFailedResolutionIsAProblemShownInPlaceOfCode(t *testing.T) {
 
 type failingResolver struct{}
 
-func (failingResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
+func (failingResolver) Resolve(e review.Excerpt, _ review.RoundSource) ([]review.Line, error) {
 	return nil, fmt.Errorf("cannot read %s", e.File)
 }

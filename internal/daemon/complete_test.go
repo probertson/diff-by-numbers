@@ -18,7 +18,7 @@ func TestAPostAfterACompleteReviewStartsANewOneThroughTheDaemon(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	walkthrough := map[string]any{
-		"brief":        map[string]any{"ask": "x", "approach": "y", "provenance": map[string]any{"kind": "stated", "citation": "s"}},
+		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "all", "explanation": "e",
@@ -26,10 +26,10 @@ func TestAPostAfterACompleteReviewStartsANewOneThroughTheDaemon(t *testing.T) {
 			"acknowledgements": []any{map[string]any{"files": []any{"LOCKFILE"}, "reason": "generated"}},
 		}},
 	}
-	first := postWalkthrough(t, server.URL, walkthrough)
+	first := postRound(t, server.URL, walkthrough)
 	httpPost(t, server.URL+"/finish")
 
-	second := postWalkthrough(t, server.URL, walkthrough)
+	second := postRound(t, server.URL, walkthrough)
 
 	if second.ReviewID == first.ReviewID {
 		t.Errorf("expected a new review after a complete one, got the same id %q", first.ReviewID)

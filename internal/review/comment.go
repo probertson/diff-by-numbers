@@ -2,8 +2,8 @@ package review
 
 // Comment is a Reviewer's remark, a request for an edit or a question, anchored
 // to the code it concerns. It is a proposal, not an instruction: the Authoring
-// Agent responds to it after the Walkthrough ends, and may address, answer or
-// decline it. Nothing on disk moves while the Walkthrough is under review
+// Agent responds to it after the Round ends, and may address, answer or
+// decline it. Nothing on disk moves while the Round is under review
 // (ADR-0004).
 type Comment struct {
 	ID     int
@@ -16,7 +16,7 @@ type Comment struct {
 	// being re-raised over and over, and what tells the agent that repeating the
 	// same reasoning is not an answer.
 	ReRaisedFrom int
-	// CarriedOver marks a Comment raised on a Walkthrough that has since been
+	// CarriedOver marks a Comment raised on a Round that has since been
 	// replaced in place. Its Step is gone, so it belongs to none; its Anchor
 	// still quotes the code it was raised on.
 	CarriedOver bool
@@ -26,8 +26,8 @@ type Comment struct {
 // records it. The Step it lands on becomes flagged.
 func (s *Session) RaiseComment(target AnchorTarget, note string) (Comment, error) {
 	if s.finished {
-		return Comment{}, reject(RejectedWalkthroughFinished,
-			"this Walkthrough is handed off; resume it to add more")
+		return Comment{}, reject(RejectedRoundHandedOff,
+			"this Round is handed off; resume it to add more")
 	}
 	anchor, err := s.Anchor(target)
 	if err != nil {

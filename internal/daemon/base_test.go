@@ -19,8 +19,8 @@ func TestTheWireRejectsTheOldRangeFieldByName(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 
-	result := callTool(t, server.URL, "post_walkthrough",
-		walkthroughWithRepository(root, map[string]any{"root": root, "range": "main"}))
+	result := callTool(t, server.URL, "post_round",
+		roundWithRepository(root, map[string]any{"root": root, "range": "main"}))
 
 	if !result.IsError {
 		t.Fatal("the old `range` field is gone and must not quietly work")
@@ -37,8 +37,8 @@ func TestTheWireAcceptsABaseRef(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 
-	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_walkthrough",
-		walkthroughWithRepository(root, map[string]any{"root": root, "base": "main"})))
+	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round",
+		roundWithRepository(root, map[string]any{"root": root, "base": "main"})))
 
 	if !outcome.Accepted {
 		t.Fatalf("a plain base ref is exactly what the field is for, got %s", outcome.summary())
@@ -51,8 +51,8 @@ func TestTheWireRejectsARangeAsABase(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 
-	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_walkthrough",
-		walkthroughWithRepository(root, map[string]any{"root": root, "base": "HEAD~1..HEAD"})))
+	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round",
+		roundWithRepository(root, map[string]any{"root": root, "base": "HEAD~1..HEAD"})))
 
 	if outcome.Accepted {
 		t.Fatal("A..B is not a base ref")
@@ -79,7 +79,7 @@ func resultText(t *testing.T, result *mcp.CallToolResult) string {
 }
 
 // The rejection an agent actually receives carries every problem, so it can fix
-// them all before posting the whole Walkthrough again.
+// them all before posting the whole Round again.
 func TestARefusedPostCarriesEveryProblemOnTheWire(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
@@ -87,7 +87,7 @@ func TestARefusedPostCarriesEveryProblemOnTheWire(t *testing.T) {
 
 	// A Step covering nothing, plus an Acknowledgement of a file with no
 	// changes: two independent stage-2 faults.
-	walkthrough := walkthroughWithRepository(root, map[string]any{"root": root, "base": "main"})
+	walkthrough := roundWithRepository(root, map[string]any{"root": root, "base": "main"})
 	steps := walkthrough["steps"].([]any)
 	step := steps[0].(map[string]any)
 	step["excerpts"] = []any{
@@ -100,7 +100,7 @@ func TestARefusedPostCarriesEveryProblemOnTheWire(t *testing.T) {
 		map[string]any{"repository": root, "files": []any{"NOT-A-CHANGED-FILE"}, "reason": "nothing"},
 	}
 
-	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_walkthrough", walkthrough))
+	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", walkthrough))
 
 	if outcome.Accepted {
 		t.Fatal("expected the post to be refused")

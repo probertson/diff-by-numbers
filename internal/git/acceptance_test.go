@@ -9,12 +9,12 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/workingtree"
 )
 
-// TestABranchOfMechanicalChangesCanCompleteAWalkthrough is the headline scenario
+// TestABranchOfMechanicalChangesCanCompleteARound is the headline scenario
 // of #11: an ordinary branch that regenerates a lockfile, deletes a long file and
 // touches a binary asset. Without Acknowledgements the Coverage Ledger would make
 // it impossible to finish — the binary has no lines to excerpt at all. This drives
 // real git derivation into a real review Session and finishes it.
-func TestABranchOfMechanicalChangesCanCompleteAWalkthrough(t *testing.T) {
+func TestABranchOfMechanicalChangesCanCompleteARound(t *testing.T) {
 	root := t.TempDir()
 	run(t, root, "init", "-q", "-b", "main")
 	write(t, root, "app.ts", "one\ntwo\nthree\n")
@@ -40,11 +40,10 @@ func TestABranchOfMechanicalChangesCanCompleteAWalkthrough(t *testing.T) {
 		t.Fatalf("expected logo.png to derive as an Opaque Change, got %+v", derivation.Opaque)
 	}
 
-	walkthrough := review.Walkthrough{
+	walkthrough := review.Round{
 		Brief: review.Brief{
-			Ask:        "Bump the dependency and refresh the asset",
-			Approach:   "One real code line; everything else is mechanical",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
+			Goal:     "Bump the dependency and refresh the asset",
+			Approach: "One real code line; everything else is mechanical",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{
@@ -79,7 +78,7 @@ func TestABranchOfMechanicalChangesCanCompleteAWalkthrough(t *testing.T) {
 		t.Fatalf("expected to reach the acknowledgement Step, got %v", err)
 	}
 	if err := session.Finish(); err != nil {
-		t.Fatalf("expected the Walkthrough to finish, got %v", err)
+		t.Fatalf("expected the Round to finish, got %v", err)
 	}
 
 	results, err := session.Results()

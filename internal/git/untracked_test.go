@@ -223,9 +223,9 @@ func mergeBaseOf(t *testing.T, root, ref string) string {
 
 // The property the whole ticket exists for, and the one the unit tests above do
 // not reach: before this, an agent could leave an untracked file out of the
-// Walkthrough entirely and the post was *accepted*, because the ledger held
+// Round entirely and the post was *accepted*, because the ledger held
 // nothing to cover. Derivation alone cannot show that — only a real Session can.
-func TestAWalkthroughThatIgnoresAnUntrackedFileIsRejected(t *testing.T) {
+func TestARoundThatIgnoresAnUntrackedFileIsRejected(t *testing.T) {
 	root := newRepo(t)
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\ntwo\nthree\nfour\n") // the tracked change, covered below
@@ -245,9 +245,9 @@ func TestAWalkthroughThatIgnoresAnUntrackedFileIsRejected(t *testing.T) {
 	}
 }
 
-// ... and the same Walkthrough with the untracked file accounted for is accepted,
+// ... and the same Round with the untracked file accounted for is accepted,
 // so the rejection above is about coverage and not some unrelated refusal.
-func TestAWalkthroughThatCoversTheUntrackedFileIsAccepted(t *testing.T) {
+func TestARoundThatCoversTheUntrackedFileIsAccepted(t *testing.T) {
 	root := newRepo(t)
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "app.ts", "one\ntwo\nthree\nfour\n")
@@ -282,13 +282,12 @@ func TestAnUntrackedFileCanBeCoveredByAnAcknowledgement(t *testing.T) {
 	}
 }
 
-// walkthroughCovering is the smallest Walkthrough that shows one range of one file.
-func walkthroughCovering(root, file string, first, last int) review.Walkthrough {
-	return review.Walkthrough{
+// roundCovering is the smallest Round that shows one range of one file.
+func walkthroughCovering(root, file string, first, last int) review.Round {
+	return review.Round{
 		Brief: review.Brief{
-			Ask:        "Add a line and some notes",
-			Approach:   "One code change, one new file",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
+			Goal:     "Add a line and some notes",
+			Approach: "One code change, one new file",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

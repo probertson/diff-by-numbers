@@ -46,10 +46,9 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postWalkthrough(t, server.URL, map[string]any{
+	postRound(t, server.URL, map[string]any{
 		"brief": map[string]any{
-			"ask": "rework the guard", "approach": "renamed it",
-			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
+			"goal": "rework the guard", "approach": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -102,10 +101,9 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postWalkthrough(t, server.URL, map[string]any{
+	postRound(t, server.URL, map[string]any{
 		"brief": map[string]any{
-			"ask": "rework the guard", "approach": "renamed it",
-			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
+			"goal": "rework the guard", "approach": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -165,10 +163,9 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := editedRepo(t)
-	postWalkthrough(t, server.URL, map[string]any{
+	postRound(t, server.URL, map[string]any{
 		"brief": map[string]any{
-			"ask": "rework the guard", "approach": "renamed it",
-			"provenance": map[string]any{"kind": "stated", "citation": "session-1"},
+			"goal": "rework the guard", "approach": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{

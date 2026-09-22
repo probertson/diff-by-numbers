@@ -44,7 +44,7 @@ func TestAToolCallSurvivesTheDaemonBeingReplaced(t *testing.T) {
 // A refusal is the daemon answering, not the connection failing — it must come
 // back as-is, and must not cost the caller its session. The second conclude is
 // the proof: a shim that had torn down and restarted the daemon would be talking
-// to one that never saw the Walkthrough, and could not conclude it either.
+// to one that never saw the Round, and could not conclude it either.
 func TestARefusedToolCallIsReturnedAsIsRatherThanRetried(t *testing.T) {
 	bin := buildDBN(t)
 	port := freePort(t)
@@ -54,7 +54,7 @@ func TestARefusedToolCallIsReturnedAsIsRatherThanRetried(t *testing.T) {
 	ctx := context.Background()
 	session := connectShim(t, ctx, bin, env)
 	defer session.Close()
-	outcome := post(t, ctx, session, minimalWalkthrough(root))
+	outcome := post(t, ctx, session, minimalRound(root))
 	if !outcome.Accepted {
 		t.Fatalf("precondition: the post was rejected: %s", outcome.summary())
 	}

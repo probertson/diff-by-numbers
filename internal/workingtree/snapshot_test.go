@@ -13,7 +13,7 @@ import (
 
 // snapshotted makes a repository holding one file and takes a Round Snapshot of
 // it, returning the root and the Round that snapshot belongs to.
-func snapshotted(t *testing.T, file, content string) (string, review.Round) {
+func snapshotted(t *testing.T, file, content string) (string, review.RoundSource) {
 	t.Helper()
 	root := t.TempDir()
 	// A snapshot is written through a copy of the index, so the repository needs
@@ -36,7 +36,7 @@ func snapshotted(t *testing.T, file, content string) (string, review.Round) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return root, review.Round{Snapshots: map[string]string{root: tree}}
+	return root, review.RoundSource{Snapshots: map[string]string{root: tree}}
 }
 
 func TestTheNewSideIsReadFromTheRoundSnapshotNotTheWorkingTree(t *testing.T) {

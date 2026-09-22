@@ -3,7 +3,7 @@ package review
 // DiskWatch is the optional capability that says whether a file has been edited
 // since the round was posted.
 //
-// dbn reads every Walkthrough's code from its Round Snapshot, never from disk, so
+// dbn reads every Round's code from its Round Snapshot, never from disk, so
 // what the Reviewer sees, expands and anchors is exactly what was posted however
 // the files move afterwards (ADR-0004). An edit therefore changes nothing on
 // screen except a warning: the Reviewer is told they are looking at the posted

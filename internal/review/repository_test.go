@@ -125,7 +125,7 @@ func TestAFileAcknowledgedOnceWithTheRootAndOnceWithoutIsStillADoubleClaim(t *te
 }
 
 func TestAnAnchorShowsTheResolvedRepository(t *testing.T) {
-	// The repository is filled in before the Walkthrough is stored, so everything
+	// The repository is filled in before the Round is stored, so everything
 	// composed from it downstream carries a real root. An Anchor is the case that
 	// matters most: it is built to survive being pasted somewhere with no context
 	// at all, and a blank root there would name nothing.

@@ -6,16 +6,16 @@ Reviewing an agent's code changes is the most time-consuming human-in-the-loop
 step in agent-assisted development, and the one most often skipped — because the
 reviewer is handed a diff in the tool's arbitrary order, with no explanation, and
 has to reconstruct *why* from *what*. dbn is a channel for the agent that wrote
-the code to walk you through it: a narrated, semantically-ordered **Walkthrough**
-you navigate yourself, comment on in place, and hand back as a list of Change
-Requests — which the agent works and puts through review again until you hand off
-having raised nothing.
+the code to walk you through it: a narrated, semantically-ordered **Round** you
+navigate yourself, comment on in place, and hand back as a list of Comments —
+which the agent works and puts through review again, Round by Round, until you
+hand off having raised nothing.
 
 dbn holds no opinion about the code (it never decides what is shown) and enforces
-only two things against the agent's account of its own work: every changed line
-must be shown (the **Coverage Ledger**, derived from git — not from the agent),
-and the Brief must declare whether its account of intent is *stated* or merely
-*inferred*.
+one thing against the agent's account of its own work: every changed line must be
+shown (the **Coverage Ledger**, derived from git — not from the agent). The agent
+that wrote the changes is the one that posts them, because the point is to hear
+the story from the one who knows it.
 
 See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
 
@@ -25,11 +25,11 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
    `127.0.0.1:7373`, separate from any agent session so closing a window loses
    nothing. It starts on demand the first time an agent session connects and lets
    go of itself once no review needs it — you never run it by hand.
-2. **Your agent posts a Walkthrough** over MCP — a Brief plus ordered Steps, each
+2. **Your agent posts a Round** over MCP — a Brief plus ordered Steps, each
    a self-contained idea built from line ranges it chose for comprehension. It
    posts once and ends its turn; it does not wait on you.
 3. **You review in a terminal** beside your agent session: `dbn` opens the TUI,
-   attaches to the daemon, and draws the Walkthrough. You move through Steps,
+   attaches to the daemon, and draws the Round. You move through Steps,
    select a line range to copy a self-contained **Anchor** into your agent chat,
    or raise a **Comment** in place: a change you want, or a question.
 4. **You hand off, the agent collects the Comments** with a second MCP call,
@@ -78,7 +78,7 @@ A few things worth knowing:
 - **The daemon.** If one is running and no review is in progress, `dbn update`
   stops it so it comes back on the new build (launchd/systemd restart it; an
   on-demand one starts next time your agent needs it). If a review *is* in
-  progress the daemon is left alone — its Walkthrough lives in memory — and dbn
+  progress the daemon is left alone — its review lives in memory — and dbn
   tells you to run the update again once you are done. `dbn update --force`
   restarts it anyway, losing the review. Agent sessions reconnect on their own.
 - **If the binary's directory is not writable** (say you installed to
@@ -140,7 +140,7 @@ follow dbn on its own: run `/plugin update dbn@diff-by-numbers` after upgrading
 dbn, or turn auto-update on for the marketplace. `dbn update` checks the copies
 it can find and tells you when one has fallen behind.
 
-The skill teaches Step sizing and narrative ordering, Provenance, when an
+The skill teaches Step sizing and narrative ordering, what goes in the Brief, when an
 Acknowledgement is appropriate, and how to run the collect-and-revise loop.
 
 ### 3. (Optional) Keep the daemon always running
@@ -237,7 +237,7 @@ dbn
 ```
 
 You can open it before your agent is ready: with no daemon yet, the TUI waits for
-one and fills in the moment the Walkthrough is posted.
+one and fills in the moment the Round is posted.
 
 The first screen shows an overview. Use Left/Right arrows to navigate through screens.
 Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions
@@ -245,7 +245,7 @@ mid-review) or to add a Comment. When you're done, press `h` to hand the review 
 tell your agent. It will then retrieve your Comments. Handing off is not leaving: `q` exits
 the viewer at any time without losing anything, and `dbn` reopens to the same review.
 
-Other subcommands: `dbn dump` prints the posted Walkthrough as text, `dbn
+Other subcommands: `dbn dump` prints the posted Round as text, `dbn
 abandon` discards it, `dbn version` reports the build, `dbn update` installs a
 newer one (see [Updating](#updating)).
 
@@ -256,7 +256,7 @@ go test ./...      # the review core and git adapter are the tested seams
 go vet ./...
 ```
 
-The review core (`internal/review`) owns the whole life of a Walkthrough and
+The review core (`internal/review`) owns the whole life of a Review and
 knows nothing of MCP, git, or the terminal. The git adapter (`internal/git`)
 derives changed lines; the working-tree adapter (`internal/workingtree`) reads
 and fingerprints files. The daemon and TUI are deliberately thin.

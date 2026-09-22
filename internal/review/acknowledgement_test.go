@@ -39,7 +39,7 @@ func containsInt(haystack []int, needle int) bool {
 }
 
 func TestAnAcknowledgementCoversChangedLinesInPlaceOfAnExcerpt(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// A regenerated lockfile: 500 changed lines, none of which should be read.
 	walkthrough.Steps = []review.Step{acknowledgingStep("package-lock.json")}
 	session := sessionDerivingBoth(changed("package-lock.json", 1, 500), nil)
@@ -52,7 +52,7 @@ func TestAnAcknowledgementCoversChangedLinesInPlaceOfAnExcerpt(t *testing.T) {
 }
 
 func TestAnAcknowledgedBulkOfLinesDoesNotTripTheBudget(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// Far over the 30-line budget, but acknowledged, so nothing is "shown".
 	walkthrough.Steps = []review.Step{acknowledgingStep("package-lock.json")}
 	session := sessionDerivingBoth(changed("package-lock.json", 1, 200), nil)
@@ -63,7 +63,7 @@ func TestAnAcknowledgedBulkOfLinesDoesNotTripTheBudget(t *testing.T) {
 }
 
 func TestAnOpaqueChangeIsCoveredByAnAcknowledgement(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("logo.png")}
 	session := sessionDerivingBoth(nil, []review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary}})
 
@@ -73,18 +73,18 @@ func TestAnOpaqueChangeIsCoveredByAnAcknowledgement(t *testing.T) {
 }
 
 func TestAnUnaccountedOpaqueChangeIsRejectedNamingIt(t *testing.T) {
-	// The Walkthrough covers src/fetch.ts by Excerpt, but nothing accounts for the binary.
+	// The Round covers src/fetch.ts by Excerpt, but nothing accounts for the binary.
 	session := sessionDerivingBoth(changed("src/fetch.ts", 20, 22),
 		[]review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary}})
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "logo.png")
 }
 
 func TestAcknowledgingAFileWithNoChangesIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = append(walkthrough.Steps, acknowledgingStep("unchanged.ts"))
 	session := sessionDeriving(changed("src/fetch.ts", 20, 22))
 
@@ -95,7 +95,7 @@ func TestAcknowledgingAFileWithNoChangesIsRejected(t *testing.T) {
 }
 
 func TestAStepWithNeitherExcerptNorAcknowledgementIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts = nil
 
 	err := newSession().Post(walkthrough)
@@ -104,7 +104,7 @@ func TestAStepWithNeitherExcerptNorAcknowledgementIsRejected(t *testing.T) {
 }
 
 func TestAnAcknowledgementWithoutAReasonIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Acknowledgements = []review.Acknowledgement{
 		{Repository: "/repos/argus-portal", Files: []string{"package-lock.json"}},
 	}
@@ -115,7 +115,7 @@ func TestAnAcknowledgementWithoutAReasonIsRejected(t *testing.T) {
 }
 
 func TestAnAcknowledgementForAnUnknownRepositoryIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Acknowledgements = []review.Acknowledgement{
 		{Repository: "/repos/not-in-set", Files: []string{"x.ts"}, Reason: "mechanical"},
 	}
@@ -126,7 +126,7 @@ func TestAnAcknowledgementForAnUnknownRepositoryIsRejected(t *testing.T) {
 }
 
 func TestCoverageCountsOpaqueAndAcknowledgedChanges(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{
 		{
 			Name: "The code", Explanation: "the real change",
@@ -155,7 +155,7 @@ func TestCoverageCountsOpaqueAndAcknowledgedChanges(t *testing.T) {
 }
 
 func TestAnAcknowledgementRendersAsAManifestOfFilesAndCounts(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("package-lock.json", "logo.png")}
 	lines := changed("package-lock.json", 1, 40)
 	opaque := []review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary, Detail: "binary file"}}
@@ -183,7 +183,7 @@ func TestAnAcknowledgementRendersAsAManifestOfFilesAndCounts(t *testing.T) {
 }
 
 func TestManifestClassifiesWhatChangedPerFile(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("mod.ts", "new.ts", "gone.ts", "logo.png")}
 	lines := []review.ChangedLine{
 		{File: "mod.ts", Side: review.OldSide, Line: 1},
@@ -214,7 +214,7 @@ func TestManifestClassifiesWhatChangedPerFile(t *testing.T) {
 }
 
 func TestAnAcknowledgementExpandsIntoRealExcerpts(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("package-lock.json")}
 	session := sessionDerivingBoth(changed("package-lock.json", 5, 9), nil)
 	mustPost(t, session, walkthrough)
@@ -240,7 +240,7 @@ func TestAnAcknowledgementExpandsIntoRealExcerpts(t *testing.T) {
 }
 
 func TestExpandingAnAcknowledgedBinaryReportsItHasNoLines(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("logo.png")}
 	session := sessionDerivingBoth(nil, []review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary, Detail: "binary file"}})
 	mustPost(t, session, walkthrough)
@@ -256,7 +256,7 @@ func TestExpandingAnAcknowledgedBinaryReportsItHasNoLines(t *testing.T) {
 }
 
 func TestAFileClaimedByTwoAcknowledgementsIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{
 		acknowledgingStep("package-lock.json"),
 		acknowledgingStep("package-lock.json"), // the same file, again
@@ -271,7 +271,7 @@ func TestAFileClaimedByTwoAcknowledgementsIsRejected(t *testing.T) {
 
 func TestExpandingANonexistentAcknowledgementIsRejected(t *testing.T) {
 	session := sessionDeriving(changed("src/fetch.ts", 20, 22))
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	_, err := session.ExpandAcknowledgement(1, 3) // Step 1 has no Acknowledgements
 

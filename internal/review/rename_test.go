@@ -15,10 +15,10 @@ const (
 	renameDestination = "src/app.ts"
 )
 
-// walkthroughRenaming is a Walkthrough whose single Step is about a rename, with
+// roundRenaming is a Round whose single Step is about a rename, with
 // the Excerpts and Acknowledgements the caller wants to try.
-func walkthroughRenaming(excerpts []review.Excerpt, acknowledgements []review.Acknowledgement) review.Walkthrough {
-	w := validWalkthrough()
+func walkthroughRenaming(excerpts []review.Excerpt, acknowledgements []review.Acknowledgement) review.Round {
+	w := validRound()
 	w.Steps = []review.Step{{
 		Name:             "Rename the fetch layer",
 		Explanation:      "app.ts becomes src/app.ts with no other change",

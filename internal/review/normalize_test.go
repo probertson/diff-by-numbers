@@ -8,7 +8,7 @@ import (
 )
 
 // The tests in this file all work on one file of one repository, the same one
-// validWalkthrough names, so a case reads as the line numbers it is about.
+// validRound names, so a case reads as the line numbers it is about.
 const (
 	testRepository = "/repos/argus-portal"
 	testFile       = "src/fetch.ts"
@@ -37,11 +37,11 @@ func at(side review.Side, first, last int) review.Excerpt {
 	return review.Excerpt{Repository: testRepository, File: testFile, Side: side, FirstLine: first, LastLine: last}
 }
 
-// walkthroughShowing puts each group of Excerpts in a Step of its own, so a test
+// roundShowing puts each group of Excerpts in a Step of its own, so a test
 // can state the shape the absorption rules speak of: Excerpt order within a
 // Step, and Step order between them.
-func walkthroughShowing(groups ...[]review.Excerpt) review.Walkthrough {
-	w := validWalkthrough()
+func walkthroughShowing(groups ...[]review.Excerpt) review.Round {
+	w := validRound()
 	w.Steps = nil
 	for i, group := range groups {
 		w.Steps = append(w.Steps, review.Step{
@@ -83,7 +83,7 @@ func TestABlankLineBetweenTwoExcerptsIsAbsorbedByTheEarlierOne(t *testing.T) {
 	err := session.Post(walkthroughShowing([]review.Excerpt{at(review.NewSide, 1, 5), at(review.NewSide, 7, 10)}))
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if got := storedRange(t, session, 1, 1); got.LastLine != 6 {
 		t.Errorf("expected the earlier Excerpt to widen to 1-6, got %d-%d", got.FirstLine, got.LastLine)
@@ -93,7 +93,7 @@ func TestABlankLineBetweenTwoExcerptsIsAbsorbedByTheEarlierOne(t *testing.T) {
 func TestTheEarlierStepWinsABlankLineBetweenTwoExcerpts(t *testing.T) {
 	// Step 1 shows the later lines and Step 2 the earlier ones, so the Excerpt
 	// nearer the blank line in the file is not the earlier one in the
-	// Walkthrough. The rule is Step order, so Step 1 takes it.
+	// Round. The rule is Step order, so Step 1 takes it.
 	session := review.NewSession(stubResolver{}, fixedDeriver{
 		lines:      changedOn(review.NewSide, 1, 10),
 		whitespace: []review.ChangedLine{lineAt(review.NewSide, 6)},
@@ -105,7 +105,7 @@ func TestTheEarlierStepWinsABlankLineBetweenTwoExcerpts(t *testing.T) {
 	))
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if got := storedRange(t, session, 1, 1); got.FirstLine != 6 {
 		t.Errorf("expected Step 1's Excerpt to widen to 6-10, got %d-%d", got.FirstLine, got.LastLine)
@@ -124,7 +124,7 @@ func TestARunOfSeveralBlankLinesIsAbsorbedWhole(t *testing.T) {
 	err := session.Post(walkthroughShowing([]review.Excerpt{at(review.NewSide, 1, 5), at(review.NewSide, 9, 12)}))
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if got := storedRange(t, session, 1, 1); got.LastLine != 8 {
 		t.Errorf("expected the earlier Excerpt to widen to 1-8, got %d-%d", got.FirstLine, got.LastLine)
@@ -157,7 +157,7 @@ func TestAnOldSideBlankLineIsAbsorbedByAnOldSideExcerpt(t *testing.T) {
 	err := session.Post(walkthroughShowing([]review.Excerpt{at(review.OldSide, 1, 5), at(review.OldSide, 7, 10)}))
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if got := storedRange(t, session, 1, 1); got.LastLine != 6 {
 		t.Errorf("expected the earlier Excerpt to widen to 1-6, got %d-%d", got.FirstLine, got.LastLine)
@@ -173,7 +173,7 @@ func TestAnAbsorbedLineIsDrawnInTheStep(t *testing.T) {
 	})
 
 	if err := session.Post(walkthroughShowing([]review.Excerpt{at(review.NewSide, 1, 5), at(review.NewSide, 7, 10)})); err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if err := session.GoTo(1); err != nil {
 		t.Fatalf("could not go to Step 1: %v", err)
@@ -214,7 +214,7 @@ func TestALineAnAcknowledgementAlreadyCoversIsNotAbsorbed(t *testing.T) {
 	err := session.Post(walkthrough)
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if got := storedRange(t, session, 1, 1); got.LastLine != 5 {
 		t.Errorf("expected the Excerpt to stay at 1-5, got %d-%d", got.FirstLine, got.LastLine)

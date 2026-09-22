@@ -9,7 +9,7 @@ import (
 )
 
 // TestPointingAtTheAfterSideShowsTheBeforeEndToEnd drives the whole stack of #23:
-// a real modification, a Walkthrough that points only at the after-side, and a
+// a real modification, a Round that points only at the after-side, and a
 // Session whose resolver reads the before-side from git — proving the coverage
 // ridealong and the unified render work against real git, not just fakes.
 func TestPointingAtTheAfterSideShowsTheBeforeEndToEnd(t *testing.T) {
@@ -19,11 +19,10 @@ func TestPointingAtTheAfterSideShowsTheBeforeEndToEnd(t *testing.T) {
 
 	resolver := workingtree.NewResolver()
 	session := review.NewSession(resolver, git.NewDeriver())
-	walkthrough := review.Walkthrough{
+	walkthrough := review.Round{
 		Brief: review.Brief{
-			Ask:        "Rework line two",
-			Approach:   "Point at the after-side; the before rides along",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session xyz"},
+			Goal:     "Rework line two",
+			Approach: "Point at the after-side; the before rides along",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

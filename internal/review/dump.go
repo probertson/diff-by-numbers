@@ -5,25 +5,21 @@ import (
 	"strings"
 )
 
-// Dump renders the posted Walkthrough as plain text. It exists so the round trip
+// Dump renders the posted Round as plain text. It exists so the round trip
 // from the Authoring Agent into dbn is verifiable before any terminal UI exists,
 // and it shows only what the agent supplied — Excerpts appear as the ranges they
 // are, not as resolved code, because resolving them is the renderer's job.
 func (s *Session) Dump() string {
-	if s.walkthrough == nil {
-		return "no Walkthrough is posted\n"
+	if s.current == nil {
+		return "no Round is posted\n"
 	}
 
-	w := s.walkthrough
+	w := s.current
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "Ask:        %s\n", w.Brief.Ask)
-	fmt.Fprintf(&out, "Approach:   %s\n", w.Brief.Approach)
-	fmt.Fprintf(&out, "Provenance: %s", w.Brief.Provenance.Kind)
-	if w.Brief.Provenance.Citation != "" {
-		fmt.Fprintf(&out, " (%s)", w.Brief.Provenance.Citation)
-	}
-	out.WriteString("\n\nChange Set:\n")
+	fmt.Fprintf(&out, "Goal:     %s\n", w.Brief.Goal)
+	fmt.Fprintf(&out, "Approach: %s\n", w.Brief.Approach)
+	out.WriteString("\nChange Set:\n")
 	for _, repository := range w.ChangeSet.Repositories {
 		fmt.Fprintf(&out, "  %s @ %s\n", repository.Root, repository.Base)
 	}

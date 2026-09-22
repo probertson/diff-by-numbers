@@ -42,9 +42,9 @@ func (d *roundsDeriver) MapBetween(_, _, _ string) (review.RoundMapping, error) 
 func secondRound(t *testing.T, deriver *roundsDeriver, resolver review.Resolver) *review.Session {
 	t.Helper()
 	session := review.NewSession(resolver, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
 	return session
 }
 
@@ -77,7 +77,7 @@ func TestTheReviewerCanSwitchToAllChangesUnderReviewAndBack(t *testing.T) {
 
 func TestTheFirstRoundHasNoPreviousRoundToCompareWith(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, &roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}})
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 
 	err := session.ToggleSincePreviousRound()
 
@@ -91,7 +91,7 @@ func TestTheFirstRoundHasNoPreviousRoundToCompareWith(t *testing.T) {
 func TestAReplacementKeepsItsRoundNumber(t *testing.T) {
 	session := secondRound(t, &roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}}, &textResolver{text: map[string]string{}})
 
-	if err := session.Replace(session.ReviewID(), revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil))); err != nil {
+	if err := session.Replace(session.ReviewID(), revising(appRound([]review.Step{appStep(1, 6)}, nil))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +104,7 @@ func TestAReplacementKeepsItsRoundNumber(t *testing.T) {
 // "s1" is the first round's text, anything else the second's.
 type roundTextResolver struct{ first, second []string }
 
-func (r roundTextResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r roundTextResolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	text := r.second
 	if round.Snapshots[e.Repository] == "s1" {
 		text = r.first
@@ -232,7 +232,7 @@ func TestAStepWithNothingNewOrEditedSinceThePreviousRoundIsMarkedUnchanged(t *te
 		edits:        map[string][]review.RoundEdit{"app.ts": {{OldFirst: 5, OldCount: 1, NewFirst: 5, NewCount: 1}}},
 	}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	split := appWalkthrough([]review.Step{appStep(1, 3), appStep(4, 6)}, nil)
+	split := appRound([]review.Step{appStep(1, 3), appStep(4, 6)}, nil)
 	mustPost(t, session, split)
 	handOffWithAComment(t, session)
 	mustPost(t, session, revising(split))
@@ -246,7 +246,7 @@ func TestAStepWithNothingNewOrEditedSinceThePreviousRoundIsMarkedUnchanged(t *te
 
 func TestAFirstRoundHasNoWithdrawalsOrUnchangedMarkers(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, &roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}})
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 
 	view := session.View()
 
@@ -288,7 +288,7 @@ func withdrawnBelow(t *testing.T, lines []review.ChangedLine, steps ...review.St
 	}
 	resolver := roundTextResolver{first: []string{"a", "b", "c", "d", "e", "f"}, second: []string{"a", "b", "c", "d", "f", "g"}}
 	session := review.NewSession(resolver, deriver)
-	w := appWalkthrough(steps, nil)
+	w := appRound(steps, nil)
 	mustPost(t, session, w)
 	handOffWithAComment(t, session)
 	mustPost(t, session, revising(w))
@@ -367,7 +367,7 @@ func TestAnEditIsDrawnOnceInAStepThatShowsItInTwoRanges(t *testing.T) {
 		{Repository: revRepo, File: "app.ts", Side: review.NewSide, FirstLine: 1, LastLine: 3},
 		{Repository: revRepo, File: "app.ts", Side: review.NewSide, FirstLine: 4, LastLine: 6},
 	}}
-	w := appWalkthrough([]review.Step{twoRanges}, nil)
+	w := appRound([]review.Step{twoRanges}, nil)
 	mustPost(t, session, w)
 	handOffWithAComment(t, session)
 	mustPost(t, session, revising(w))
@@ -386,7 +386,7 @@ func TestAnEditIsDrawnOnceInAStepThatShowsItInTwoRanges(t *testing.T) {
 // oldSideResolver answers a before-side read too, which the deletion test needs.
 type oldSideResolver struct{ roundTextResolver }
 
-func (r oldSideResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r oldSideResolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	if e.Side != review.OldSide {
 		return r.roundTextResolver.Resolve(e, round)
 	}
@@ -408,10 +408,10 @@ func TestSinceThePreviousRoundADeletionItAlreadyHadIsPlain(t *testing.T) {
 	deletion := review.Step{Name: "Deletion", Explanation: "e", Excerpts: []review.Excerpt{
 		{Repository: revRepo, File: "app.ts", Side: review.OldSide, FirstLine: 7, LastLine: 8},
 	}}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6), deletion}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 6), deletion}, nil))
 	handOffWithAComment(t, session)
 	deriver.lines = append(lines, review.ChangedLine{File: "app.ts", Side: review.OldSide, Line: 8})
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6), deletion}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6), deletion}, nil)))
 	if err := session.GoTo(2); err != nil {
 		t.Fatal(err)
 	}
@@ -433,9 +433,9 @@ func (d *failingMapper) MapBetween(_, _, _ string) (review.RoundMapping, error) 
 func TestARoundThatCannotBeComparedOffersNoComparison(t *testing.T) {
 	deriver := &failingMapper{roundsDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 6)}}}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 6)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 6)}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
 
 	view := session.View()
 
@@ -448,7 +448,7 @@ func TestARoundThatCannotBeComparedOffersNoComparison(t *testing.T) {
 // with "x", so a previous-round row read from the wrong name shows as one.
 type renameResolver struct{}
 
-func (renameResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (renameResolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	text := []string{"a", "B", "c"}
 	if round.Snapshots[e.Repository] == "s1" {
 		text = []string{"x", "x", "x"}
@@ -477,9 +477,9 @@ func TestALineRewrittenInAFileRenamedSinceThePreviousRoundIsReadFromItsOldName(t
 		edits:        map[string][]review.RoundEdit{"app.ts": {{OldFirst: 2, OldCount: 1, NewFirst: 2, NewCount: 1}}},
 	}}
 	session := review.NewSession(renameResolver{}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appWalkthrough([]review.Step{appStep(1, 3)}, nil)))
+	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 3)}, nil)))
 	mustAdvance(t, session)
 
 	got := previousRowsIn(session.View().Step.Excerpts[0])

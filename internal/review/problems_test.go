@@ -28,11 +28,11 @@ func assertProblems(t *testing.T, err error, want ...review.RejectionReason) {
 	}
 }
 
-// An agent used to find one fault per post, re-sending the whole Walkthrough
+// An agent used to find one fault per post, re-sending the whole Round
 // each time. Four posts to get one accepted was ordinary. Everything a stage-2
 // check can see is present on the first attempt, so it is all reported at once.
 func TestEveryStageTwoProblemIsReportedTogether(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// One oversized Step that also fails to cover everything, plus an
 	// Acknowledgement claiming a file with nothing in it.
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
@@ -55,10 +55,10 @@ func TestEveryStageTwoProblemIsReportedTogether(t *testing.T) {
 }
 
 // Stage 1 stops: the later checks mean nothing without a well-formed
-// Walkthrough, so reporting guesses from them would be noise.
+// Round, so reporting guesses from them would be noise.
 func TestAStructuralFailureIsReportedOnItsOwn(t *testing.T) {
-	walkthrough := validWalkthrough()
-	walkthrough.Brief.Ask = "" // structural
+	walkthrough := validRound()
+	walkthrough.Brief.Goal = "" // structural
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "big.ts", Side: review.NewSide, FirstLine: 1, LastLine: 200,
 	}
@@ -72,7 +72,7 @@ func TestAStructuralFailureIsReportedOnItsOwn(t *testing.T) {
 // Derivation is stage 1 too: with no ledger there is nothing to check coverage
 // or the budget against.
 func TestADerivationFailureStopsBeforeStageTwo(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	session := review.NewSession(stubResolver{}, failingDeriver{})
 
 	err := session.Post(walkthrough)
@@ -90,7 +90,7 @@ func (failingDeriver) Derive(review.Repository) (review.Derivation, error) {
 // of the work and made the agent post again to discover the rest. It now lists
 // everything, grouped and collapsed so that a long list stays readable.
 func TestUncoveredChangesAreGroupedByFileAndSideWithRangesCollapsed(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	// A Step that covers nothing of what follows.
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "covered.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
@@ -127,7 +127,7 @@ func oldSide(file string, first, last int) []review.ChangedLine {
 // branch never approaches it, but a pathological Change Set of scattered single
 // lines should not produce a message nobody can read.
 func TestAVeryLongUncoveredListIsCappedWithACount(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "covered.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
 	}
@@ -150,7 +150,7 @@ func TestAVeryLongUncoveredListIsCappedWithACount(t *testing.T) {
 // refusal rather than two.
 func TestConcludeRefusesWithProblemsToo(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	err := session.Conclude("not-the-review-under-review")
 
@@ -160,7 +160,7 @@ func TestConcludeRefusesWithProblemsToo(t *testing.T) {
 // An Opaque Change has no lines, so a message that counts only lines reported
 // "0 changed lines in 0 files" and then listed one anyway.
 func TestAnUncoveredOpaqueChangeIsCountedAsOne(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "covered.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
 	}
@@ -177,7 +177,7 @@ func TestAnUncoveredOpaqueChangeIsCountedAsOne(t *testing.T) {
 }
 
 func TestLinesAndOpaqueChangesAreCountedSeparately(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "covered.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
 	}
@@ -194,7 +194,7 @@ func TestLinesAndOpaqueChangesAreCountedSeparately(t *testing.T) {
 // The count beside the truncation is of the files that were actually cut, not
 // of every file with something uncovered.
 func TestTheTruncationCountsOnlyTheFilesItCut(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{
 		Repository: "/repos/argus-portal", File: "covered.ts", Side: review.NewSide, FirstLine: 1, LastLine: 1,
 	}
@@ -220,7 +220,7 @@ func TestTheTruncationCountsOnlyTheFilesItCut(t *testing.T) {
 // all of them. Two same-named files must not merge into one row, which would
 // interleave line numbers belonging to different trees.
 func TestSameNamedFilesInDifferentRepositoriesAreKeptApart(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.ChangeSet.Repositories = []review.Repository{
 		{Root: "/repos/one", Base: "main"},
 		{Root: "/repos/two", Base: "main"},

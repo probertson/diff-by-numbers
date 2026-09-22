@@ -78,11 +78,10 @@ func TestANewFileListedAsSectionsIsAcceptedWithoutNamingItsBlankLines(t *testing
 	run(t, root, "add", "config.yml")
 
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
-	err := session.Post(review.Walkthrough{
+	err := session.Post(review.Round{
 		Brief: review.Brief{
-			Ask:        "Add the config file",
-			Approach:   "Two sections, listed one per Excerpt",
-			Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "session abc"},
+			Goal:     "Add the config file",
+			Approach: "Two sections, listed one per Excerpt",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{
@@ -96,7 +95,7 @@ func TestANewFileListedAsSectionsIsAcceptedWithoutNamingItsBlankLines(t *testing
 	})
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)

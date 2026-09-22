@@ -47,7 +47,7 @@ func Run(port int) error {
 
 // attach builds the model the program starts from. No daemon answering is not a
 // failure: the Reviewer often opens the TUI while their agent is still preparing
-// the Walkthrough, so the model starts waiting for one and the poll loop picks it
+// the Round, so the model starts waiting for one and the poll loop picks it
 // up when it appears.
 func attach(port int) (model, error) {
 	client := client{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
@@ -157,7 +157,7 @@ type model struct {
 	// Persistent for the same reason daemonVersion is: it is a standing fact about
 	// this install, not a response to a keypress.
 	updateNotice string
-	// replacedNotice tells the Reviewer the agent replaced the Walkthrough under
+	// replacedNotice tells the Reviewer the agent replaced the Round under
 	// them. Unlike the other notices it is about a moment rather than a standing
 	// fact, so the next navigation clears it.
 	replacedNotice string
@@ -212,9 +212,9 @@ type model struct {
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
 	expanded map[int][]daemon.ExcerptWire
-	// leftSteps is how the Reviewer left each Step of the Walkthrough on screen,
+	// leftSteps is how the Reviewer left each Step of the Round on screen,
 	// by position, so returning to one finds it as it was. It is forgotten when a
-	// different Walkthrough arrives.
+	// different Round arrives.
 	leftSteps map[int]leftStep
 	// wrapAll turns the Step pane's soft-wrap on for every line rather than the
 	// cursor's alone (#77), so a long removal and the addition replacing it can be
@@ -259,7 +259,7 @@ func (m *model) inStep() bool {
 	return m.view != nil && m.view.Posted && m.view.Position > 0 && m.view.Step != nil
 }
 
-// multiRepo reports whether the Walkthrough spans more than one repository, so
+// multiRepo reports whether the Round spans more than one repository, so
 // the UI can label files with their repository only when it is ambiguous.
 func (m *model) multiRepo() bool {
 	return m.view != nil && len(m.view.Repositories) > 1
@@ -532,7 +532,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		positionChanged := false
-		newWalkthrough := false
+		newRound := false
 		newConnection := false
 		if msg.err != nil {
 			switch {
@@ -551,16 +551,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
 				positionChanged = true
 			}
-			// How the Reviewer left each Step belongs to one Walkthrough: a new
+			// How the Reviewer left each Step belongs to one Round: a new
 			// review, a Revision Round, a Replacement or a restarted daemon starts
 			// every Step fresh.
 			// A restarted daemon counts its postings from the start again, so the
-			// review id it mints is what tells its Walkthrough from the last one.
+			// review id it mints is what tells its Round from the last one.
 			if msg.view != nil && (m.view == nil || !msg.view.Posted ||
 				msg.view.Posting != m.view.Posting || msg.view.ReviewID != m.view.ReviewID) {
-				newWalkthrough = true
+				newRound = true
 			}
-			if positionChanged && !newWalkthrough {
+			if positionChanged && !newRound {
 				m.leaveStep()
 			}
 			// Coming back after losing the daemon, the daemon on the other end may
@@ -572,23 +572,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.waiting = false
 			m.view = msg.view
 		}
-		if newWalkthrough {
+		if newRound {
 			m.leftSteps = nil
 		}
 		switch {
-		case newWalkthrough && m.view.Replaced:
-			// The Walkthrough the Reviewer was in has gone, so whatever screen they
+		case newRound && m.view.Replaced:
+			// The Round the Reviewer was in has gone, so whatever screen they
 			// were on belongs to it: they start again from the Overview.
 			m.replacedNotice = replacementNotice(m.view.Comments)
 			m.mode = modeReview
 			m.resizeViewport()
-		case newWalkthrough || positionChanged:
+		case newRound || positionChanged:
 			if m.replacedNotice != "" {
 				m.replacedNotice = ""
 				m.resizeViewport()
 			}
 		}
-		if positionChanged || newWalkthrough {
+		if positionChanged || newRound {
 			m.enterStep()
 			m.viewport.GotoTop()
 		}
@@ -1091,7 +1091,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 }
 
 // shouldGuardQuit reports whether q should raise the unfinished-review heads-up
-// rather than quit outright: only when a Walkthrough is posted and neither
+// rather than quit outright: only when a Round is posted and neither
 // finished nor concluded, since quitting then leaves the agent unable to post the
 // next round. A concluded review is over, so quitting it needs no heads-up.
 func (m model) shouldGuardQuit() bool {
@@ -1641,7 +1641,7 @@ func (m model) doneView() string {
 	}
 }
 
-// stepsSeenLine reports how much of the Walkthrough the Reviewer got through.
+// stepsSeenLine reports how much of the Round the Reviewer got through.
 // Step statuses are exclusive — a flagged Step is one they saw and raised a
 // Comment on — so the two are added rather than printed side by side, which read
 // as a counting bug (#74). With nothing left unseen the total stands alone.
@@ -1935,15 +1935,15 @@ func steplessCounts(comments []daemon.CommentWire) map[string]int {
 	return counts
 }
 
-// replacementNotice says the agent replaced the Walkthrough, and how many of the
+// replacementNotice says the agent replaced the Round, and how many of the
 // Reviewer's Comments carried over to it — each is still theirs to withdraw if
 // the replacement dealt with it.
 func replacementNotice(comments []daemon.CommentWire) string {
 	carried := steplessCounts(comments)[daemon.CarriedOver]
 	if carried == 0 {
-		return "The agent replaced this Walkthrough"
+		return "The agent replaced this Round"
 	}
-	return fmt.Sprintf("The agent replaced this Walkthrough — %s carried over (l to review them)", pluralize(carried, "Comment"))
+	return fmt.Sprintf("The agent replaced this Round — %s carried over (l to review them)", pluralize(carried, "Comment"))
 }
 
 // olderDaemon stands in for the version of a daemon too old to have a status
@@ -1977,7 +1977,7 @@ func (m model) headerLine() string {
 	case m.lostErr != nil:
 		return warnSt.Render("dbn — lost the daemon: ") + m.lostErr.Error()
 	case m.view == nil || !m.view.Posted:
-		return headerSt.Render("dbn") + dimSt.Render(" — no Walkthrough posted")
+		return headerSt.Render("dbn") + dimSt.Render(" — no Round posted")
 	case m.mode == modeDone:
 		return headerSt.Render("dbn — "+m.doneHeading()) + dimSt.Render(m.coverageSuffix())
 	case m.pastTheLastStep():
@@ -2079,7 +2079,7 @@ func (m model) content() string {
 		return m.waitingView()
 	}
 	if m.view == nil || !m.view.Posted {
-		return dimSt.Render("An Authoring Agent posts a Walkthrough over MCP; it will appear here.")
+		return dimSt.Render("An Authoring Agent posts a Round over MCP; it will appear here.")
 	}
 	if m.view.Position == 0 {
 		return m.brief()
@@ -2092,7 +2092,7 @@ func (m model) content() string {
 // when it posts — is the difference between waiting and being stuck.
 func (m model) waitingView() string {
 	body := dimSt.Render(wrapTo(
-		"The dbn daemon starts when your Authoring Agent posts a Walkthrough. This screen fills in as soon as it does.",
+		"The dbn daemon starts when your Authoring Agent posts a Round. This screen fills in as soon as it does.",
 		m.viewport.Width))
 	if !m.waitHintDue() {
 		return body
@@ -2124,15 +2124,8 @@ func (m model) brief() string {
 
 	wrap := func(text string) string { return wrapTo(text, m.viewport.Width) }
 
-	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Ask) + "\n\n")
+	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Goal) + "\n\n")
 	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
-
-	b.WriteString(labelSt.Render("Source") + "\n")
-	if brief.ProvenanceKind == "stated" {
-		b.WriteString(wrap("stated — "+brief.ProvenanceCitation) + "\n\n")
-	} else {
-		b.WriteString(warnSt.Render("inferred") + " — reverse-engineered from the changes; trust the narrative accordingly\n\n")
-	}
 
 	if len(m.view.Dispositions) > 0 {
 		b.WriteString(m.sinceTheLastRound(m.viewport.Width))

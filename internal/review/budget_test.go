@@ -11,7 +11,7 @@ import (
 // line pre-marked as seen by a Revision Round has already been read, so counting
 // it refuses a Step for work nobody has to do again.
 
-// finishFirstRoundOver posts a first Walkthrough covering a range of app.ts and
+// finishFirstRoundOver posts a first Round covering a range of app.ts and
 // hands it off with a Comment, leaving those lines pre-marked for the Revision
 // Round that follows. The first round carries a justification because its size
 // is not what these tests are about.
@@ -53,7 +53,7 @@ func TestABudgetCountsOnlyTheLinesARevisionRoundHasNotAlreadyShown(t *testing.T)
 	deriver.lines = changedApp(1, 45)
 	deriver.touched = touching(41, 45)
 
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 45)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 45)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected 40 already-read lines plus 5 new ones to count 5, got %v", err)
@@ -65,7 +65,7 @@ func TestARevisionRoundIsStillRefusedForTooMuchNewReading(t *testing.T) {
 	deriver.lines = changedApp(1, 38)
 	deriver.touched = touching(4, 38)
 
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 38)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 38)}, nil)))
 
 	assertRejected(t, err, review.RejectedOversizedStep)
 	assertDetailContains(t, err, "35 changed lines")
@@ -79,7 +79,7 @@ func TestAStepOfNothingButAlreadyReadLinesCountsZero(t *testing.T) {
 	deriver.lines = changedApp(1, 41)
 	deriver.touched = touching(41, 41)
 
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 40), appStep(41, 41)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 40), appStep(41, 41)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected a Step of wholly already-read lines to count zero, got %v", err)
@@ -101,7 +101,7 @@ func TestAnAlreadyShownBeforeSideLineIsFreeWhenItRidesAlong(t *testing.T) {
 	// unmoved merge-base — is pre-marked.
 	deriver.touched = touching(1, 20)
 
-	err := session.Post(revising(appWalkthrough([]review.Step{appStep(1, 20)}, nil)))
+	err := session.Post(revising(appRound([]review.Step{appStep(1, 20)}, nil)))
 
 	if err != nil {
 		t.Fatalf("expected the 20 already-shown before-side lines to be free, got %v", err)

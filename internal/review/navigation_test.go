@@ -6,11 +6,11 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// threeStepSession posts a Walkthrough of three Steps over an empty diff, so
+// threeStepSession posts a Round of three Steps over an empty diff, so
 // navigation can be exercised without coverage getting in the way.
 func threeStepSession(t *testing.T) *review.Session {
 	t.Helper()
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{
 		{Name: "First", Explanation: "one", Excerpts: oneExcerpt("a.ts")},
 		{Name: "Second", Explanation: "two", Excerpts: oneExcerpt("b.ts")},

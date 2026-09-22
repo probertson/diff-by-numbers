@@ -5,7 +5,7 @@ package review
 // plumbing, not a domain concept the Authoring Agent authors against (ADR-0002):
 // the agent still writes arbitrary, Side-qualified ranges. dbn keeps the pairing
 // only so that showing an edit's after-side can account for and render the
-// before-side it replaced — the "point once" behaviour of a Walkthrough.
+// before-side it replaced — the "point once" behaviour of a Round.
 //
 // A modification carries both sides. A pure addition carries only a new side; a
 // pure deletion only an old side, and a pure deletion never rides along — it has
@@ -39,7 +39,7 @@ func (c Correspondence) coversOld(line int) bool {
 // "accounted for" stay in lockstep and no line can be counted covered without
 // also being seen.
 //
-// It takes the Steps twice on purpose. `all` is the whole Walkthrough, because
+// It takes the Steps twice on purpose. `all` is the whole Round, because
 // which Step draws a given before-side line is a question about all of them: a
 // line no Step claims falls to the Step showing the replacement's first line.
 // `within` is the subset being asked about — every Step when validating
@@ -98,7 +98,7 @@ func assignedBefore(c Correspondence, step Step, all []Step) []int {
 // drawsBefore reports whether a Step draws one before-side line of a
 // modification: it claims the line with an old-side Excerpt, or it shows the
 // replacement's first line and no Step claimed this one. The caller works out
-// claimedElsewhere, which depends on the whole Walkthrough rather than this Step.
+// claimedElsewhere, which depends on the whole Round rather than this Step.
 func drawsBefore(c Correspondence, step Step, line int, claimedElsewhere bool) bool {
 	if claimsOld(step, c, line) {
 		return true

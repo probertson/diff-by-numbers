@@ -13,7 +13,7 @@ import (
 // can tell an injected before-line from an after-line.
 type sideResolver struct{}
 
-func (sideResolver) Resolve(e review.Excerpt, _ review.Round) ([]review.Line, error) {
+func (sideResolver) Resolve(e review.Excerpt, _ review.RoundSource) ([]review.Line, error) {
 	side := "after"
 	if e.Side == review.OldSide {
 		side = "before"
@@ -38,7 +38,7 @@ func TestANewSideExcerptRendersBeforeThenAfterInterleaved(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	mustPost(t, session, beforeAfterRound(1, 4))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +91,11 @@ func (d pairingDeriver) Derive(repo review.Repository) (review.Derivation, error
 	return review.Derivation{Lines: lines, Correspondences: corrs}, nil
 }
 
-// beforeAfterWalkthrough is a one-Step Walkthrough over a single new-side Excerpt
+// beforeAfterRound is a one-Step Round over a single new-side Excerpt
 // on src/fetch.ts, so a test can point at the after-side and see whether the
 // before-side is accounted for.
-func beforeAfterWalkthrough(first, last int) review.Walkthrough {
-	w := validWalkthrough()
+func beforeAfterRound(first, last int) review.Round {
+	w := validRound()
 	w.Steps = []review.Step{{
 		Name:        "The edit",
 		Explanation: "reworked the fetch",
@@ -126,7 +126,7 @@ func TestPointingAtTheAfterSideAccountsForTheBeforeItReplaced(t *testing.T) {
 	session := review.NewSession(stubResolver{}, deriver)
 
 	// The agent points once, at the after-side only.
-	err := session.Post(beforeAfterWalkthrough(20, 24))
+	err := session.Post(beforeAfterRound(20, 24))
 
 	if err != nil {
 		t.Fatalf("expected pointing at the after-side to account for the before it replaced, got %v", err)
@@ -146,7 +146,7 @@ func TestADeletionShownAsAnOldSideExcerptIsAccepted(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	w := validWalkthrough()
+	w := validRound()
 	w.Steps = []review.Step{{
 		Name:        "Drop the dead retry path",
 		Explanation: "the legacy retry is gone",
@@ -190,7 +190,7 @@ func TestAStandaloneRemovalIsNotRiddenAlongAndMustBePlaced(t *testing.T) {
 	}
 	session := review.NewSession(stubResolver{}, deriver)
 
-	err := session.Post(beforeAfterWalkthrough(20, 20))
+	err := session.Post(beforeAfterRound(20, 20))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	assertDetailContains(t, err, "40")
@@ -210,7 +210,7 @@ func TestAnchoringABeforeSideRowReadsTheBeforeNotTheAfter(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	mustPost(t, session, beforeAfterRound(1, 4))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestAnAnchorMaySpanARemovalAndItsReplacement(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	mustPost(t, session, beforeAfterRound(1, 4))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestAnAnchorMaySpanARemovalAndItsReplacement(t *testing.T) {
 // as a shallow checkout or a base commit missing the file would leave it.
 type unreadableBeforeResolver struct{ sideResolver }
 
-func (r unreadableBeforeResolver) Resolve(e review.Excerpt, round review.Round) ([]review.Line, error) {
+func (r unreadableBeforeResolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
 	if e.Side == review.OldSide {
 		return nil, errors.New("no such blob")
 	}
@@ -309,7 +309,7 @@ func TestAnAnchorRefusesToQuoteCodeThatCouldNotBeRead(t *testing.T) {
 		},
 	}
 	session := review.NewSession(unreadableBeforeResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 4))
+	mustPost(t, session, beforeAfterRound(1, 4))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestAnAnchorSpanningTwoEditsKeepsEachRemovedRunApart(t *testing.T) {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	mustPost(t, session, beforeAfterWalkthrough(1, 6))
+	mustPost(t, session, beforeAfterRound(1, 6))
 	if err := session.GoTo(1); err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestABudgetCountsTheBeforeLinesThatRideAlong(t *testing.T) {
 	}
 	session := review.NewSession(stubResolver{}, deriver)
 
-	err := session.Post(beforeAfterWalkthrough(1, 20))
+	err := session.Post(beforeAfterRound(1, 20))
 
 	assertRejected(t, err, review.RejectedOversizedStep)
 }

@@ -42,12 +42,12 @@ type Line struct {
 // content may be selected, quoted or anchored.
 func (l Line) Content() bool { return !l.Unreadable && !l.Signpost }
 
-// Round is where one accepted Walkthrough's code is read from, per repository
+// RoundSource is where one accepted Round's code is read from, per repository
 // root: the Round Snapshot taken when it was posted, which holds the after-side,
 // and the merge-base its Change Set was derived from, which holds the before-side.
-// Both are git objects and immutable, so anything read from a Round can be cached
+// Both are git objects and immutable, so anything read from a RoundSource can be cached
 // for good.
-type Round struct {
+type RoundSource struct {
 	// Snapshots has no entry for a repository git could not snapshot, whose code
 	// is then read from the working tree instead — the same conservative fallback
 	// pre-marking makes.
@@ -63,7 +63,7 @@ type Round struct {
 // that reads bytes — and it names the Round on every call, so a post being
 // checked and the round on screen can never be confused for one another.
 type Resolver interface {
-	Resolve(Excerpt, Round) ([]Line, error)
+	Resolve(Excerpt, RoundSource) ([]Line, error)
 }
 
 // ExcerptView is an Excerpt with its content resolved, or the reason it could
@@ -132,11 +132,11 @@ type Coverage struct {
 // Brief; positions 1..StepCount are Steps.
 type ViewModel struct {
 	Posted bool
-	// Posting identifies the Walkthrough on screen among those this Session has
+	// Posting identifies the Round on screen among those this Session has
 	// accepted: it changes exactly when a new one, or a Revision Round, replaces it.
 	Posting int
 	// ReviewID is the review on screen, which a restarted daemon mints afresh —
-	// so together with Posting it tells one Walkthrough from any other.
+	// so together with Posting it tells one Round from any other.
 	ReviewID     string
 	Brief        Brief
 	StepNames    []string
@@ -158,7 +158,7 @@ type ViewModel struct {
 	// Dispositions accounts for the previous round's Comments in a Revision
 	// Round — shown before any code, so a decline is seen before the fix.
 	Dispositions []ResolvedDisposition
-	// Replaced reports that the Walkthrough on screen replaced another in place,
+	// Replaced reports that the Round on screen replaced another in place,
 	// so a surface can say why the review changed under the Reviewer.
 	Replaced bool
 	// Round is which round of the review this is. PreviousRound is the round it
@@ -177,11 +177,11 @@ type ViewModel struct {
 
 // View reports what should be on screen right now.
 func (s *Session) View() ViewModel {
-	if s.walkthrough == nil {
+	if s.current == nil {
 		return ViewModel{Posted: false}
 	}
 
-	w := s.walkthrough
+	w := s.current
 	names := make([]string, 0, len(w.Steps))
 	for _, step := range w.Steps {
 		names = append(names, step.Name)
@@ -222,10 +222,10 @@ func (s *Session) View() ViewModel {
 }
 
 func (s *Session) stepView(position int) *StepView {
-	step := s.walkthrough.Steps[position-1]
+	step := s.current.Steps[position-1]
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
 	for i, excerpt := range step.Excerpts {
-		excerpts = append(excerpts, s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.walkthrough.Steps}))
+		excerpts = append(excerpts, s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.current.Steps}))
 	}
 	acknowledgements := make([]AcknowledgementView, 0, len(step.Acknowledgements))
 	for _, ack := range step.Acknowledgements {
@@ -242,7 +242,7 @@ func (s *Session) stepView(position int) *StepView {
 }
 
 // drawnIn is where an Excerpt is being rendered: which Step it belongs to, its
-// position among that Step's Excerpts, and the Steps the Walkthrough is made of.
+// position among that Step's Excerpts, and the Steps the Round is made of.
 // Together those decide which of a modification's before-side lines it draws.
 type drawnIn struct {
 	step Step
@@ -259,7 +259,7 @@ type drawnIn struct {
 // before-only.
 func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	view := ExcerptView{Excerpt: excerpt, ChangedOnDisk: s.changedOnDisk(excerpt)}
-	lines, err := s.resolver.Resolve(excerpt, s.latest.Round)
+	lines, err := s.resolver.Resolve(excerpt, s.latest.RoundSource)
 	if err != nil {
 		view.Problem = err.Error()
 		return view
@@ -412,7 +412,7 @@ func (s *Session) beforeRows(c Correspondence, in drawnIn) []Line {
 		before, err := s.resolver.Resolve(Excerpt{
 			Repository: c.Repository, File: c.File, Side: OldSide,
 			FirstLine: run.first, LastLine: run.last,
-		}, s.latest.Round)
+		}, s.latest.RoundSource)
 		if err != nil {
 			// The before-side is accounted for by being drawn here, so it must not
 			// vanish silently, or a covered line would go unshown. Mark the gap.
@@ -504,14 +504,14 @@ func classifyChange(lines []ChangedLine) string {
 // calling a bulk claim: it shows the code the Acknowledgement asked to skip
 // without altering the plan. An Opaque Change has no lines and says so.
 func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptView, error) {
-	if s.walkthrough == nil {
-		return nil, reject(RejectedNoWalkthrough, "there is no Walkthrough to expand")
+	if s.current == nil {
+		return nil, reject(RejectedNoRound, "there is no Round to expand")
 	}
-	if stepPosition < 1 || stepPosition > len(s.walkthrough.Steps) {
+	if stepPosition < 1 || stepPosition > len(s.current.Steps) {
 		return nil, reject(RejectedNoSuchStep,
-			"there is no Step %d; this Walkthrough has %d", stepPosition, len(s.walkthrough.Steps))
+			"there is no Step %d; this Round has %d", stepPosition, len(s.current.Steps))
 	}
-	step := s.walkthrough.Steps[stepPosition-1]
+	step := s.current.Steps[stepPosition-1]
 	if ackIndex < 0 || ackIndex >= len(step.Acknowledgements) {
 		return nil, reject(RejectedNoSuchAcknowledgement,
 			"Step %d has no Acknowledgement %d", stepPosition, ackIndex+1)
@@ -534,12 +534,12 @@ func (s *Session) ExpandAcknowledgement(stepPosition, ackIndex int) ([]ExcerptVi
 	return views, nil
 }
 
-// expansionContext makes an Acknowledgement's expansion its own Walkthrough of
+// expansionContext treats an Acknowledgement's expansion as a Round of
 // one Step, positioned at the part being drawn.
 //
 // An expansion is a complete account of a file's changes, not a Step's editorial
 // selection, so it draws every before-side it covers regardless of what the
-// Steps around it claim — a claim made elsewhere in the Walkthrough must not
+// Steps around it claim — a claim made elsewhere in the Round must not
 // take a removal out of the diff the Reviewer asked to see in full.
 func expansionContext(parts []acknowledgedPart, at int) drawnIn {
 	step := Step{}
@@ -581,7 +581,7 @@ func (s *Session) acknowledgedParts(ack Acknowledgement) []acknowledgedPart {
 }
 
 func (s *Session) seenFlags() []bool {
-	flags := make([]bool, len(s.walkthrough.Steps))
+	flags := make([]bool, len(s.current.Steps))
 	for i := range flags {
 		flags[i] = s.seen[i+1]
 	}

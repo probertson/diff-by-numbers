@@ -9,7 +9,7 @@ import (
 
 func TestAnAnchorCarriesEverythingNeededToPasteIntoChat(t *testing.T) {
 	session := newSession() // stubResolver fabricates "<file> line N"
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session) // Step 1: src/fetch.ts new 12-34
 
 	anchor, err := session.Anchor(span(0, 20, 22))
@@ -43,7 +43,7 @@ func TestAnAnchorCarriesEverythingNeededToPasteIntoChat(t *testing.T) {
 
 func TestAnchoringAtTheBriefIsRejected(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	_, err := session.Anchor(span(0, 20, 22))
 
@@ -52,7 +52,7 @@ func TestAnchoringAtTheBriefIsRejected(t *testing.T) {
 
 func TestAnchorMustNameAnExcerptInTheStep(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	_, err := session.Anchor(span(9, 20, 22))
@@ -62,7 +62,7 @@ func TestAnchorMustNameAnExcerptInTheStep(t *testing.T) {
 
 func TestAnchorEndpointsMustNameRowsTheExcerptShows(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough()) // excerpt is 12-34
+	mustPost(t, session, validRound()) // excerpt is 12-34
 	mustAdvance(t, session)
 
 	cases := map[string]review.AnchorTarget{
@@ -83,7 +83,7 @@ func TestAnchorEndsAreRowsNotBounds(t *testing.T) {
 	// The Reviewer can select upwards, so which end was reached first says nothing
 	// about which line comes first.
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	anchor, err := session.Anchor(span(0, 22, 20))
@@ -99,7 +99,7 @@ func TestAnchorEndsAreRowsNotBounds(t *testing.T) {
 
 func TestAnchorReportsWhenTheCodeCannotBeRead(t *testing.T) {
 	session := review.NewSession(failingResolver{}, emptyDeriver{})
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0].Side = review.OldSide // post skips old-side resolution
 	mustPost(t, session, walkthrough)
 	mustAdvance(t, session)

@@ -52,7 +52,7 @@ type RepositoryDescription struct {
 }
 
 // ChangeDescription is dbn's account of a Change Set, for the Authoring Agent to
-// plan a Walkthrough from.
+// plan a Round from.
 type ChangeDescription struct {
 	Repositories []RepositoryDescription
 	// RevisionRound reports that the next accepted post would be scoped against

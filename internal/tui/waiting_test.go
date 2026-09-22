@@ -108,8 +108,8 @@ func TestTheWaitingScreenSaysWhatItIsWaitingFor(t *testing.T) {
 	if strings.Contains(header, "lost the daemon") {
 		t.Errorf("waiting for a first daemon is not losing one, got %q", header)
 	}
-	if !strings.Contains(body, "Authoring Agent") || !strings.Contains(body, "Walkthrough") {
-		t.Errorf("the body should say the daemon starts when the Authoring Agent posts a Walkthrough, got %q", body)
+	if !strings.Contains(body, "Authoring Agent") || !strings.Contains(body, "Round") {
+		t.Errorf("the body should say the daemon starts when the Authoring Agent posts a Round, got %q", body)
 	}
 }
 
@@ -159,7 +159,7 @@ func TestADaemonAppearingEndsTheWait(t *testing.T) {
 	if after.waiting {
 		t.Error("a daemon that answered should end the wait")
 	}
-	if header := after.headerLine(); !strings.Contains(header, "no Walkthrough posted") {
+	if header := after.headerLine(); !strings.Contains(header, "no Round posted") {
 		t.Errorf("after connecting the header should be the ordinary one, got %q", header)
 	}
 }
@@ -251,9 +251,9 @@ func TestSomethingElseAnsweringDuringAWaitEndsIt(t *testing.T) {
 	}
 }
 
-// The wait usually ends on the Walkthrough itself: the agent posts, and the
+// The wait usually ends on the Round itself: the agent posts, and the
 // first poll that answers carries the whole review rather than an empty daemon.
-func TestAWalkthroughArrivingEndsTheWaitOnTheOverview(t *testing.T) {
+func TestARoundArrivingEndsTheWaitOnTheOverview(t *testing.T) {
 	m := waitingModel(t)
 
 	updated, _ := m.Update(refreshMsg{view: &daemon.ViewWire{
@@ -265,7 +265,7 @@ func TestAWalkthroughArrivingEndsTheWaitOnTheOverview(t *testing.T) {
 	after := updated.(model)
 
 	if after.waiting {
-		t.Error("a posted Walkthrough should end the wait")
+		t.Error("a posted Round should end the wait")
 	}
 	if header := after.headerLine(); !strings.Contains(header, "Overview") || !strings.Contains(header, "2 Steps ahead") {
 		t.Errorf("the wait should end on the Overview, got %q", header)

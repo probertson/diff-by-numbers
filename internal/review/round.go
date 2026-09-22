@@ -1,32 +1,11 @@
-// Package review is the review core: it owns a Walkthrough's whole life and
+// Package review is the review core: it owns a Review's whole life and
 // knows nothing about MCP, terminals or git.
 package review
 
-// ProvenanceKind records where a Brief's account of intent came from. A guessed
-// intent reads exactly as confidently as a known one, so the distinction is
-// carried explicitly rather than left to the Reviewer to infer.
-type ProvenanceKind string
-
-const (
-	// ProvenanceStated means the Authoring Agent was there, or read the session
-	// transcript, and can cite it.
-	ProvenanceStated ProvenanceKind = "stated"
-	// ProvenanceInferred means the account was reverse-engineered from the
-	// changes themselves.
-	ProvenanceInferred ProvenanceKind = "inferred"
-)
-
-// Provenance is a Brief's declaration of where its account of intent came from.
-type Provenance struct {
-	Kind     ProvenanceKind
-	Citation string
-}
-
-// Brief is the opening screen of a Walkthrough, shown before any code.
+// Brief is the opening screen of a Round, shown before any code.
 type Brief struct {
-	Ask        string
-	Approach   string
-	Provenance Provenance
+	Goal     string
+	Approach string
 }
 
 // Side qualifies a line range. Deleted lines exist only on the old side, added
@@ -69,7 +48,7 @@ type Acknowledgement struct {
 	Reason string
 }
 
-// Step is one numbered stop in a Walkthrough: a single self-contained idea. It
+// Step is one numbered stop in a Round: a single self-contained idea. It
 // carries Excerpts, Acknowledgements, or both; a Step with neither shows nothing.
 type Step struct {
 	Name        string
@@ -90,20 +69,20 @@ type Repository struct {
 }
 
 // ChangeSet is the complete set of changes under review. It is a list because a
-// single Walkthrough may span several repositories, and because a session root
+// single Round may span several repositories, and because a session root
 // is frequently not a repository at all.
 type ChangeSet struct {
 	Repositories []Repository
 }
 
-// Walkthrough is one complete review over one Change Set: a Brief followed by an
+// Round is one pass of a Review over one Change Set: a Brief followed by an
 // ordered sequence of Steps.
-type Walkthrough struct {
+type Round struct {
 	Brief     Brief
 	ChangeSet ChangeSet
 	Steps     []Step
 	// Dispositions accounts for the previous round's Comments when this
-	// Walkthrough is a Revision Round. It is empty for a first Walkthrough.
+	// Round is a Revision Round. It is empty for a first Round.
 	Dispositions []Disposition
 	// Label is an optional human-readable name the Authoring Agent may attach so a
 	// Reviewer juggling several reviews can tell them apart. It is not the review's

@@ -63,8 +63,8 @@ func TestDescribeChangesLeavesAReviewUnderWayAlone(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	postWalkthrough(t, server.URL, map[string]any{
-		"brief":        map[string]any{"ask": "x", "approach": "y", "provenance": map[string]any{"kind": "stated", "citation": "s"}},
+	postRound(t, server.URL, map[string]any{
+		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "all", "explanation": "e",

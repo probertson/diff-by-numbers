@@ -7,7 +7,7 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// A Walkthrough under review can be replaced in place — when the Reviewer asks
+// A Round under review can be replaced in place — when the Reviewer asks
 // for a change mid-review, or the agent sees its plan was wrong — without the
 // hand-off a Revision Round needs.
 
@@ -16,7 +16,7 @@ func underReview(t *testing.T) (*review.Session, *roundDeriver) {
 	t.Helper()
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver, review.WithIDMinter(minter("rev-1", "rev-2")))
-	mustPost(t, session, labeledWalkthrough("auth refactor", []review.Step{appStep(1, 3)}))
+	mustPost(t, session, labeledRound("auth refactor", []review.Step{appStep(1, 3)}))
 	mustAdvance(t, session)
 	return session, deriver
 }
@@ -25,7 +25,7 @@ func TestReplacingKeepsTheReviewAndCarriesItsCommentsOver(t *testing.T) {
 	session, _ := underReview(t)
 	raised := raise(t, session, 2, 2, "rename this")
 
-	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
 
 	if err != nil {
 		t.Fatalf("expected the replacement to be accepted, got %v", err)
@@ -52,7 +52,7 @@ func TestReplacingKeepsTheReviewAndCarriesItsCommentsOver(t *testing.T) {
 func TestACommentRaisedAfterAReplacementDoesNotReuseAnID(t *testing.T) {
 	session, _ := underReview(t)
 	first := raise(t, session, 2, 2, "one")
-	if err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil)); err != nil {
+	if err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil)); err != nil {
 		t.Fatal(err)
 	}
 	mustAdvance(t, session)
@@ -67,7 +67,7 @@ func TestACommentRaisedAfterAReplacementDoesNotReuseAnID(t *testing.T) {
 func TestReplacingStartsTheReviewerAgainFromTheOverview(t *testing.T) {
 	session, _ := underReview(t)
 
-	if err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil)); err != nil {
+	if err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,14 +81,14 @@ func TestReplacingStartsTheReviewerAgainFromTheOverview(t *testing.T) {
 		}
 	}
 	if !view.Replaced {
-		t.Error("expected the view to say the Walkthrough on screen replaced another")
+		t.Error("expected the view to say the Round on screen replaced another")
 	}
 }
 
 func TestAReplacementMayGiveANewLabel(t *testing.T) {
 	session, _ := underReview(t)
 
-	if err := session.Replace("rev-1", labeledWalkthrough("auth refactor, take 2", []review.Step{appStep(1, 3)})); err != nil {
+	if err := session.Replace("rev-1", labeledRound("auth refactor, take 2", []review.Step{appStep(1, 3)})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestAReplacementMayGiveANewLabel(t *testing.T) {
 func TestReplacingAnotherReviewIsRefused(t *testing.T) {
 	session, _ := underReview(t)
 
-	err := session.Replace("rev-9", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace("rev-9", appRound([]review.Step{appStep(1, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedUnknownReview)
 }
@@ -108,7 +108,7 @@ func TestReplacingAnotherReviewIsRefused(t *testing.T) {
 func TestReplacingWithNothingUnderReviewIsRefused(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, &roundDeriver{lines: changedApp(1, 3)})
 
-	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedUnknownReview)
 }
@@ -120,16 +120,16 @@ func TestReplacingAHandedOffRoundIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
 
-	assertRejected(t, err, review.RejectedWalkthroughFinished)
+	assertRejected(t, err, review.RejectedRoundHandedOff)
 	assertDetailContains(t, err, "post a Revision Round instead")
 }
 
 func TestAReplacementIsValidatedLikeAnyPost(t *testing.T) {
 	session, _ := underReview(t)
 
-	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 2)}, nil)) // leaves line 3 out
+	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 2)}, nil)) // leaves line 3 out
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 	if len(session.Comments()) != 0 || session.View().Replaced {
@@ -140,7 +140,7 @@ func TestAReplacementIsValidatedLikeAnyPost(t *testing.T) {
 func TestPostingOverAReviewUnderReviewNamesReplaces(t *testing.T) {
 	session, _ := underReview(t)
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Post(appRound([]review.Step{appStep(1, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedWalkthroughActive)
 	assertDetailContains(t, err, `replaces: "rev-1"`)
@@ -154,7 +154,7 @@ func TestPostingAfterAConcludedReviewStartsANewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := session.Post(appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Post(appRound([]review.Step{appStep(1, 3)}, nil))
 
 	if err != nil {
 		t.Fatalf("expected a concluded review to free the slot, got %v", err)
@@ -173,21 +173,21 @@ func TestPostingAfterAConcludedReviewStartsANewOne(t *testing.T) {
 func revisedTwice(t *testing.T, deriver review.Deriver) *review.Session {
 	t.Helper()
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	mustAdvance(t, session)
 	raise(t, session, 2, 2, "fix this")
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
 	addressed := []review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}
-	mustPost(t, session, appWalkthrough([]review.Step{appStep(1, 3)}, addressed))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, addressed))
 	return session
 }
 
 func TestReplacingARevisionRoundWithoutItsDispositionsIsRefused(t *testing.T) {
 	session := revisedTwice(t, &roundDeriver{lines: changedApp(1, 3), touched: map[string]bool{"app.ts:2": true}})
 
-	err := session.Replace(session.ReviewID(), appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace(session.ReviewID(), appRound([]review.Step{appStep(1, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
 }
@@ -196,7 +196,7 @@ func TestReplacingARevisionRoundTakesItsNewDispositions(t *testing.T) {
 	session := revisedTwice(t, &roundDeriver{lines: changedApp(1, 3), touched: map[string]bool{"app.ts:2": true}})
 	answered := []review.Disposition{{CommentID: 1, Status: review.DispositionAnswered, Response: "kept, see the note"}}
 
-	err := session.Replace(session.ReviewID(), appWalkthrough([]review.Step{appStep(1, 3)}, answered))
+	err := session.Replace(session.ReviewID(), appRound([]review.Step{appStep(1, 3)}, answered))
 
 	if err != nil {
 		t.Fatalf("expected the replacement with dispositions accepted, got %v", err)
@@ -235,12 +235,12 @@ func (d *stagedDeriver) MapBetween(_, from, _ string) (review.RoundMapping, erro
 func TestReplacingARevisionRoundScopesItAgainstThePreviousAcceptedRound(t *testing.T) {
 	// Line 2 moved since the first round, so the Revision Round must show it,
 	// and so must anything replacing that Revision Round: the Reviewer has not
-	// read line 2 as it now stands, whatever the replaced Walkthrough showed.
+	// read line 2 as it now stands, whatever the replaced Round showed.
 	deriver := &stagedDeriver{fixedDeriver: fixedDeriver{lines: changedApp(1, 3)}}
 	session := revisedTwice(t, deriver)
 	addressed := []review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}
 
-	err := session.Replace(session.ReviewID(), appWalkthrough([]review.Step{appStep(1, 1)}, addressed))
+	err := session.Replace(session.ReviewID(), appRound([]review.Step{appStep(1, 1)}, addressed))
 
 	assertRejected(t, err, review.RejectedUncoveredChanges)
 }
@@ -251,7 +251,7 @@ func TestReplacingAReviewHandedOffWithNothingRaisedPointsAtANewReview(t *testing
 		t.Fatal(err)
 	}
 
-	err := session.Replace("rev-1", appWalkthrough([]review.Step{appStep(1, 3)}, nil))
+	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
 
 	assertRejected(t, err, review.RejectedUnknownReview)
 	assertDetailContains(t, err, "post without replaces to start a new review")

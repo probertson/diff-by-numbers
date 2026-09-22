@@ -225,7 +225,7 @@ const maxErrorBody = 4 << 10
 
 // expectOK guards against something other than dbn answering on the port. A
 // transport error is caught by the caller; a wrong-but-willing server is not,
-// and would otherwise have its response printed as though it were a Walkthrough.
+// and would otherwise have its response printed as though it were a Round.
 func expectOK(response *http.Response, port int) error {
 	if response.StatusCode == http.StatusOK {
 		return nil

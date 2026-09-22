@@ -113,7 +113,7 @@ func (c ChangedLine) String() string {
 	return fmt.Sprintf("%s:%d (%s)", c.File, c.Line, c.Side)
 }
 
-// ledger is the derived set of Change Set atoms for a posted Walkthrough: its
+// ledger is the derived set of Change Set atoms for a posted Round: its
 // Changed Lines, its Opaque Changes, and the Correspondences that pair each
 // edit's before-side with the after-side that replaced it.
 type ledger struct {
@@ -355,7 +355,7 @@ func anyStep(steps []Step, pred func(Step) bool) bool {
 // never refuses a justified one: no mechanism in dbn forces an arbitrary cut.
 func (l ledger) validateBudget(steps []Step) *Rejection {
 	// Every offender, not the first. An agent that learns about them one
-	// rejected post at a time re-sends the whole Walkthrough — Brief, every
+	// rejected post at a time re-sends the whole Round — Brief, every
 	// Step, every Excerpt — to find out about the next, and they were all
 	// present on the first attempt. The coverage check has always aggregated;
 	// the budget was the outlier.
@@ -374,7 +374,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 		return reject(RejectedOversizedStep, "%s", over[0].sentence())
 	default:
 		// Uncapped: the point is to learn about all of them in one go, and a
-		// Walkthrough has few enough Steps that the list stays readable.
+		// Round has few enough Steps that the list stays readable.
 		var listed strings.Builder
 		fmt.Fprintf(&listed, "%d Steps are over the budget of %d changed lines and give no justification:",
 			len(over), StepBudget)

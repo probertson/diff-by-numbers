@@ -20,7 +20,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	root := featureRepo(t)
 	walkthrough := func() map[string]any {
 		return map[string]any{
-			"brief":        map[string]any{"ask": "x", "approach": "y", "provenance": map[string]any{"kind": "stated", "citation": "s"}},
+			"brief":        map[string]any{"goal": "x", "approach": "y"},
 			"repositories": []any{map[string]any{"root": root, "base": "main"}},
 			"steps": []any{
 				map[string]any{
@@ -34,14 +34,14 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 			},
 		}
 	}
-	first := postWalkthrough(t, server.URL, walkthrough())
+	first := postRound(t, server.URL, walkthrough())
 	httpPost(t, server.URL+"/goto/1")
 	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
 
-	refused := decodeResult[postOutcome](t, callTool(t, server.URL, "post_walkthrough", walkthrough()))
+	refused := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", walkthrough()))
 	replacing := walkthrough()
 	replacing["replaces"] = first.ReviewID
-	replaced := postWalkthrough(t, server.URL, replacing)
+	replaced := postRound(t, server.URL, replacing)
 
 	if refused.Accepted || !strings.Contains(refused.summary(), `replaces: "`+first.ReviewID+`"`) {
 		t.Errorf("expected a second post to be refused, naming replaces, got %+v", refused)
@@ -49,7 +49,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	if !strings.HasPrefix(first.Message, "Posted. The Reviewer opens it by running dbn in a terminal") {
 		t.Errorf("expected a first post to say how the Reviewer opens it, got %q", first.Message)
 	}
-	if !strings.HasPrefix(replaced.Message, "The Walkthrough is replaced. The Reviewer opens it by running dbn") {
+	if !strings.HasPrefix(replaced.Message, "The Round is replaced. The Reviewer opens it by running dbn") {
 		t.Errorf("expected a replacement to say so, got %q", replaced.Message)
 	}
 	if replaced.ReviewID != first.ReviewID {

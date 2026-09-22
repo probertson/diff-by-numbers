@@ -8,15 +8,11 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-func validWalkthrough() review.Walkthrough {
-	return review.Walkthrough{
+func validRound() review.Round {
+	return review.Round{
 		Brief: review.Brief{
-			Ask:      "Add retry with backoff to the fetch layer",
+			Goal:     "Add retry with backoff to the fetch layer",
 			Approach: "Wrap the transport in a retrier, then thread the policy through callers",
-			Provenance: review.Provenance{
-				Kind:     review.ProvenanceStated,
-				Citation: "session 51e67df2, prompt 3",
-			},
 		},
 		ChangeSet: review.ChangeSet{
 			Repositories: []review.Repository{
@@ -35,31 +31,31 @@ func validWalkthrough() review.Walkthrough {
 	}
 }
 
-func TestAPostedWalkthroughIsAcceptedAndAwaitsTheReviewer(t *testing.T) {
+func TestAPostedRoundIsAcceptedAndAwaitsTheReviewer(t *testing.T) {
 	session := newSession()
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	if err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 	results, err := session.Results()
 	if err != nil {
 		t.Fatalf("expected results to be readable, got %v", err)
 	}
 	if results.Finished {
-		t.Error("expected the Walkthrough not to be finished")
+		t.Error("expected the Round not to be finished")
 	}
 	if len(results.Comments) != 0 {
 		t.Errorf("expected no Comments, got %d", len(results.Comments))
 	}
 }
 
-func TestASecondWalkthroughIsRejectedWhileOneIsActive(t *testing.T) {
+func TestASecondRoundIsRejectedWhileOneIsActive(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
-	err := session.Post(validWalkthrough())
+	err := session.Post(validRound())
 
 	assertRejected(t, err, review.RejectedWalkthroughActive)
 }
@@ -87,10 +83,10 @@ func newRow(line int) review.AnchorEndpoint {
 	return review.AnchorEndpoint{Side: review.NewSide, Line: line}
 }
 
-func mustPost(t *testing.T, session *review.Session, w review.Walkthrough) {
+func mustPost(t *testing.T, session *review.Session, w review.Round) {
 	t.Helper()
 	if err := session.Post(w); err != nil {
-		t.Fatalf("expected the Walkthrough to be accepted, got %v", err)
+		t.Fatalf("expected the Round to be accepted, got %v", err)
 	}
 }
 
@@ -110,9 +106,9 @@ func assertRejected(t *testing.T, err error, want review.RejectionReason) {
 	}
 }
 
-func TestAWalkthroughOverAnEmptyChangeSetIsRejected(t *testing.T) {
+func TestARoundOverAnEmptyChangeSetIsRejected(t *testing.T) {
 	session := newSession()
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.ChangeSet.Repositories = nil
 
 	err := session.Post(walkthrough)
@@ -121,25 +117,19 @@ func TestAWalkthroughOverAnEmptyChangeSetIsRejected(t *testing.T) {
 }
 
 func TestAMalformedBriefIsRejectedNamingTheProblem(t *testing.T) {
-	cases := map[string]func(*review.Walkthrough){
-		"no ask": func(w *review.Walkthrough) {
-			w.Brief.Ask = ""
+	cases := map[string]func(*review.Round){
+		"no goal": func(w *review.Round) {
+			w.Brief.Goal = ""
 		},
-		"no approach": func(w *review.Walkthrough) {
+		"no approach": func(w *review.Round) {
 			w.Brief.Approach = ""
-		},
-		"no provenance declared": func(w *review.Walkthrough) {
-			w.Brief.Provenance.Kind = ""
-		},
-		"stated provenance without a citation": func(w *review.Walkthrough) {
-			w.Brief.Provenance = review.Provenance{Kind: review.ProvenanceStated, Citation: ""}
 		},
 	}
 
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			breakIt(&walkthrough)
 
 			err := session.Post(walkthrough)
@@ -149,46 +139,34 @@ func TestAMalformedBriefIsRejectedNamingTheProblem(t *testing.T) {
 	}
 }
 
-func TestInferredProvenanceNeedsNoCitation(t *testing.T) {
-	session := newSession()
-	walkthrough := validWalkthrough()
-	walkthrough.Brief.Provenance = review.Provenance{Kind: review.ProvenanceInferred}
-
-	err := session.Post(walkthrough)
-
-	if err != nil {
-		t.Fatalf("expected inferred Provenance to be accepted without a citation, got %v", err)
-	}
-}
-
 func TestAMalformedStepIsRejectedNamingTheProblem(t *testing.T) {
-	cases := map[string]func(*review.Walkthrough){
-		"no Steps at all": func(w *review.Walkthrough) {
+	cases := map[string]func(*review.Round){
+		"no Steps at all": func(w *review.Round) {
 			w.Steps = nil
 		},
-		"Step with no name": func(w *review.Walkthrough) {
+		"Step with no name": func(w *review.Round) {
 			w.Steps[0].Name = ""
 		},
-		"Step with no explanation": func(w *review.Walkthrough) {
+		"Step with no explanation": func(w *review.Round) {
 			w.Steps[0].Explanation = ""
 		},
-		"Step with no Excerpts": func(w *review.Walkthrough) {
+		"Step with no Excerpts": func(w *review.Round) {
 			w.Steps[0].Excerpts = nil
 		},
-		"Excerpt ending before it starts": func(w *review.Walkthrough) {
+		"Excerpt ending before it starts": func(w *review.Round) {
 			w.Steps[0].Excerpts[0].FirstLine = 40
 			w.Steps[0].Excerpts[0].LastLine = 12
 		},
-		"Excerpt starting before line one": func(w *review.Walkthrough) {
+		"Excerpt starting before line one": func(w *review.Round) {
 			w.Steps[0].Excerpts[0].FirstLine = 0
 		},
-		"Excerpt with no file": func(w *review.Walkthrough) {
+		"Excerpt with no file": func(w *review.Round) {
 			w.Steps[0].Excerpts[0].File = ""
 		},
-		"Excerpt with an unqualified side": func(w *review.Walkthrough) {
+		"Excerpt with an unqualified side": func(w *review.Round) {
 			w.Steps[0].Excerpts[0].Side = ""
 		},
-		"Excerpt naming a repository outside the Change Set": func(w *review.Walkthrough) {
+		"Excerpt naming a repository outside the Change Set": func(w *review.Round) {
 			w.Steps[0].Excerpts[0].Repository = "/repos/somewhere-else"
 		},
 	}
@@ -196,7 +174,7 @@ func TestAMalformedStepIsRejectedNamingTheProblem(t *testing.T) {
 	for name, breakIt := range cases {
 		t.Run(name, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			breakIt(&walkthrough)
 
 			err := session.Post(walkthrough)
@@ -206,17 +184,15 @@ func TestAMalformedStepIsRejectedNamingTheProblem(t *testing.T) {
 	}
 }
 
-func TestDumpRendersThePostedWalkthroughAsText(t *testing.T) {
+func TestDumpRendersThePostedRoundAsText(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	dump := session.Dump()
 
 	for _, want := range []string{
 		"Add retry with backoff to the fetch layer",
 		"Wrap the transport in a retrier",
-		"stated",
-		"session 51e67df2, prompt 3",
 		"Add the retrier",
 		"A transport wrapper that retries idempotent requests",
 		"src/fetch.ts",
@@ -229,19 +205,19 @@ func TestDumpRendersThePostedWalkthroughAsText(t *testing.T) {
 	}
 }
 
-func TestDumpSaysSoWhenNoWalkthroughIsPosted(t *testing.T) {
+func TestDumpSaysSoWhenNoRoundIsPosted(t *testing.T) {
 	session := newSession()
 
 	dump := session.Dump()
 
-	if !strings.Contains(dump, "no Walkthrough") {
-		t.Errorf("expected the dump to say no Walkthrough is posted, got %q", dump)
+	if !strings.Contains(dump, "no Round") {
+		t.Errorf("expected the dump to say no Round is posted, got %q", dump)
 	}
 }
 
 func TestDumpCountsASingleStepInTheSingular(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	dump := session.Dump()
 
@@ -250,16 +226,16 @@ func TestDumpCountsASingleStepInTheSingular(t *testing.T) {
 	}
 }
 
-func TestAWalkthroughCanBePostedOnceTheLastIsAbandoned(t *testing.T) {
+func TestARoundCanBePostedOnceTheLastIsAbandoned(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	if err := session.Abandon(); err != nil {
-		t.Fatalf("expected the Walkthrough to be abandoned, got %v", err)
+		t.Fatalf("expected the Round to be abandoned, got %v", err)
 	}
 
-	if err := session.Post(validWalkthrough()); err != nil {
-		t.Fatalf("expected a new Walkthrough to be accepted after abandoning, got %v", err)
+	if err := session.Post(validRound()); err != nil {
+		t.Fatalf("expected a new Round to be accepted after abandoning, got %v", err)
 	}
 }
 
@@ -268,7 +244,7 @@ func TestAbandoningWithNothingPostedIsRejected(t *testing.T) {
 
 	err := session.Abandon()
 
-	assertRejected(t, err, review.RejectedNoWalkthrough)
+	assertRejected(t, err, review.RejectedNoRound)
 }
 
 func TestResultsReportThatNothingIsPostedRatherThanUnfinished(t *testing.T) {
@@ -280,13 +256,13 @@ func TestResultsReportThatNothingIsPostedRatherThanUnfinished(t *testing.T) {
 		t.Fatalf("expected results to be readable, got %v", err)
 	}
 	if results.Posted {
-		t.Error("expected results to report that no Walkthrough is posted")
+		t.Error("expected results to report that no Round is posted")
 	}
 }
 
-func TestResultsReportAPostedWalkthroughAsPosted(t *testing.T) {
+func TestResultsReportAPostedRoundAsPosted(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 
 	results, err := session.Results()
 
@@ -294,7 +270,7 @@ func TestResultsReportAPostedWalkthroughAsPosted(t *testing.T) {
 		t.Fatalf("expected results to be readable, got %v", err)
 	}
 	if !results.Posted {
-		t.Error("expected results to report the Walkthrough as posted")
+		t.Error("expected results to report the Round as posted")
 	}
 }
 
@@ -309,7 +285,7 @@ func TestAnExcerptFileEscapingItsRepositoryIsRejected(t *testing.T) {
 	for name, file := range cases {
 		t.Run(name, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			walkthrough.Steps[0].Excerpts[0].File = file
 
 			err := session.Post(walkthrough)
@@ -323,7 +299,7 @@ func TestAnExcerptFileInsideItsRepositoryIsAccepted(t *testing.T) {
 	for _, file := range []string{"src/fetch.ts", "src/../src/fetch.ts", "./src/fetch.ts"} {
 		t.Run(file, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			walkthrough.Steps[0].Excerpts[0].File = file
 
 			if err := session.Post(walkthrough); err != nil {
@@ -342,7 +318,7 @@ func TestAChangeSetNamingABlankOrRelativeRepositoryIsRejected(t *testing.T) {
 	for name, repository := range cases {
 		t.Run(name, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			walkthrough.ChangeSet.Repositories = []review.Repository{repository}
 			walkthrough.Steps[0].Excerpts[0].Repository = repository.Root
 
@@ -362,7 +338,7 @@ func TestABaseThatIsARangeIsRejectedForWhatItIs(t *testing.T) {
 	for _, base := range []string{"HEAD~1..HEAD", "849fb87..HEAD", "main...feature"} {
 		t.Run(base, func(t *testing.T) {
 			session := newSession()
-			walkthrough := validWalkthrough()
+			walkthrough := validRound()
 			walkthrough.ChangeSet.Repositories[0].Base = base
 
 			err := session.Post(walkthrough)
@@ -376,7 +352,7 @@ func TestABaseThatIsARangeIsRejectedForWhatItIs(t *testing.T) {
 
 func TestAMissingBaseIsRejectedAsAMalformedBase(t *testing.T) {
 	session := newSession()
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.ChangeSet.Repositories[0].Base = ""
 
 	err := session.Post(walkthrough)
@@ -390,7 +366,7 @@ func TestAMissingBaseIsRejectedAsAMalformedBase(t *testing.T) {
 // made of it.
 func TestAnOrdinaryRefStillDerives(t *testing.T) {
 	session := sessionDeriving(changed("src/fetch.ts", 20, 25))
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.ChangeSet.Repositories[0].Base = "main"
 
 	if err := session.Post(walkthrough); err != nil {
@@ -420,19 +396,19 @@ func assertDetailOmits(t *testing.T, err error, unwanted string) {
 	}
 }
 
-func TestEachAcceptedWalkthroughIsANewPosting(t *testing.T) {
+func TestEachAcceptedRoundIsANewPosting(t *testing.T) {
 	// A surface that remembers how the Reviewer left each Step must forget it when
-	// a different Walkthrough takes the screen, so it needs to see that happen.
+	// a different Round takes the screen, so it needs to see that happen.
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	first := session.View().Posting
 
-	_ = session.Post(validWalkthrough()) // rejected: one is already under review
+	_ = session.Post(validRound()) // rejected: one is already under review
 	rejected := session.View().Posting
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	mustPost(t, session, validWalkthrough()) // a new review: the hand-off raised nothing
+	mustPost(t, session, validRound()) // a new review: the hand-off raised nothing
 	revised := session.View().Posting
 
 	if first == 0 || rejected != first {

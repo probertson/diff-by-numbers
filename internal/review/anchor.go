@@ -77,14 +77,14 @@ type Anchor struct {
 // between the two endpoints is taken from the Excerpt's own rendering, so an
 // Anchor is always a contiguous run of rows the Reviewer actually saw.
 func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
-	if s.walkthrough == nil {
-		return Anchor{}, reject(RejectedNoWalkthrough, "there is no Walkthrough to anchor into")
+	if s.current == nil {
+		return Anchor{}, reject(RejectedNoRound, "there is no Round to anchor into")
 	}
 	if s.position == 0 {
 		return Anchor{}, reject(RejectedNoSuchStep, "you can only anchor within a Step, not the Brief")
 	}
 
-	step := s.walkthrough.Steps[s.position-1]
+	step := s.current.Steps[s.position-1]
 	excerpt, in, reason, err := s.anchoredExcerpt(step, target)
 	if err != nil {
 		return Anchor{}, err
@@ -153,7 +153,7 @@ func (s *Session) anchoredExcerpt(step Step, target AnchorTarget) (Excerpt, draw
 				"Step %d has no Excerpt %d", s.position, target.ExcerptIndex)
 		}
 		return step.Excerpts[target.ExcerptIndex],
-			drawnIn{step: step, at: target.ExcerptIndex, all: s.walkthrough.Steps}, "", nil
+			drawnIn{step: step, at: target.ExcerptIndex, all: s.current.Steps}, "", nil
 	}
 
 	ackIndex := *target.Acknowledgement

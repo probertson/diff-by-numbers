@@ -5,17 +5,17 @@ import (
 	"strings"
 )
 
-// RejectionReason names why a Walkthrough was refused. The Authoring Agent acts
+// RejectionReason names why a Round was refused. The Authoring Agent acts
 // on this, so it is a value rather than prose: a rejection must tell the agent
 // what to fix, not merely that something was wrong.
 type RejectionReason string
 
 const (
-	// RejectedWalkthroughActive means a Walkthrough is already under review.
+	// RejectedWalkthroughActive means a Round is already under review. Its old
+	// name stays until the Inbox (#109) removes it.
 	RejectedWalkthroughActive RejectionReason = "walkthrough_active"
-	// RejectedNoWalkthrough means the operation needs a Walkthrough and none is
-	// posted.
-	RejectedNoWalkthrough RejectionReason = "no_walkthrough"
+	// RejectedNoRound means the operation needs a Round and none is posted.
+	RejectedNoRound RejectionReason = "no_round"
 	// RejectedEmptyChangeSet means there is nothing to review.
 	RejectedEmptyChangeSet RejectionReason = "empty_change_set"
 	// RejectedMalformedBase means a repository's base ref is missing, or is a
@@ -42,8 +42,9 @@ const (
 	RejectedBadSelection RejectionReason = "bad_selection"
 	// RejectedNoSuchComment means a withdrawal names an unknown Comment.
 	RejectedNoSuchComment RejectionReason = "no_such_comment"
-	// RejectedWalkthroughFinished means an edit was attempted after finishing.
-	RejectedWalkthroughFinished RejectionReason = "walkthrough_finished"
+	// RejectedRoundHandedOff means an edit was attempted after the Round was
+	// handed off.
+	RejectedRoundHandedOff RejectionReason = "round_handed_off"
 	// RejectedEmptyAcknowledgement means an Acknowledgement claims a file that has
 	// no changes, so it accounts for nothing.
 	RejectedEmptyAcknowledgement RejectionReason = "empty_acknowledgement"
@@ -75,14 +76,14 @@ type Problem struct {
 // Rejection is a refusal that names every cause it could find.
 //
 // A post used to be refused at the first fault, so an Authoring Agent found
-// them one at a time — and each attempt re-sent the entire Walkthrough, Brief
+// them one at a time — and each attempt re-sent the entire Round, Brief
 // and every Excerpt, to learn about the next. Four posts to get one accepted
 // was ordinary. Everything the later checks can see is present on the first
 // attempt, so they all run and all report.
 //
 // Problems carries at most one entry per reason, in the order the checks run.
 // A structural failure is a list of one: the later checks mean nothing without
-// a well-formed Walkthrough, so their guesses would be noise.
+// a well-formed Round, so their guesses would be noise.
 type Rejection struct {
 	Problems []Problem
 }

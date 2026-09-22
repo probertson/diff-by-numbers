@@ -24,20 +24,20 @@ func stepOver(root, file string, first, last int) review.Step {
 	}
 }
 
-func roundOver(root string, steps []review.Step, dispositions []review.Disposition) review.Walkthrough {
-	return review.Walkthrough{
-		Brief:        review.Brief{Ask: "x", Approach: "y", Provenance: review.Provenance{Kind: review.ProvenanceStated, Citation: "s"}},
+func roundOver(root string, steps []review.Step, dispositions []review.Disposition) review.Round {
+	return review.Round{
+		Brief:        review.Brief{Goal: "x", Approach: "y"},
 		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps:        steps,
 		Dispositions: dispositions,
 	}
 }
 
-// finishRound posts a Walkthrough and hands it off with one Comment raised on
+// finishRound posts a Round and hands it off with one Comment raised on
 // its first line of code, leaving the Session ready for a Revision Round. The
 // Comment is what keeps the review going: a hand-off with nothing raised ends
 // it, and the next post starts a new review. revisedOver answers it.
-func finishRound(t *testing.T, session *review.Session, w review.Walkthrough) {
+func finishRound(t *testing.T, session *review.Session, w review.Round) {
 	t.Helper()
 	if err := session.Post(w); err != nil {
 		t.Fatalf("posting the round: %v", err)
@@ -65,7 +65,7 @@ func finishRound(t *testing.T, session *review.Session, w review.Walkthrough) {
 
 // revisedOver is a Revision Round over the given Steps, answering the Comment
 // finishRound raised.
-func revisedOver(root string, steps []review.Step) review.Walkthrough {
+func revisedOver(root string, steps []review.Step) review.Round {
 	return roundOver(root, steps, []review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}})
 }
 

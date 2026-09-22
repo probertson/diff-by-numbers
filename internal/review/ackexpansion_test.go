@@ -54,7 +54,7 @@ func acknowledgedEdits(t *testing.T) *review.Session {
 		},
 	}
 	session := review.NewSession(sideResolver{}, deriver)
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("mod.ts")}
 	mustPost(t, session, walkthrough)
 	mustAdvance(t, session)
@@ -114,7 +114,7 @@ func TestAnAnchorCanPointIntoAcknowledgedCode(t *testing.T) {
 
 func TestAnAnchorIntoNarratedCodeDoesNotClaimAnAcknowledgement(t *testing.T) {
 	session := newSession()
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	anchor, err := session.Anchor(span(0, 20, 22))
@@ -137,7 +137,7 @@ func TestAnchoringAnAcknowledgementTheStepLacksIsRejected(t *testing.T) {
 }
 
 func TestAnchoringAnAcknowledgedOpaqueChangeIsRejected(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("logo.png")}
 	session := sessionDerivingBoth(nil, []review.OpaqueChange{{File: "logo.png", Kind: review.OpaqueBinary, Detail: "binary file"}})
 	mustPost(t, session, walkthrough)

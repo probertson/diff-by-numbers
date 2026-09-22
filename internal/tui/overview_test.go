@@ -17,8 +17,7 @@ func roundModel(width int, dispositions ...daemon.DispositionWire) model {
 		view: &daemon.ViewWire{
 			Posted: true,
 			Brief: daemon.BriefWire{
-				Ask: "ask", Approach: "approach",
-				ProvenanceKind: "stated", ProvenanceCitation: "the session",
+				Goal: "ask", Approach: "approach",
 			},
 			Dispositions: dispositions,
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
@@ -216,5 +215,21 @@ func TestTheConclusionScreenSaysWhatWasDeclined(t *testing.T) {
 	}
 	if strings.Contains(without.conclusionView(), "declined") {
 		t.Errorf("with nothing declined the hint goes entirely, got:\n%s", without.conclusionView())
+	}
+}
+
+// The Overview opens on the Goal and the Approach and nothing else from the
+// Brief: there is no Source section, since dbn no longer asks where the agent's
+// account came from.
+func TestTheOverviewHasNoSourceSection(t *testing.T) {
+	m := roundModel(80)
+
+	out := m.brief()
+
+	if !strings.Contains(out, "Goal") || !strings.Contains(out, "Approach") {
+		t.Fatalf("the Overview should still show the Goal and the Approach, got:\n%s", out)
+	}
+	if strings.Contains(out, "Source") || strings.Contains(out, "inferred") || strings.Contains(out, "stated") {
+		t.Errorf("the Overview should say nothing about where the account came from, got:\n%s", out)
 	}
 }

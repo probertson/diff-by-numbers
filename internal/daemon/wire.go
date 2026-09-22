@@ -13,15 +13,9 @@ import (
 // tags are the contract the Authoring Agent is held to — a schema it cannot
 // drift from, where a prose instruction is only a hope.
 
-type wireProvenance struct {
-	Kind     string `json:"kind" jsonschema:"Where this account of intent came from: 'stated' if you were there or read the session transcript, 'inferred' if you reverse-engineered it from the changes themselves"`
-	Citation string `json:"citation,omitempty" jsonschema:"What backs a stated Provenance, such as a session or prompt reference. Required when kind is 'stated'"`
-}
-
 type wireBrief struct {
-	Ask        string         `json:"ask" jsonschema:"What the Reviewer originally asked for, in their terms"`
-	Approach   string         `json:"approach" jsonschema:"The approach you took, so the Reviewer can judge it separately from the code implementing it"`
-	Provenance wireProvenance `json:"provenance"`
+	Goal     string `json:"goal,omitempty" jsonschema:"What the work set out to achieve, as the Reviewer asked for it, in their terms. Required in round 1. A Revision Round or a Replacement leaves it out to keep the Review's Goal, and gives it only when what the Reviewer wants has changed"`
+	Approach string `json:"approach" jsonschema:"The approach you took, so the Reviewer can judge it separately from the code implementing it"`
 }
 
 type wireExcerpt struct {
@@ -57,19 +51,19 @@ type wireDisposition struct {
 	Response  string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it before any code. Required when status is 'answered' (it is the answer) or 'declined' (why you won't, in a line or two; the Reviewer may re-raise it). Optional but welcome when 'addressed', e.g. to note how you made the change"`
 }
 
-type wireWalkthrough struct {
+type wireRound struct {
 	Brief        wireBrief         `json:"brief"`
-	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Walkthrough covers. A Walkthrough may span several"`
+	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Round covers. A Round may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
-	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit for a first Walkthrough"`
+	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit in round 1"`
 	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
-	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the review under review, to replace its Walkthrough in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the review, or you see your Walkthrough is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
+	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
 }
 
 type postResult struct {
 	Accepted bool          `json:"accepted"`
 	ReviewID string        `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
-	Problems []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this Walkthrough, not just the first thing found. Fix them all before posting again"`
+	Problems []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this Round, not just the first thing found. Fix them all before posting again"`
 	Message  string        `json:"message,omitempty" jsonschema:"When accepted: what to tell the human, including how they open the review. Relay it to them, then end your turn"`
 }
 
@@ -87,7 +81,7 @@ func postedMessage(kind review.PostKind, port int) string {
 	case review.PostedRevisionRound:
 		lead = "The Revision Round is posted."
 	case review.PostedReplacement:
-		lead = "The Walkthrough is replaced."
+		lead = "The Round is replaced."
 	}
 	return fmt.Sprintf("%s The Reviewer opens it by running %s in a terminal; if dbn is already open, it appears there. Tell them it's ready, then end your turn.", lead, command)
 }
@@ -100,7 +94,7 @@ type problemWire struct {
 }
 
 type concludeInput struct {
-	ReviewID string `json:"review_id" jsonschema:"The id of the review to conclude, as returned by post_walkthrough"`
+	ReviewID string `json:"review_id" jsonschema:"The id of the review to conclude, as returned by post_round"`
 }
 
 type concludeResult struct {
@@ -118,7 +112,7 @@ type commentWire struct {
 	// ReRaisedFrom is only set when the Reviewer pushed back on how you resolved a
 	// Comment last round.
 	ReRaisedFrom int  `json:"re_raised_from,omitempty" jsonschema:"Set when the Reviewer re-raised the Comment you declined or answered as #N: they did not accept your reasoning. Answer the point or change the code — repeating the same reasoning is not a response"`
-	CarriedOver  bool `json:"carried_over,omitempty" jsonschema:"Set when the Comment was raised on a Walkthrough you since replaced in place. Its step is 0, since that Walkthrough's Steps are gone; its anchor still quotes the code it was raised on"`
+	CarriedOver  bool `json:"carried_over,omitempty" jsonschema:"Set when the Comment was raised on a Round you since replaced in place. Its step is 0, since that Round's Steps are gone; its anchor still quotes the code it was raised on"`
 }
 
 type stepReportWire struct {
@@ -128,16 +122,16 @@ type stepReportWire struct {
 }
 
 type fetchResult struct {
-	Posted   bool             `json:"posted" jsonschema:"Whether a Walkthrough exists at all. If false, nothing was ever accepted and there is nothing to wait for"`
-	Finished bool             `json:"finished" jsonschema:"Whether the Reviewer has handed the Walkthrough off to you"`
+	Posted   bool             `json:"posted" jsonschema:"Whether a Round was ever posted. If false, nothing was ever accepted and there is nothing to wait for"`
+	Finished bool             `json:"finished" jsonschema:"Whether the Reviewer has handed the Round off to you"`
 	Message  string           `json:"message"`
-	Ask      string           `json:"ask" jsonschema:"What the review was originally about, so you can re-ground yourself if your context has moved on"`
+	Goal     string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
 	Approach string           `json:"approach"`
 	Comments []commentWire    `json:"comments"`
 	Steps    []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
 }
 
-func (w wireWalkthrough) toDomain() review.Walkthrough {
+func (w wireRound) toDomain() review.Round {
 	steps := make([]review.Step, 0, len(w.Steps))
 	for _, s := range w.Steps {
 		excerpts := make([]review.Excerpt, 0, len(s.Excerpts))
@@ -176,14 +170,10 @@ func (w wireWalkthrough) toDomain() review.Walkthrough {
 		})
 	}
 
-	return review.Walkthrough{
+	return review.Round{
 		Brief: review.Brief{
-			Ask:      w.Brief.Ask,
+			Goal:     w.Brief.Goal,
 			Approach: w.Brief.Approach,
-			Provenance: review.Provenance{
-				Kind:     review.ProvenanceKind(w.Brief.Provenance.Kind),
-				Citation: w.Brief.Provenance.Citation,
-			},
 		},
 		ChangeSet:    toChangeSet(w.Repositories),
 		Steps:        steps,
@@ -197,7 +187,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 		Posted:   r.Posted,
 		Finished: r.Finished,
 		Message:  message,
-		Ask:      r.Brief.Ask,
+		Goal:     r.Brief.Goal,
 		Approach: r.Brief.Approach,
 	}
 	for _, comment := range r.Comments {
@@ -219,7 +209,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 }
 
 type describeInput struct {
-	Repositories []wireRepository `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_walkthrough"`
+	Repositories []wireRepository `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_round"`
 }
 
 // lineRangeWire is an inclusive [first, last] pair: compact, since a large

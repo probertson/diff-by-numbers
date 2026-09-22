@@ -46,7 +46,7 @@ func (d *diskResolver) edit(snapshot, repository, file string) {
 func TestAStepWhoseFileChangedOnDiskStillShowsTheCodeItWasPostedWith(t *testing.T) {
 	resolver := &diskResolver{}
 	session := review.NewSession(resolver, snapshottingDeriver{fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, "tree-1"})
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 	if session.View().Step.Excerpts[0].ChangedOnDisk {
 		t.Fatal("a file untouched since the post must not be flagged")
@@ -65,7 +65,7 @@ func TestAStepWhoseFileChangedOnDiskStillShowsTheCodeItWasPostedWith(t *testing.
 }
 
 func TestOnlyTheFileThatChangedOnDiskIsFlagged(t *testing.T) {
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{
 		{Name: "A", Explanation: "a", Excerpts: []review.Excerpt{{Repository: "/repos/argus-portal", File: "a.ts", Side: review.NewSide, FirstLine: 1, LastLine: 10}}},
 		{Name: "B", Explanation: "b", Excerpts: []review.Excerpt{{Repository: "/repos/argus-portal", File: "b.ts", Side: review.NewSide, FirstLine: 1, LastLine: 10}}},
@@ -96,7 +96,7 @@ const postedVersionNote = "(file changed since this round was posted; line numbe
 func TestAnchoringCodeThatChangedOnDiskQuotesThePostedVersionAndSaysSo(t *testing.T) {
 	resolver := &diskResolver{}
 	session := review.NewSession(resolver, snapshottingDeriver{fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, "tree-1"})
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 	resolver.edit("tree-1", "/repos/argus-portal", "src/fetch.ts")
 
@@ -118,7 +118,7 @@ func TestAnchoringCodeThatChangedOnDiskQuotesThePostedVersionAndSaysSo(t *testin
 func TestAnAnchorOnUnchangedCodeCarriesNoNote(t *testing.T) {
 	resolver := &diskResolver{}
 	session := review.NewSession(resolver, snapshottingDeriver{fixedDeriver{lines: changed("src/fetch.ts", 20, 22)}, "tree-1"})
-	mustPost(t, session, validWalkthrough())
+	mustPost(t, session, validRound())
 	mustAdvance(t, session)
 
 	anchor, err := session.Anchor(span(0, 20, 22))
@@ -133,7 +133,7 @@ func TestAnAnchorOnUnchangedCodeCarriesNoNote(t *testing.T) {
 
 func TestAnExpandedAcknowledgementThatChangedOnDiskShowsAndAnchorsThePostedVersion(t *testing.T) {
 	resolver := &diskResolver{}
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps = []review.Step{acknowledgingStep("gen.ts")}
 	session := review.NewSession(resolver, snapshottingDeriver{fixedDeriver{lines: changed("gen.ts", 1, 3)}, "tree-1"})
 	mustPost(t, session, walkthrough)
@@ -161,7 +161,7 @@ func TestAnExpandedAcknowledgementThatChangedOnDiskShowsAndAnchorsThePostedVersi
 func TestADeletionShownFromTheMergeBaseIsNeverFlagged(t *testing.T) {
 	// An old-side Excerpt is read from the merge-base, which no edit on disk
 	// moves, so there is nothing to warn about even if the file is edited.
-	walkthrough := validWalkthrough()
+	walkthrough := validRound()
 	walkthrough.Steps[0].Excerpts[0] = review.Excerpt{Repository: "/repos/argus-portal", File: "src/fetch.ts", Side: review.OldSide, FirstLine: 5, LastLine: 7}
 	deleted := []review.ChangedLine{
 		{File: "src/fetch.ts", Side: review.OldSide, Line: 5},

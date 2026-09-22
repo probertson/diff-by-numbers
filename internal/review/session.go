@@ -7,11 +7,11 @@ import (
 
 // Results is what the Authoring Agent receives when it asks how a review went.
 type Results struct {
-	// Posted reports whether a Walkthrough exists at all. Without it, an agent
+	// Posted reports whether a Round exists at all. Without it, an agent
 	// whose post was rejected would be told the Reviewer "has not handed off yet"
-	// and wait on a Walkthrough that was never created.
+	// and wait on a Round that was never created.
 	Posted bool
-	// Finished reports whether the Reviewer has completed the Walkthrough. The
+	// Finished reports whether the Reviewer has handed off the Round. The
 	// agent does not wait for this; it asks and is told.
 	Finished bool
 	Comments []Comment
@@ -22,13 +22,13 @@ type Results struct {
 	StepReports []StepReport
 }
 
-// Session holds the one Walkthrough currently under review. Several concurrent
-// Walkthroughs are deliberately out of scope until the multiplexed inbox exists.
+// Session holds the one Review currently under way. Several concurrent
+// Reviews are deliberately out of scope until the Inbox exists.
 type Session struct {
-	walkthrough *Walkthrough
-	ledger      ledger
-	resolver    Resolver
-	deriver     Deriver
+	current  *Round
+	ledger   ledger
+	resolver Resolver
+	deriver  Deriver
 	// position is where the Reviewer is: 0 for the Brief, 1..len(Steps) for a
 	// Step. It lives here rather than in any UI so that a reattaching surface
 	// finds the review where it was left.
@@ -43,10 +43,10 @@ type Session struct {
 	// from, and the atoms it showed. It is what the next Revision Round is scoped
 	// against (ADR-0014).
 	latest roundState
-	// answering is the earlier round the Walkthrough on screen is a revision
+	// answering is the earlier round the Round on screen is a revision
 	// of, or nil for a first round. A replacement answers to it too.
 	answering *earlierRound
-	// replaced records that the Walkthrough on screen replaced another in place,
+	// replaced records that the Round on screen replaced another in place,
 	// so a surface can tell the Reviewer why it changed under them.
 	replaced bool
 	// roundNumber counts the review's rounds: 1 for the first, one more for each
@@ -68,14 +68,14 @@ type Session struct {
 	// preserved across its Revision Rounds and Replacements, so the Authoring
 	// Agent can refer back to the review to replace or conclude it.
 	id string
-	// label is the optional human-readable name carried on the Walkthrough.
+	// label is the optional human-readable name carried on the Round.
 	label string
 	// concluded records an explicit conclusion. A review also reads as concluded
 	// by inference — see isConcluded — when a round finishes with nothing raised.
 	concluded bool
 	// mint generates a new review id. Injected so tests can assert on a known id.
 	mint func() string
-	// postings counts the Walkthroughs accepted, so a surface can tell when a
+	// postings counts the Rounds accepted, so a surface can tell when a
 	// different one — a new review, a Revision Round or a Replacement — has taken
 	// the screen.
 	postings int
@@ -90,7 +90,7 @@ func WithIDMinter(mint func() string) SessionOption {
 	return func(s *Session) { s.mint = mint }
 }
 
-// NewSession returns a Session with no Walkthrough posted. The resolver turns
+// NewSession returns a Session with no Round posted. The resolver turns
 // Excerpts into lines when a view is drawn; the deriver reports what git says
 // actually changed. The core itself neither reads files nor runs git.
 func NewSession(resolver Resolver, deriver Deriver, opts ...SessionOption) *Session {
@@ -121,9 +121,9 @@ const (
 	PostedReplacement   PostKind = "replacement"
 )
 
-// LastPost reports what the Walkthrough on screen was when it was accepted. A
+// LastPost reports what the Round on screen was when it was accepted. A
 // replacement of a Revision Round reads as a replacement: what the agent just
-// did is replace the Walkthrough, not start a round.
+// did is replace the Round, not start a round.
 func (s *Session) LastPost() PostKind {
 	switch {
 	case s.replaced:
@@ -138,15 +138,15 @@ func (s *Session) LastPost() PostKind {
 // the review, or "" if none was given.
 func (s *Session) Label() string { return s.label }
 
-// Post submits a Walkthrough for review. Posting after the previous Walkthrough
+// Post submits a Round for review. Posting after the previous Round
 // was handed off with Comments is a Revision Round: it re-derives the full Change
 // Set, pre-marks what is unchanged, and must account for those Comments. Posting
 // once the review is concluded — explicitly, or by a hand-off that raised
 // nothing — starts a new review.
-func (s *Session) Post(w Walkthrough) error {
-	if s.walkthrough != nil && !s.finished && !s.isConcluded() {
+func (s *Session) Post(w Round) error {
+	if s.current != nil && !s.finished && !s.isConcluded() {
 		return reject(RejectedWalkthroughActive,
-			"a Walkthrough is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
+			"a Round is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
 			s.id, s.id)
 	}
 	return s.accept(w, s.nextAnswering(), false)
@@ -163,7 +163,7 @@ func (s *Session) Post(w Walkthrough) error {
 // could escape coverage.
 func (s *Session) nextAnswering() *earlierRound {
 	switch {
-	case s.walkthrough == nil || s.isConcluded():
+	case s.current == nil || s.isConcluded():
 		return nil
 	case s.finished:
 		return &earlierRound{state: s.latest, comments: s.comments}
@@ -171,13 +171,13 @@ func (s *Session) nextAnswering() *earlierRound {
 	return s.answering
 }
 
-// Replace puts a Walkthrough in place of the one under review, for when the
+// Replace puts a Round in place of the one under review, for when the
 // Reviewer asks for a change mid-review or the agent sees its plan was wrong.
 // It is the same review: the id stays, the Reviewer's Comments carry over, and a
 // Revision Round's replacement answers to the same earlier round the replaced
 // one did. What changes is what the Reviewer walks, so they start it afresh.
-func (s *Session) Replace(id string, w Walkthrough) error {
-	if s.walkthrough == nil || id != s.id {
+func (s *Session) Replace(id string, w Round) error {
+	if s.current == nil || id != s.id {
 		return reject(RejectedUnknownReview,
 			"no review with id %q is under review, so there is nothing to replace", id)
 	}
@@ -188,7 +188,7 @@ func (s *Session) Replace(id string, w Walkthrough) error {
 			"review %q is concluded; post without replaces to start a new review", id)
 	}
 	if s.finished {
-		return reject(RejectedWalkthroughFinished,
+		return reject(RejectedRoundHandedOff,
 			"this round is handed off; post a Revision Round instead")
 	}
 	return s.accept(w, s.nextAnswering(), true)
@@ -201,17 +201,22 @@ type earlierRound struct {
 	comments []Comment
 }
 
-// accept validates a Walkthrough and, if it passes, makes it the one under
+// accept validates a Round and, if it passes, makes it the one under
 // review. earlier is the round it answers to, or nil for a first round;
-// replacing says it takes the place of the Walkthrough under review, which
+// replacing says it takes the place of the Round under review, which
 // makes it the same review and the same round.
-func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) error {
+func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
+	// The Goal belongs to the Review, not the Round: a Revision Round or a
+	// Replacement that leaves it out keeps the one the Review already has.
+	if w.Brief.Goal == "" && (earlier != nil || replacing) {
+		w.Brief.Goal = s.current.Brief.Goal
+	}
 	if rejection := validate(w); rejection != nil {
 		return rejection
 	}
 
 	// Stage 1 stops at the first failure. Derivation needs a well-formed
-	// Walkthrough, and every stage-2 check needs the ledger, so anything they
+	// Round, and every stage-2 check needs the ledger, so anything they
 	// might say without these would be guesswork. The round's snapshot is
 	// always taken: it is what the round will be shown from, and it is kept only
 	// once the post is accepted.
@@ -242,7 +247,7 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 		dispositions = resolved
 	} else if len(w.Dispositions) > 0 {
 		add(reject(RejectedMalformedDisposition,
-			"this is the first Walkthrough; there are no Comments to dispose of"))
+			"this is round 1; there are no Comments to dispose of"))
 	}
 
 	add(validateNewSideResolves(w.Steps, s.resolver, round))
@@ -255,10 +260,10 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 		return rejection
 	}
 
-	// Every validation has passed and this Walkthrough is now the one under
+	// Every validation has passed and this Round is now the one under
 	// review. Only now does its round replace the one on screen: a rejected post
 	// leaves the Reviewer reading exactly what they were.
-	s.walkthrough = &w
+	s.current = &w
 	s.ledger = ledger
 	s.position = 0
 	s.seen = map[int]bool{}
@@ -293,7 +298,7 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 		s.nextCommentID = 0
 	}
 
-	// A new review mints an id and takes the Walkthrough's label as given; a
+	// A new review mints an id and takes the Round's label as given; a
 	// later posting keeps the id and only updates the label if one is supplied,
 	// so an agent that omits it does not blank it. Either way, posting means
 	// the review is active again.
@@ -313,7 +318,7 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 //
 // The snapshot is taken before anything else reads the working tree. It is what
 // a posted round is shown from, so it is also what the post is checked against:
-// every Excerpt an accepted Walkthrough names is one its own snapshot can show.
+// every Excerpt an accepted Round names is one its own snapshot can show.
 // (The Change Set is still derived from the working tree a moment later; see
 // #104.) It is also what pre-marking maps through. A caller with neither use for
 // it — a description of a first round — passes snapshot false and writes no
@@ -322,15 +327,15 @@ func (s *Session) accept(w Walkthrough, earlier *earlierRound, replacing bool) e
 // What a Revision Round has already shown is marked on the ledger itself, so
 // normalisation and every check ask their questions of the round's scope, not of
 // the raw Change Set. It is always the earlier accepted round that decides this —
-// never a Walkthrough being replaced, which the Reviewer may not have read.
-func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bool) (ledger, Round, *Rejection) {
-	var round Round
+// never a Round being replaced, which the Reviewer may not have read.
+func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bool) (ledger, RoundSource, *Rejection) {
+	var round RoundSource
 	if snapshotter, ok := s.deriver.(Snapshotter); ok && snapshot {
 		round.Snapshots = snapshotAll(snapshotter, set)
 	}
 	l, err := buildLedger(set, s.deriver)
 	if err != nil {
-		return ledger{}, Round{}, reject(RejectedDerivationFailed,
+		return ledger{}, RoundSource{}, reject(RejectedDerivationFailed,
 			"could not derive the changes under review: %v", err)
 	}
 	round.Bases = l.bases
@@ -353,10 +358,10 @@ func (s *Session) moveTo(position int) {
 }
 
 // validateNewSideResolves rejects a new-side Excerpt whose range the round's
-// snapshot cannot satisfy — the same snapshot the Walkthrough will be shown from.
+// snapshot cannot satisfy — the same snapshot the Round will be shown from.
 // Old-side Excerpts are not checked here: an old-side range that cannot be read
 // is surfaced as a render Problem in place of the code, never fabricated.
-func validateNewSideResolves(steps []Step, resolver Resolver, round Round) *Rejection {
+func validateNewSideResolves(steps []Step, resolver Resolver, round RoundSource) *Rejection {
 	for i, step := range steps {
 		for j, excerpt := range step.Excerpts {
 			if excerpt.Side != NewSide {
@@ -371,14 +376,14 @@ func validateNewSideResolves(steps []Step, resolver Resolver, round Round) *Reje
 	return nil
 }
 
-// Abandon discards the Walkthrough under review without submitting anything.
+// Abandon discards the Round under review without submitting anything.
 // It is the Reviewer's act, not the Authoring Agent's, so it is not exposed as
 // an MCP tool: an agent cannot dismiss a review of its own work.
 func (s *Session) Abandon() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to abandon")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to abandon")
 	}
-	s.walkthrough = nil
+	s.current = nil
 	s.id = ""
 	s.label = ""
 	s.concluded = false
@@ -388,18 +393,18 @@ func (s *Session) Abandon() error {
 // Results reports how the review is going. It answers immediately, whether or
 // not the Reviewer has finished.
 func (s *Session) Results() (Results, error) {
-	if s.walkthrough == nil {
+	if s.current == nil {
 		return Results{Posted: false}, nil
 	}
-	reports := make([]StepReport, len(s.walkthrough.Steps))
-	for i, step := range s.walkthrough.Steps {
+	reports := make([]StepReport, len(s.current.Steps))
+	for i, step := range s.current.Steps {
 		reports[i] = StepReport{Number: i + 1, Name: step.Name, Status: s.stepStatus(i + 1)}
 	}
 	return Results{
 		Posted:      true,
 		Finished:    s.finished,
 		Comments:    s.Comments(),
-		Brief:       s.walkthrough.Brief,
+		Brief:       s.current.Brief,
 		StepReports: reports,
 	}, nil
 }
@@ -408,10 +413,10 @@ func (s *Session) Results() (Results, error) {
 // from a Step to the next. At the last Step it stays put — running out of road
 // is not an error.
 func (s *Session) Advance() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to advance through")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to advance through")
 	}
-	if s.position < len(s.walkthrough.Steps) {
+	if s.position < len(s.current.Steps) {
 		s.moveTo(s.position + 1)
 	}
 	return nil
@@ -420,8 +425,8 @@ func (s *Session) Advance() error {
 // Back moves the Reviewer one position toward the Brief, so an earlier change
 // can be revisited once a later one has given it meaning. At the Brief it stays.
 func (s *Session) Back() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to move back through")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to move back through")
 	}
 	if s.position > 0 {
 		s.moveTo(s.position - 1)
@@ -432,12 +437,12 @@ func (s *Session) Back() error {
 // GoTo jumps straight to a position: 0 for the Brief, 1..len(Steps) for a Step.
 // Navigation is entirely local — the Authoring Agent is never consulted.
 func (s *Session) GoTo(position int) error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to navigate")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to navigate")
 	}
-	if position < 0 || position > len(s.walkthrough.Steps) {
+	if position < 0 || position > len(s.current.Steps) {
 		return reject(RejectedNoSuchStep,
-			"there is no Step %d; this Walkthrough has %d", position, len(s.walkthrough.Steps))
+			"there is no Step %d; this Round has %d", position, len(s.current.Steps))
 	}
 	s.moveTo(position)
 	return nil

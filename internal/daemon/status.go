@@ -11,7 +11,7 @@ import (
 
 // StatusWire is what /status answers: who the daemon is and whether it is in the
 // middle of something. Not part of the view — nothing here is drawn during a
-// Walkthrough — but it shares the wire types' audience, the TUI and the CLI.
+// Round — but it shares the wire types' audience, the TUI and the CLI.
 type StatusWire struct {
 	Version string `json:"version"`
 	// Executable is the binary this daemon is running, so `dbn update` can tell

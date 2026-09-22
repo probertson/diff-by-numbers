@@ -2,7 +2,7 @@ package review
 
 import "fmt"
 
-// previousRound is what the Walkthrough on screen is compared with when it is
+// previousRound is what the Round on screen is compared with when it is
 // shaded by what changed since the last round rather than since the merge-base
 // (#44): that round's number, the Round its code is read from, and how each
 // repository's files changed between the two.
@@ -13,7 +13,7 @@ import "fmt"
 // Round wants to see first is what changed since they last read it.
 type previousRound struct {
 	number int
-	round  Round
+	round  RoundSource
 	// mappings has no entry for a repository whose two snapshots could not be
 	// compared; its code is shaded by the merge-base as it always was.
 	mappings map[string]RoundMapping
@@ -28,7 +28,7 @@ type previousRound struct {
 // one it answers. It is nil for a first round, and for one whose repositories
 // could not be compared with that round at all: a comparison the Reviewer could
 // switch to but never see would only mislead.
-func (s *Session) comparedWith(earlier *earlierRound, current Round, set ChangeSet) *previousRound {
+func (s *Session) comparedWith(earlier *earlierRound, current RoundSource, set ChangeSet) *previousRound {
 	snapshotter, ok := s.deriver.(Snapshotter)
 	if !ok || earlier == nil {
 		return nil
@@ -49,19 +49,19 @@ func (s *Session) comparedWith(earlier *earlierRound, current Round, set ChangeS
 	if len(mappings) == 0 {
 		return nil
 	}
-	return &previousRound{number: s.roundNumber - 1, round: earlier.state.Round, mappings: mappings}
+	return &previousRound{number: s.roundNumber - 1, round: earlier.state.RoundSource, mappings: mappings}
 }
 
 // settle works out what the comparison shows that does not change while the
-// round is on screen. It runs once the Walkthrough is accepted, since it reads
-// the Walkthrough's Steps.
+// round is on screen. It runs once the Round is accepted, since it reads
+// the Round's Steps.
 func (s *Session) settle(previous *previousRound) {
 	if previous == nil {
 		return
 	}
 	previous.withdrawn = s.withdrawals(previous)
-	previous.unchanged = make([]bool, len(s.walkthrough.Steps))
-	for i, step := range s.walkthrough.Steps {
+	previous.unchanged = make([]bool, len(s.current.Steps))
+	for i, step := range s.current.Steps {
 		previous.unchanged[i] = s.stepUnchangedSince(previous, step)
 	}
 }
@@ -72,8 +72,8 @@ func (s *Session) settle(previous *previousRound) {
 // lives here with the rows the daemon draws (#57) and holds as they move between
 // Steps.
 func (s *Session) ToggleSincePreviousRound() error {
-	if s.walkthrough == nil {
-		return reject(RejectedNoWalkthrough, "there is no Walkthrough to show")
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to show")
 	}
 	if s.previous == nil {
 		return reject(RejectedNoPreviousRound,
@@ -239,7 +239,7 @@ type Withdrawal struct {
 // Change Set order and then by file.
 func (s *Session) withdrawals(previous *previousRound) []Withdrawal {
 	var out []Withdrawal
-	for _, repo := range s.walkthrough.ChangeSet.Repositories {
+	for _, repo := range s.current.ChangeSet.Repositories {
 		mapping, ok := previous.mappings[repo.Root]
 		if !ok {
 			continue
