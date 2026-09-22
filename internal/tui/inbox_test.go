@@ -124,3 +124,20 @@ func TestAttachingToARealDaemonOpensOnItsInbox(t *testing.T) {
 		t.Errorf("expected an empty Inbox, got mode %v holding %+v", m.mode, m.inbox)
 	}
 }
+
+// The Inbox has no review under it, so it shows one row of keys, not the review
+// screens' two — and none of the review's own keys, which would do nothing here.
+func TestTheInboxShowsOneRowOfKeys(t *testing.T) {
+	m := inboxModel(rows()...)
+
+	out := m.View()
+
+	if got := strings.Count(out, "q"+nbsp+"exit"); got != 1 {
+		t.Errorf("expected one exit hint at the Inbox, got %d:\n%s", got, out)
+	}
+	for _, review := range []string{"hand" + nbsp + "off", "g" + nbsp + "Overview", "i" + nbsp + "inbox"} {
+		if strings.Contains(out, review) {
+			t.Errorf("the Inbox should not offer %q, got:\n%s", review, out)
+		}
+	}
+}

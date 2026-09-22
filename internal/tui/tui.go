@@ -1461,6 +1461,9 @@ func (m model) View() string {
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
+	case modeInbox:
+		body = m.viewport.View()
+		persistent = m.inboxKeys()
 	case modeDone:
 		body = m.doneView()
 		if m.doneState() == doneRevision {
@@ -1527,13 +1530,16 @@ func (m model) globalKeys() string {
 // modeKeys is the blue row: the actions available on the current page only. It
 // changes with the cursor — code selection on a line of code, expansion on an
 // Acknowledgement — while the global row underneath stays put.
-func (m model) modeKeys() string {
-	if m.mode == modeInbox {
-		if len(m.inbox) == 0 {
-			return keybar("q exit")
-		}
-		return keybar("↑/↓ move", "enter open", "q exit")
+// inboxKeys is the Inbox's only row of keys. There is no review under it, so
+// nothing of the review keys applies and there is no second row to show.
+func (m model) inboxKeys() string {
+	if len(m.inbox) == 0 {
+		return keybar("q exit")
 	}
+	return keybar("↑/↓ move", "enter open", "q exit")
+}
+
+func (m model) modeKeys() string {
 	if m.view == nil || !m.view.Posted {
 		return ""
 	}
