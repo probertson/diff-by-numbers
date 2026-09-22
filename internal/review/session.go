@@ -15,7 +15,11 @@ type Results struct {
 	// Finished reports whether the Reviewer has handed off the Round. The
 	// agent does not wait for this; it asks and is told.
 	Finished bool
-	Comments []Comment
+	// Dismissed reports that the Reviewer discarded the review. The Comments
+	// they had raised come with it: they were still worth hearing, and an agent
+	// told only "dismissed" would have nothing to act on.
+	Dismissed bool
+	Comments  []Comment
 	// Brief and StepReports let the agent re-ground itself when it comes to work
 	// the Comments, since its own context may have moved on or been
 	// compacted since it posted (ADR-0008).
@@ -81,6 +85,12 @@ type Session struct {
 	// opened records that the Reviewer has looked at this review, which is what
 	// tells a review waiting to be picked up from one left part-way through.
 	opened bool
+	// dismissed records that the Reviewer discarded the review, which is what
+	// the Authoring Agent is told in place of results.
+	dismissed bool
+	// dismissedAt is when they did, which bounds how long the tombstone is kept
+	// for an agent that never comes back to ask.
+	dismissedAt time.Time
 	// posted is when the round on screen was accepted, which is what the Inbox
 	// measures a row's age from.
 	posted time.Time
@@ -437,16 +447,33 @@ func validateNewSideResolves(steps []Step, resolver Resolver, round RoundSource)
 	return nil
 }
 
-// Abandon discards the Round under review without submitting anything.
-// It is the Reviewer's act, not the Authoring Agent's, so it is not exposed as
-// an MCP tool: an agent cannot dismiss a review of its own work.
-func (s *Session) Abandon() error {
+// Dismiss discards the review without the Reviewer handing it off, and with it
+// the Round on screen. It is the Reviewer's act, not the Authoring Agent's, so
+// it is not exposed as an MCP tool: an agent cannot dismiss a review of its own
+// work.
+//
+// What the Reviewer raised is kept, and so is the id: the Session becomes the
+// tombstone its agent is told about, so a dismissed review reads as dismissed
+// rather than as an id dbn never had (ADR-0015).
+func (s *Session) Dismiss() error {
 	if s.current == nil {
-		return reject(RejectedNoRound, "there is no Round to abandon")
+		return reject(RejectedNoRound, "there is no Round to dismiss")
 	}
-	s.current = nil
+	if s.isConcluded() {
+		return reject(RejectedReviewOver,
+			"review %q is already over; there is nothing to dismiss", s.id)
+	}
+	s.dismissed = true
+	s.dismissedAt = s.now()
 	return nil
 }
+
+// DismissedAt is when the Reviewer discarded the review, or the zero time if
+// they did not.
+func (s *Session) DismissedAt() time.Time { return s.dismissedAt }
+
+// Dismissed reports that the Reviewer discarded this review.
+func (s *Session) Dismissed() bool { return s.dismissed }
 
 // Over reports whether the Session's Review has ended — concluded, or dismissed
 // — so it will take no further post. A Session with nothing yet posted has not
@@ -455,7 +482,7 @@ func (s *Session) Over() bool {
 	if !s.Begun() {
 		return false
 	}
-	return s.current == nil || s.isConcluded()
+	return s.current == nil || s.dismissed || s.isConcluded()
 }
 
 // Begun reports whether the Session's Review has had its first Round accepted,
@@ -475,6 +502,7 @@ func (s *Session) Results() (Results, error) {
 	return Results{
 		Posted:      true,
 		Finished:    s.finished,
+		Dismissed:   s.dismissed,
 		Comments:    s.Comments(),
 		Brief:       s.current.Brief,
 		StepReports: reports,

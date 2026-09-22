@@ -222,11 +222,11 @@ func exitGraceDuration() time.Duration {
 }
 
 // shouldExit is the whole of the self-exit decision, kept pure. The daemon stays
-// alive while a review is still active, and otherwise until it has been idle
-// through the grace window — where "not idle" means an agent call, a TUI poll, or
-// the shim keepalive touched it recently, i.e. someone is still here.
-func shouldExit(activeReview bool, idle, grace time.Duration) bool {
-	if activeReview {
+// alive while it still holds something worth holding, and otherwise until it has
+// been idle through the grace window — where "not idle" means an agent call, a
+// TUI poll, or the shim keepalive touched it recently, i.e. someone is still here.
+func shouldExit(needed bool, idle, grace time.Duration) bool {
+	if needed {
 		return false
 	}
 	return idle >= grace
@@ -252,7 +252,7 @@ func (d *Daemon) monitorForExit() {
 		case <-d.quit:
 			return
 		case <-ticker.C:
-			if shouldExit(d.activeReview(), d.idleFor(), grace) {
+			if shouldExit(d.needed(), d.idleFor(), grace) {
 				d.Shutdown()
 				return
 			}
@@ -569,16 +569,11 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	}))
 
-	// Abandoning is the Reviewer's act, so it is reachable from the CLI and not
-	// exposed as an MCP tool: an agent cannot dismiss a review of its own work.
-	mux.HandleFunc("POST /reviews/{review}/abandon", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
-		err := d.locked(func() error {
-			if err := session.Abandon(); err != nil {
-				return err
-			}
-			d.release(session.ReviewID())
-			return nil
-		})
+	// Dismissal is the Reviewer's act, so it is theirs to reach and not exposed
+	// as an MCP tool: an agent cannot dismiss a review of its own work. The
+	// review stays held as its own tombstone until the agent has been told.
+	mux.HandleFunc("POST /reviews/{review}/dismiss", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		err := d.locked(func() error { return session.Dismiss() })
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -588,7 +583,8 @@ func (d *Daemon) Handler() http.Handler {
 	return d.withActivity(mux)
 }
 
-// activeReview reports whether a review is still live, under the lock.
+// activeReview reports whether a review is still live: one the Reviewer is in
+// the middle of. It is what `dbn update` asks before restarting the daemon.
 func (d *Daemon) activeReview() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -598,6 +594,34 @@ func (d *Daemon) activeReview() bool {
 		}
 	}
 	return false
+}
+
+// tombstoneLife is how long a dismissed review is kept for an agent that has
+// not come back to be told. It is generous against how long an agent takes to
+// ask — its next call, usually — and short against leaving a daemon up all day
+// for a session that has gone for good.
+const tombstoneLife = time.Hour
+
+// needed reports whether anything the daemon holds would be lost by exiting: a
+// live review, or a review dismissed recently enough that its agent is probably
+// still coming back to be told (ADR-0015). It sweeps tombstones nobody came for.
+func (d *Daemon) needed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	needed := false
+	for id, session := range d.reviews {
+		switch {
+		case session.Active():
+			needed = true
+		case session.Dismissed() && time.Since(session.DismissedAt()) < tombstoneLife:
+			needed = true
+		case session.Dismissed():
+			// Nobody came for it. The agent is gone, or it will hear the same
+			// "no such review" a restarted daemon would have given it.
+			d.release(id)
+		}
+	}
+	return needed
 }
 
 // inbox lists the reviews the Reviewer can still pick from: everything the
@@ -896,13 +920,17 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 	if err != nil {
 		return nil, fetchResult{}, err
 	}
-	// The agent has what it came for, so a review that is over can go.
-	if session.Concluded() {
+	// The agent has what it came for, so a review that is over can go — and a
+	// dismissed one has just served its whole purpose as a tombstone.
+	if session.Concluded() || session.Dismissed() {
 		defer d.release(in.ReviewID)
 	}
 
 	message := "no Round is posted; post one before asking how the review went"
 	switch {
+	case results.Dismissed:
+		message = "the Reviewer dismissed this review — it is over, and a Revision Round of it will be refused. Anything they raised before dismissing it is below; post new work as a new review"
+
 	case results.Posted && results.Finished && len(results.Comments) == 0:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
 	case results.Posted && results.Finished:

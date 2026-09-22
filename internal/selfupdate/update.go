@@ -358,7 +358,7 @@ func restartDaemon(ctx context.Context, cfg Config, out io.Writer) error {
 
 	case daemonBusy:
 		fmt.Fprintf(out, "The daemon is still running %s because a review is in progress. "+
-			"Hand it off or abandon it, then run dbn update again (or restart the daemon yourself).\n",
+			"Hand it off or dismiss it, then run dbn update again (or restart the daemon yourself).\n",
 			found.status.Version)
 		return nil
 

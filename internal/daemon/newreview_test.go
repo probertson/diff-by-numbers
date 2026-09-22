@@ -36,7 +36,7 @@ func TestAPostAfterADismissalStartsANewReview(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	first := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/abandon")
+	httpPost(t, reviewURL(server.URL, first.ReviewID)+"/dismiss")
 
 	second := postRound(t, server.URL, minimalRound(root))
 

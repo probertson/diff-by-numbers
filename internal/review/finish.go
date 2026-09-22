@@ -97,7 +97,7 @@ func (s *Session) isConcluded() bool {
 // daemon is holding. It reports false once the review is over, since a review
 // that has ended is not one the Authoring Agent can still post to.
 func (s *Session) Open() (OpenReview, bool) {
-	if !s.Active() {
+	if s.dismissed || !s.Active() {
 		return OpenReview{}, false
 	}
 	return OpenReview{
@@ -123,7 +123,7 @@ func (s *Session) Concluded() bool {
 // Active reports whether a posted review still needs the daemon — posted and not
 // yet concluded. It is what the daemon consults to decide it may exit.
 func (s *Session) Active() bool {
-	return s.current != nil && !s.isConcluded()
+	return s.current != nil && !s.dismissed && !s.isConcluded()
 }
 
 // openRepositories names each repository under review the way a row does: by

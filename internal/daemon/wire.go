@@ -186,14 +186,16 @@ type openReviewWire struct {
 }
 
 type fetchResult struct {
-	Posted   bool             `json:"posted" jsonschema:"Whether the review you named has a Round posted. False also when the call was refused — read problems"`
-	Finished bool             `json:"finished" jsonschema:"Whether the Reviewer has handed the Round off to you"`
-	Message  string           `json:"message"`
-	Goal     string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
-	Approach string           `json:"approach"`
-	Comments []commentWire    `json:"comments"`
-	Steps    []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
-	Problems []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
+	Posted   bool `json:"posted" jsonschema:"Whether the review you named has a Round posted. False also when the call was refused — read problems"`
+	Finished bool `json:"finished" jsonschema:"Whether the Reviewer has handed the Round off to you"`
+	// Dismissed is reported once, and the review is then released.
+	Dismissed bool             `json:"dismissed,omitempty" jsonschema:"Set when the Reviewer discarded this review rather than handing it off. It is over: post new work as a new review, not a Revision Round of this one. Anything they raised before dismissing it is in comments"`
+	Message   string           `json:"message"`
+	Goal      string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
+	Approach  string           `json:"approach"`
+	Comments  []commentWire    `json:"comments"`
+	Steps     []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
+	Problems  []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
 	// OpenReviews is filled only when a fetch named no review: it is how an agent
 	// that lost its id finds it again.
 	OpenReviews []openReviewWire `json:"open_reviews,omitempty" jsonschema:"The reviews dbn is holding, when you called without a review_id. Find yours and call again with its id"`
@@ -252,11 +254,12 @@ func (w wireRound) toDomain() review.Round {
 
 func toFetchResult(r review.Results, message string) fetchResult {
 	out := fetchResult{
-		Posted:   r.Posted,
-		Finished: r.Finished,
-		Message:  message,
-		Goal:     r.Brief.Goal,
-		Approach: r.Brief.Approach,
+		Posted:    r.Posted,
+		Finished:  r.Finished,
+		Dismissed: r.Dismissed,
+		Message:   message,
+		Goal:      r.Brief.Goal,
+		Approach:  r.Brief.Approach,
 	}
 	for _, comment := range r.Comments {
 		out.Comments = append(out.Comments, commentWire{

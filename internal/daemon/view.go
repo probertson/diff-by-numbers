@@ -127,6 +127,9 @@ type ViewWire struct {
 	Finished     bool              `json:"finished"`
 	Concluded    bool              `json:"concluded"`
 	Dispositions []DispositionWire `json:"dispositions,omitempty"`
+	// Dismissed says the Reviewer discarded this review, so a window holding it
+	// has nothing left to show.
+	Dismissed bool `json:"dismissed,omitempty"`
 	// Replaced says the Round on screen replaced another in place.
 	Replaced bool `json:"replaced,omitempty"`
 	// Round is which round this is; PreviousRound the one it is compared with,
@@ -245,6 +248,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Seen:      v.Seen,
 		Finished:  v.Finished,
 		Concluded: v.Concluded,
+		Dismissed: v.Dismissed,
 		Replaced:  v.Replaced,
 
 		Round:                  v.Round,

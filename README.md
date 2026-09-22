@@ -242,7 +242,9 @@ one and fills in the moment the Round is posted.
 dbn opens on the **Inbox**: every review the daemon is holding, with what each
 one is waiting on — you, or the agent. Move with the arrows, `enter` opens the
 one under the cursor where you left it, and `i` puts it back down again without
-handing it off, so several agent sessions can have reviews waiting at once.
+handing it off, so several agent sessions can have reviews waiting at once. `d`
+dismisses a review you don't want, after a y/n confirmation — it discards the
+Comments you raised, and the agent is told you dismissed it.
 
 Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate
 through screens. Select lines to copy-by-reference (for pasting to your agent, if you want
@@ -251,9 +253,8 @@ review off, then tell your agent. It will then retrieve your Comments. Handing o
 leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the
 same Inbox.
 
-Other subcommands: `dbn dump` prints every review the daemon holds as text, `dbn
-abandon <review-id>` discards one, `dbn version` reports the build, `dbn update` installs a
-newer one (see [Updating](#updating)).
+Other subcommands: `dbn dump` prints every review the daemon holds as text, `dbn version`
+reports the build, `dbn update` installs a newer one (see [Updating](#updating)).
 
 ## Development
 

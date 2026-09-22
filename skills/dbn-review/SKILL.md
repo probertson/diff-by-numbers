@@ -249,6 +249,12 @@ handed off, not against the Round you replaced.
 Never dismiss a review yourself: discarding one is the reviewer's decision, not
 yours.
 
+**If they dismiss it**, `fetch_results` comes back with `dismissed` set instead
+of results. The review is over: a Revision Round of it will be refused. Anything
+they raised before dismissing it comes with the answer — read it, since it is
+why they dismissed it — and if there is still work to do, post it as a new
+review.
+
 ## Concluding a review
 
 A review that ends this way — the reviewer handing off having raised nothing — is

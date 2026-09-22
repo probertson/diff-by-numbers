@@ -211,17 +211,17 @@ func TestReopenUndoesAnExplicitConclude(t *testing.T) {
 	}
 }
 
-func TestAbandonLeavesNoActiveReview(t *testing.T) {
+func TestDismissalLeavesNoActiveReview(t *testing.T) {
 	deriver := &roundDeriver{lines: changedApp(1, 3)}
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 
-	if err := session.Abandon(); err != nil {
+	if err := session.Dismiss(); err != nil {
 		t.Fatal(err)
 	}
 
 	if session.Active() {
-		t.Error("expected no active review after abandon")
+		t.Error("expected no active review after a Dismissal")
 	}
 }
 

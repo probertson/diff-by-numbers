@@ -157,6 +157,9 @@ type ViewModel struct {
 	// nothing, or ended explicitly. It lets the finished screen tell "a Revision
 	// Round is coming" from "the review is complete".
 	Concluded bool
+	// Dismissed reports that the Reviewer discarded the review, so a window
+	// holding it has nothing left to show.
+	Dismissed bool
 	// Dispositions accounts for the previous round's Comments in a Revision
 	// Round — shown before any code, so a decline is seen before the fix.
 	Dispositions []ResolvedDisposition
@@ -207,6 +210,7 @@ func (s *Session) View() ViewModel {
 		Comments:     s.Comments(),
 		Finished:     s.finished,
 		Concluded:    s.isConcluded(),
+		Dismissed:    s.dismissed,
 		Dispositions: s.Dispositions(),
 		Replaced:     s.replaced,
 

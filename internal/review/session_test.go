@@ -243,7 +243,7 @@ func TestASessionWhoseReviewIsOverTakesNoMorePosts(t *testing.T) {
 	endings := map[string]func(*review.Session) error{
 		"handed off with nothing raised": func(s *review.Session) error { return s.Finish() },
 		"concluded":                      func(s *review.Session) error { return s.Conclude(s.ReviewID()) },
-		"dismissed":                      func(s *review.Session) error { return s.Abandon() },
+		"dismissed":                      func(s *review.Session) error { return s.Dismiss() },
 	}
 	for name, end := range endings {
 		t.Run(name, func(t *testing.T) {
@@ -264,10 +264,10 @@ func TestASessionWhoseReviewIsOverTakesNoMorePosts(t *testing.T) {
 	}
 }
 
-func TestAbandoningWithNothingPostedIsRejected(t *testing.T) {
+func TestDismissingWithNothingPostedIsRejected(t *testing.T) {
 	session := newSession()
 
-	err := session.Abandon()
+	err := session.Dismiss()
 
 	assertRejected(t, err, review.RejectedNoRound)
 }

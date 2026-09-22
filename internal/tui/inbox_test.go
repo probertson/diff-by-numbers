@@ -1,13 +1,21 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
@@ -283,4 +291,233 @@ func TestARowNamesEachBranchOnlyWhenTheyDiffer(t *testing.T) {
 	if !strings.Contains(apart, "portal @ feature/auth, api @ spike") {
 		t.Errorf("branches that differ are named per repository, got:\n%s", apart)
 	}
+}
+
+// Dismissing discards what the Reviewer raised, so it asks first.
+func TestDismissingFromTheInboxAsksFirst(t *testing.T) {
+	m := inboxModel(
+		inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, notes: 2, since: time.Minute}.wire(),
+		inboxRow{id: "b2", label: "billing", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+	)
+
+	m = press(m, "d")
+
+	if m.dismissing != "a1" {
+		t.Fatalf("expected the guard armed on the review under the cursor, got %q", m.dismissing)
+	}
+	out := m.View()
+	if !strings.Contains(out, "auth") || !strings.Contains(out, "(y/n)") {
+		t.Errorf("the guard names the review it would discard, got:\n%s", out)
+	}
+	if !strings.Contains(out, "2 Comments") {
+		t.Errorf("the guard says what is lost, got:\n%s", out)
+	}
+}
+
+// The rows re-sort under an armed guard as agents post, so the answer lands on
+// the review the guard named rather than on whatever row is there by then.
+func TestTheGuardHoldsTheReviewItNamedWhileTheRowsMove(t *testing.T) {
+	m := inboxModel(
+		inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+		inboxRow{id: "b2", label: "billing", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+	)
+	m = press(m, "d")
+
+	moved, _ := m.Update(refreshMsg{inbox: []daemon.InboxRowWire{
+		inboxRow{id: "b2", label: "billing", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+		inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+	}})
+	m = moved.(model)
+
+	if m.dismissing != "a1" {
+		t.Errorf("the guard still means the review it named, got %q", m.dismissing)
+	}
+	if !strings.Contains(m.View(), "auth") {
+		t.Errorf("and still says so, got:\n%s", m.View())
+	}
+}
+
+func TestSayingNoOrEscapeLeavesTheReviewWhereItIs(t *testing.T) {
+	for _, key := range []string{"n", "esc"} {
+		t.Run(key, func(t *testing.T) {
+			dismissed := make(chan string, 1)
+			m := inboxOn(t, dismissed)
+
+			m = press(press(m, "d"), key)
+
+			if m.dismissing != "" {
+				t.Errorf("%s disarms the guard, got %q", key, m.dismissing)
+			}
+			select {
+			case id := <-dismissed:
+				t.Errorf("nothing should have been dismissed, got %q", id)
+			default:
+			}
+		})
+	}
+}
+
+func TestSayingYesDismissesTheReviewUnderTheCursor(t *testing.T) {
+	dismissed := make(chan string, 1)
+	m := inboxOn(t, dismissed)
+
+	m = press(press(m, "d"), "y")
+
+	if m.dismissing != "" {
+		t.Error("answering disarms the guard")
+	}
+	select {
+	case id := <-dismissed:
+		if id != "a1" {
+			t.Errorf("expected the review under the cursor dismissed, got %q", id)
+		}
+	case <-time.After(time.Second):
+		t.Error("expected the daemon to be told to dismiss the review")
+	}
+}
+
+// A daemon that refuses says why, and the review stays where it is.
+func TestARefusedDismissalIsReported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "review \"a1\" is already over; there is nothing to dismiss", http.StatusConflict)
+	}))
+	t.Cleanup(server.Close)
+	m := inboxModel(inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire())
+	m.client = client{base: server.URL}
+
+	m = press(press(m, "d"), "y")
+
+	if !strings.Contains(m.View(), "already over") {
+		t.Errorf("expected the refusal shown to the Reviewer, got:\n%s", m.View())
+	}
+}
+
+// A window holding a review someone dismissed — here or in another window — has
+// nothing left to show, so it goes home.
+func TestAWindowHoldingADismissedReviewReturnsToTheInbox(t *testing.T) {
+	m := inboxModel(inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire())
+	m = pressEnter(m)
+
+	gone, _ := m.Update(refreshMsg{view: &daemon.ViewWire{Posted: true, ReviewID: "a1", Dismissed: true}})
+
+	if got := gone.(model); got.mode != modeInbox || got.openReview != "" {
+		t.Errorf("expected the window back at the Inbox, got mode %v holding %q", got.mode, got.openReview)
+	}
+}
+
+// inboxOn is an Inbox whose daemon records what it was asked to dismiss.
+func inboxOn(t *testing.T, dismissed chan<- string) model {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/reviews/"), "/dismiss"); ok {
+			dismissed <- id
+		}
+		fmt.Fprintln(w, "ok")
+	}))
+	t.Cleanup(server.Close)
+	m := inboxModel(
+		inboxRow{id: "a1", label: "auth", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+		inboxRow{id: "b2", label: "billing", state: daemon.StateNew, round: 1, steps: 2, since: time.Minute}.wire(),
+	)
+	m.client = client{base: server.URL}
+	return m
+}
+
+// Dismissal end to end: a real daemon holding a real review, the window asking
+// it to let the review go, and the row leaving the Inbox.
+func TestDismissingAgainstARealDaemonEmptiesTheInbox(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	port := servePort(t, server)
+	reviewID := postedReview(t, server.URL)
+	m, err := attach(port)
+	if err != nil {
+		t.Fatalf("attaching failed: %v", err)
+	}
+	m.width, m.height, m.viewport, m.ready = 80, 24, viewport.New(80, 18), true
+	if len(m.inbox) != 1 || m.inbox[0].ID != reviewID {
+		t.Fatalf("expected the posted review in the Inbox, got %+v", m.inbox)
+	}
+
+	m = press(press(m, "d"), "y")
+	m = settle(m)
+
+	if len(m.inbox) != 0 {
+		t.Errorf("the dismissed review leaves the Inbox, got %+v", m.inbox)
+	}
+	if !strings.Contains(m.content(), "Nothing to review") {
+		t.Errorf("expected an empty Inbox, got:\n%s", m.content())
+	}
+}
+
+// settle runs the model's own refresh, so a test sees what the next poll would.
+func settle(m model) model {
+	after, _ := m.Update(m.refresh()())
+	return after.(model)
+}
+
+// postedReview posts a Round to a real daemon over MCP, as an agent does, and
+// returns the review id.
+func postedReview(t *testing.T, baseURL string) string {
+	t.Helper()
+	root := reviewableRepo(t)
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: baseURL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("could not connect to the daemon: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "post_round", Arguments: map[string]any{
+		"label":        "auth refactor",
+		"brief":        map[string]any{"goal": "g", "approach": "a"},
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+		"steps": []any{map[string]any{
+			"name": "the change", "explanation": "why",
+			"excerpts": []any{map[string]any{"file": "fetch.ts", "side": "new", "first_line": 1, "last_line": 4}},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("post_round failed: %v", err)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var posted struct {
+		Accepted bool   `json:"accepted"`
+		ReviewID string `json:"review_id"`
+		Problems []struct {
+			Detail string `json:"detail"`
+		} `json:"problems"`
+	}
+	if err := json.Unmarshal(encoded, &posted); err != nil {
+		t.Fatal(err)
+	}
+	if !posted.Accepted {
+		t.Fatalf("expected the Round accepted, got %+v", posted.Problems)
+	}
+	return posted.ReviewID
+}
+
+// reviewableRepo is a repository with one changed line to review.
+func reviewableRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	os.WriteFile(filepath.Join(root, "fetch.ts"), []byte("a\nb\nc\n"), 0o644)
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "initial")
+	git("checkout", "-q", "-b", "feature")
+	os.WriteFile(filepath.Join(root, "fetch.ts"), []byte("a\nb\nc\nADDED\n"), 0o644)
+	return root
 }

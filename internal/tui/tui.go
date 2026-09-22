@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -150,6 +151,23 @@ func (c client) intent(path string) {
 	response.Body.Close()
 }
 
+// dismiss asks the daemon to discard the review this client is about.
+func (c client) dismiss() error {
+	response, err := http.Post(c.url("/dismiss"), "text/plain", nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
+		if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+			return errors.New(trimmed)
+		}
+		return fmt.Errorf("the daemon answered %s", response.Status)
+	}
+	return nil
+}
+
 func (c client) reopen() {
 	c.intent("/reopen")
 }
@@ -203,6 +221,10 @@ type model struct {
 	// now reads the clock, which a row's age is measured against. Zero means
 	// time.Now; it is a field so a test can hold time still.
 	now func() time.Time
+	// dismissing is the review an armed y/n guard would discard, held by id: the
+	// rows re-sort under it as agents post, and the answer must land on the
+	// review the guard named rather than on whatever row is there by then.
+	dismissing string
 	// daemonVersion is the build the daemon reported, kept in its own field
 	// because the notice it drives is persistent — m.status is a transient line
 	// that many keys clear.
@@ -578,10 +600,38 @@ func (m model) inboxAt() int {
 	return -1
 }
 
-// inboxKey is the whole of the Inbox's keyboard: move, open, quit.
+// inboxKey is the whole of the Inbox's keyboard: move, open, dismiss, quit.
 func (m model) inboxKey(key string) (tea.Model, tea.Cmd) {
 	at := m.inboxAt()
+	if m.dismissing != "" {
+		switch readConfirm(key) {
+		case confirmProceed:
+			dismissing := m.dismissing
+			m.dismissing = ""
+			if err := m.client.on(dismissing).dismiss(); err != nil {
+				m.status = warnSt.Render("Could not dismiss it: " + err.Error())
+			}
+			if m.ready {
+				m.viewport.SetContent(m.content())
+			}
+			return m, m.refresh()
+		case confirmCancel:
+			m.dismissing = ""
+			if m.ready {
+				m.viewport.SetContent(m.content())
+			}
+		}
+		// Anything else is swallowed: a stray key neither discards a review nor
+		// moves the cursor off the one being asked about.
+		return m, nil
+	}
 	switch key {
+	case "d":
+		// Dismissing discards what the Reviewer raised, so it asks first — of
+		// the review the cursor is on now, whatever the rows do while it waits.
+		if at >= 0 {
+			m.dismissing = m.inbox[at].ID
+		}
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "j", "down":
@@ -688,6 +738,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.inbox = msg.inbox
 			m.settleInboxCursor()
+		}
+		if msg.view != nil && msg.view.Dismissed {
+			// Dismissed under this window — from the Inbox here, or in another
+			// window. There is nothing left to read, so it goes home.
+			m.status = ""
+			return m.toInbox(), nil
 		}
 		if msg.released {
 			// The daemon has let go of the review this window had open: the agent
@@ -1467,6 +1523,12 @@ func (m model) View() string {
 	case modeInbox:
 		body = m.viewport.View()
 		persistent = m.inboxKeys()
+		switch {
+		case m.dismissing != "":
+			stateful = m.dismissGuard()
+		case m.status != "":
+			stateful = m.status
+		}
 	case modeDone:
 		body = m.doneView()
 		if m.doneState() == doneRevision {
@@ -1542,13 +1604,30 @@ func (m model) clock() time.Time {
 	return m.now()
 }
 
+// dismissGuard is the inline y/n on discarding a review. It names the review,
+// since the cursor is the only other thing saying which one this is about, and
+// says what is lost: the Comments raised go with it.
+func (m model) dismissGuard() string {
+	for _, row := range m.inbox {
+		if row.ID != m.dismissing {
+			continue
+		}
+		lost := ""
+		if row.CommentCount > 0 {
+			lost = fmt.Sprintf(", discarding %s", pluralize(row.CommentCount, "Comment"))
+		}
+		return warnSt.Render(fmt.Sprintf("Dismiss %q%s? (y/n)", row.Label, lost))
+	}
+	return ""
+}
+
 // inboxKeys is the Inbox's only row of keys. There is no review under it, so
 // nothing of the review keys applies and there is no second row to show.
 func (m model) inboxKeys() string {
 	if len(m.inbox) == 0 {
 		return keybar("q exit")
 	}
-	return keybar("↑/↓ move", "enter open", "q exit")
+	return keybar("↑/↓ move", "enter open", "d dismiss", "q exit")
 }
 
 func (m model) modeKeys() string {

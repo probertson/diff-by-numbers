@@ -111,19 +111,3 @@ func TestTheLoopRunsOnExplicitIDs(t *testing.T) {
 		t.Errorf("the Revision Round belongs to the Review it named, got %q", revised.ReviewID)
 	}
 }
-
-// A Review the Reviewer dismissed has no Round to report on. #111 makes this a
-// Dismissal the agent is told about; until then it reads as nothing posted.
-func TestFetchResultsAfterADismissalReportsNothingPosted(t *testing.T) {
-	server := httptest.NewServer(daemon.New().Handler())
-	defer server.Close()
-	root := featureRepo(t)
-	posted := postRound(t, server.URL, minimalRound(root))
-	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/abandon")
-
-	results := fetchByReviewID(t, server.URL, map[string]any{"review_id": posted.ReviewID})
-
-	if results.Posted {
-		t.Errorf("a dismissed Review has no Round to report on, got %+v", results)
-	}
-}
