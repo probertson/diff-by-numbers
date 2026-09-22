@@ -200,6 +200,9 @@ type model struct {
 	// inboxCursor is the review the Inbox cursor is on, held by id rather than
 	// by row so an arrival never moves what Enter opens.
 	inboxCursor string
+	// now reads the clock, which a row's age is measured against. Zero means
+	// time.Now; it is a field so a test can hold time still.
+	now func() time.Time
 	// daemonVersion is the build the daemon reported, kept in its own field
 	// because the notice it drives is persistent — m.status is a transient line
 	// that many keys clear.
@@ -1530,6 +1533,15 @@ func (m model) globalKeys() string {
 // modeKeys is the blue row: the actions available on the current page only. It
 // changes with the cursor — code selection on a line of code, expansion on an
 // Acknowledgement — while the global row underneath stays put.
+// clock is what the window calls the current time, which a row's age is
+// measured against.
+func (m model) clock() time.Time {
+	if m.now == nil {
+		return time.Now()
+	}
+	return m.now()
+}
+
 // inboxKeys is the Inbox's only row of keys. There is no review under it, so
 // nothing of the review keys applies and there is no second row to show.
 func (m model) inboxKeys() string {
@@ -2314,6 +2326,7 @@ func (m model) inboxView() string {
 			label = accentSt.Render(label)
 		}
 		b.WriteString(marker + label + "  " + dimSt.Render(inboxState(row.State)) + "\n")
+		b.WriteString("  " + dimSt.Render(inboxDetail(row, m.clock())) + "\n")
 	}
 	return b.String()
 }
@@ -2321,12 +2334,107 @@ func (m model) inboxView() string {
 // inboxState says whose turn a review is in the Reviewer's own words.
 func inboxState(state string) string {
 	switch state {
-	case "waiting_on_agent":
+	case daemon.StateWaitingOnAgent:
 		return "waiting on agent"
-	case "needs_you":
+	case daemon.StateNeedsReviewer:
 		return "needs you"
 	}
 	return "new"
+}
+
+// inboxDetail is a row's second line: whose work it is, how far it got, and how
+// long ago — enough to choose between reviews without opening any of them.
+func inboxDetail(row daemon.InboxRowWire, now time.Time) string {
+	var parts []string
+	if where := inboxRepositories(row.Repositories); where != "" {
+		parts = append(parts, where)
+	}
+	if row.Round > 0 {
+		parts = append(parts, fmt.Sprintf("round %d", row.Round))
+	}
+	if progress := inboxProgress(row); progress != "" {
+		parts = append(parts, progress)
+	}
+	if row.CommentCount > 0 {
+		parts = append(parts, pluralize(row.CommentCount, "Comment"))
+	}
+	if age := inboxAge(row.PostedAt, now); age != "" {
+		parts = append(parts, age)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// inboxRepositories names the repositories under review. The branch is given
+// per repository only when they differ, since the common case is one branch
+// across them all and repeating it says nothing.
+func inboxRepositories(repositories []daemon.InboxRepositoryWire) string {
+	if len(repositories) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(repositories))
+	shared := repositories[0].Branch
+	for _, repository := range repositories {
+		names = append(names, repository.Name)
+		if repository.Branch != shared {
+			shared = ""
+		}
+	}
+	// One branch across them all is the common case, and repeating it says
+	// nothing. No branch at all — a detached HEAD — leaves it out entirely
+	// rather than trailing an empty "@".
+	if len(names) == 1 || shared != "" {
+		return strings.Join(names, ", ") + branchSuffix(shared)
+	}
+	pairs := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		pairs = append(pairs, repository.Name+branchSuffix(repository.Branch))
+	}
+	return strings.Join(pairs, ", ")
+}
+
+// branchSuffix names the branch, or says nothing where git could not.
+func branchSuffix(branch string) string {
+	if branch == "" {
+		return ""
+	}
+	return " @ " + branch
+}
+
+// inboxProgress is how far the Reviewer got: what there is to read before they
+// start, where they are once they have, and that it is out of their hands once
+// they hand it off.
+func inboxProgress(row daemon.InboxRowWire) string {
+	switch {
+	case row.State == daemon.StateWaitingOnAgent:
+		// The first line already says it is waiting on the agent, so the room
+		// goes to what the round holds rather than saying it twice.
+		return pluralize(row.StepCount, "Step")
+	case row.State == daemon.StateNew:
+		return pluralize(row.StepCount, "Step")
+	case row.Position == 0:
+		// Opened and left on the Overview: they have read none of the Steps, but
+		// they have been here, which is not the same as never having looked.
+		return "Overview"
+	}
+	return fmt.Sprintf("Step %d of %d", row.Position, row.StepCount)
+}
+
+// inboxAge is how long ago the round on screen was posted, in the coarsest unit
+// that still says something: a review's age is a glance, not a measurement.
+func inboxAge(posted, now time.Time) string {
+	if posted.IsZero() {
+		return ""
+	}
+	since := now.Sub(posted)
+	switch {
+	case since < time.Minute:
+		return "just now"
+	case since < time.Hour:
+		return fmt.Sprintf("%dm", int(since.Minutes()))
+	case since < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(since.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(since.Hours()/24))
 }
 
 // waitingView is what the Reviewer reads while no daemon has answered yet. It

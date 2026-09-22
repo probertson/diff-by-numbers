@@ -1,5 +1,7 @@
 package review
 
+import "path/filepath"
+
 // StepStatus is what a Step's disposition is at a glance, derived rather than
 // declared: no verdict keypress, just what the Reviewer did.
 type StepStatus string
@@ -98,7 +100,18 @@ func (s *Session) Open() (OpenReview, bool) {
 	if !s.Active() {
 		return OpenReview{}, false
 	}
-	return OpenReview{ID: s.id, Label: s.label, HandedOff: s.finished, Opened: s.opened}, true
+	return OpenReview{
+		ID:           s.id,
+		Label:        s.label,
+		HandedOff:    s.finished,
+		Opened:       s.opened,
+		Repositories: s.openRepositories(),
+		Round:        s.roundNumber,
+		Position:     s.position,
+		StepCount:    len(s.current.Steps),
+		CommentCount: len(s.comments),
+		Posted:       s.posted,
+	}, true
 }
 
 // Concluded reports whether the posted review is over. It is false when nothing
@@ -111,4 +124,17 @@ func (s *Session) Concluded() bool {
 // yet concluded. It is what the daemon consults to decide it may exit.
 func (s *Session) Active() bool {
 	return s.current != nil && !s.isConcluded()
+}
+
+// openRepositories names each repository under review the way a row does: by
+// its own name, with the branch its work is on.
+func (s *Session) openRepositories() []OpenRepository {
+	repositories := make([]OpenRepository, 0, len(s.current.ChangeSet.Repositories))
+	for _, repository := range s.current.ChangeSet.Repositories {
+		repositories = append(repositories, OpenRepository{
+			Name:   filepath.Base(repository.Root),
+			Branch: s.ledger.branches[repository.Root],
+		})
+	}
+	return repositories
 }

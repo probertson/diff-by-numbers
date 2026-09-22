@@ -43,7 +43,23 @@ func (Deriver) Derive(repo review.Repository) (review.Derivation, error) {
 		return review.Derivation{}, err
 	}
 	derivation.Base = base
+	derivation.Branch = branchOf(repo.Root)
 	return derivation, nil
+}
+
+// branchOf is the branch a repository is on, or "" where there is no branch to
+// name — a detached HEAD, most often, which a row simply leaves out rather than
+// showing a bare sha nobody asked about.
+func branchOf(root string) string {
+	out, err := runGit(root, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(out)
+	if branch == "HEAD" {
+		return ""
+	}
+	return branch
 }
 
 func mergeBase(root, baseRef string) (string, error) {

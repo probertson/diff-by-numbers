@@ -2,6 +2,8 @@
 // knows nothing about MCP, terminals or git.
 package review
 
+import "time"
+
 // Brief is the opening screen of a Round, shown before any code.
 type Brief struct {
 	Goal     string
@@ -20,6 +22,31 @@ type OpenReview struct {
 	// Opened is the Reviewer having looked at the review at all, which is what
 	// tells one waiting to be picked up from one left part-way through.
 	Opened bool
+	// Repositories are the repositories under review and the branch each is on,
+	// which is what says whose work a row is.
+	Repositories []OpenRepository
+	// Round counts the rounds: 1 for the first, one more for each Revision Round.
+	Round int
+	// Position is where the Reviewer is: 0 for the Overview, 1..StepCount for a
+	// Step.
+	Position int
+	// StepCount is how many Steps this round has.
+	StepCount int
+	// CommentCount is how many the Reviewer has raised and not withdrawn.
+	CommentCount int
+	// Posted is when the round on screen was accepted, which is what a row's age
+	// is measured from.
+	Posted time.Time
+}
+
+// OpenRepository is one repository under review, as a row names it: the
+// repository's own name and the branch its work is on.
+type OpenRepository struct {
+	// Name is the repository directory's basename — what the Reviewer calls it,
+	// rather than the absolute path they already know.
+	Name string
+	// Branch is what the work is on, empty where git could not say.
+	Branch string
 }
 
 // Side qualifies a line range. Deleted lines exist only on the old side, added

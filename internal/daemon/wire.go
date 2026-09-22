@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
@@ -67,12 +68,33 @@ type InboxWire struct {
 	Reviews []InboxRowWire `json:"reviews"`
 }
 
-// InboxRowWire is one review in the Inbox, as a window draws it.
+// InboxRowWire is one review in the Inbox, as a window draws it: enough to
+// choose between reviews without opening any of them.
 type InboxRowWire struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	// State is whose turn the review is: see the State constants.
 	State string `json:"state"`
+	// Repositories are the repositories under review, with the branch each is
+	// on: whose work this is.
+	Repositories []InboxRepositoryWire `json:"repositories"`
+	// Round is 1 for the first round, one more for each Revision Round.
+	Round int `json:"round"`
+	// Position is where the Reviewer is: 0 for the Overview, 1..StepCount for a
+	// Step.
+	Position  int `json:"position"`
+	StepCount int `json:"step_count"`
+	// CommentCount is how many the Reviewer has raised and not withdrawn.
+	CommentCount int `json:"comments"`
+	// PostedAt is when the round on screen was accepted, which a window shows as
+	// the review's age.
+	PostedAt time.Time `json:"posted_at"`
+}
+
+// InboxRepositoryWire is one repository under review, as a row names it.
+type InboxRepositoryWire struct {
+	Name   string `json:"name"`
+	Branch string `json:"branch,omitempty"`
 }
 
 // The states a review can be in, as the Inbox reports them. They say whose turn

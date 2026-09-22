@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -600,18 +601,59 @@ func (d *Daemon) activeReview() bool {
 }
 
 // inbox lists the reviews the Reviewer can still pick from: everything the
-// daemon holds that is not concluded, oldest first. It answers under the
-// caller's lock.
+// daemon holds that is not concluded, with what needs them first and each group
+// oldest first. It answers under the caller's lock.
+//
+// The order is dbn's to decide rather than each window's, so two windows agree
+// and a window need know nothing about what the states mean.
 func (d *Daemon) inbox() []InboxRowWire {
 	rows := make([]InboxRowWire, 0, len(d.order))
+	var waiting []InboxRowWire
 	for _, session := range d.held() {
 		open, ok := session.Open()
 		if !ok {
 			continue
 		}
-		rows = append(rows, InboxRowWire{ID: open.ID, Label: open.Label, State: inboxState(open)})
+		row := InboxRowWire{
+			ID:           open.ID,
+			Label:        open.Label,
+			State:        inboxState(open),
+			Repositories: inboxRepositories(open.Repositories),
+			Round:        open.Round,
+			Position:     open.Position,
+			StepCount:    open.StepCount,
+			CommentCount: open.CommentCount,
+			PostedAt:     open.Posted,
+		}
+		// A review handed off is the Authoring Agent's turn: the Reviewer can do
+		// nothing with it, so it goes below the ones they can.
+		if row.State == StateWaitingOnAgent {
+			waiting = append(waiting, row)
+			continue
+		}
+		rows = append(rows, row)
 	}
-	return rows
+	// Oldest first within each group, measured from the round on screen — the
+	// same moment the row's age counts from, so the order and the age agree. A
+	// review whose agent has just posted again is the freshest thing there, and
+	// the one nobody has touched for an hour is the one going stale.
+	byAge(rows)
+	byAge(waiting)
+	return append(rows, waiting...)
+}
+
+// byAge puts the least recently posted first.
+func byAge(rows []InboxRowWire) {
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].PostedAt.Before(rows[j].PostedAt) })
+}
+
+// inboxRepositories puts the repositories under review on the wire.
+func inboxRepositories(repositories []review.OpenRepository) []InboxRepositoryWire {
+	wires := make([]InboxRepositoryWire, 0, len(repositories))
+	for _, repository := range repositories {
+		wires = append(wires, InboxRepositoryWire{Name: repository.Name, Branch: repository.Branch})
+	}
+	return wires
 }
 
 // inboxState says whose turn a review is, which is what the Reviewer picks by.

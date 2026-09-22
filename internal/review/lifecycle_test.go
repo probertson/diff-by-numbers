@@ -2,6 +2,7 @@ package review_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
@@ -221,5 +222,32 @@ func TestAbandonLeavesNoActiveReview(t *testing.T) {
 
 	if session.Active() {
 		t.Error("expected no active review after abandon")
+	}
+}
+
+// A row's age is measured from when the round on screen was accepted, so a
+// Session reads the clock at that moment and nowhere else.
+func TestAnOpenReviewIsTimedFromItsLatestRound(t *testing.T) {
+	posted := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	clock := posted
+	deriver := &roundDeriver{lines: changedApp(1, 3)}
+	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver,
+		review.WithClock(func() time.Time { return clock }))
+	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
+	handOffWithAComment(t, session)
+
+	clock = posted.Add(time.Hour)
+	deriver.lines = changedApp(1, 4)
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil)))
+
+	open, ok := session.Open()
+	if !ok {
+		t.Fatal("a review under way is open")
+	}
+	if !open.Posted.Equal(posted.Add(time.Hour)) {
+		t.Errorf("expected the time of the Revision Round, got %v", open.Posted)
+	}
+	if open.Round != 2 || open.CommentCount != 0 {
+		t.Errorf("expected round 2 with no Comments outstanding, got round %d with %d", open.Round, open.CommentCount)
 	}
 }

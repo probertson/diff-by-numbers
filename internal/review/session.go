@@ -3,6 +3,7 @@ package review
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"time"
 )
 
 // Results is what the Authoring Agent receives when it asks how a review went.
@@ -80,6 +81,12 @@ type Session struct {
 	// opened records that the Reviewer has looked at this review, which is what
 	// tells a review waiting to be picked up from one left part-way through.
 	opened bool
+	// posted is when the round on screen was accepted, which is what the Inbox
+	// measures a row's age from.
+	posted time.Time
+	// now reads the clock, for when a Round was posted. Injected so a test can
+	// say what time it is.
+	now func() time.Time
 	// postings counts the Rounds this Review has accepted, so a surface can tell
 	// when a different one — a Revision Round or a Replacement — has taken the
 	// screen.
@@ -95,11 +102,17 @@ func WithIDMinter(mint func() string) SessionOption {
 	return func(s *Session) { s.mint = mint }
 }
 
+// WithClock overrides where a Session reads the time, so a test can say when a
+// Round was posted rather than take whatever the wall clock says.
+func WithClock(now func() time.Time) SessionOption {
+	return func(s *Session) { s.now = now }
+}
+
 // NewSession returns a Session with no Round posted. The resolver turns
 // Excerpts into lines when a view is drawn; the deriver reports what git says
 // actually changed. The core itself neither reads files nor runs git.
 func NewSession(resolver Resolver, deriver Deriver, opts ...SessionOption) *Session {
-	s := &Session{resolver: resolver, deriver: deriver, mint: defaultMint}
+	s := &Session{resolver: resolver, deriver: deriver, mint: defaultMint, now: time.Now}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -321,6 +334,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.answering = earlier
 	s.latest = captureRound(ledger, round)
 	s.replaced = replacing
+	s.posted = s.now()
 	s.postings++
 	switch {
 	case replacing:

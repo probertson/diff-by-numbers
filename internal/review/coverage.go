@@ -66,6 +66,11 @@ func (o OpaqueChange) String() string {
 // Lines, the Opaque Changes that have no lines, and the cross-side Correspondences
 // that pair each edit's removed lines with the lines that replaced them.
 type Derivation struct {
+	// Branch is the branch the repository is on, for a surface naming the work
+	// rather than the comparison — the Inbox row, which says what is under
+	// review, not what it is measured against. Empty where git cannot say, such
+	// as a detached HEAD.
+	Branch          string
 	Lines           []ChangedLine
 	Opaque          []OpaqueChange
 	Correspondences []Correspondence
@@ -124,6 +129,9 @@ type ledger struct {
 	// Round compares it with the previous round's to tell whether the branch was
 	// rebased underneath the review, which moves every old-side line.
 	bases map[string]string
+	// branches is the branch each repository was on when the round was derived,
+	// keyed by root: what the Inbox names a review's work by.
+	branches map[string]string
 	// whitespace is the subset of lines holding nothing but whitespace, as a set
 	// because both the absorption pass and the budget ask about one line at a time.
 	whitespace map[ChangedLine]bool
@@ -173,6 +181,7 @@ func (l ledger) withPreMarking(lines map[ChangedLine]bool, opaque map[fileRef]bo
 func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 	l := ledger{
 		bases:      map[string]string{},
+		branches:   map[string]string{},
 		whitespace: map[ChangedLine]bool{},
 		renames:    map[fileRef]string{},
 		fileStatus: map[fileRef]FileStatus{},
@@ -182,6 +191,7 @@ func buildLedger(changeSet ChangeSet, deriver Deriver) (ledger, error) {
 		if err != nil {
 			return ledger{}, err
 		}
+		l.branches[repository.Root] = derivation.Branch
 		l.lines = append(l.lines, derivation.Lines...)
 		l.opaque = append(l.opaque, derivation.Opaque...)
 		l.correspondences = append(l.correspondences, derivation.Correspondences...)
