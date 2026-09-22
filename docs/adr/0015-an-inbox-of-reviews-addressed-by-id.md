@@ -4,7 +4,7 @@ The daemon holds several reviews at once. The Reviewer sees them in an **Inbox**
 and can leave it mid-review for another and come back to find it where it was left. Every
 call about a review, from the Authoring Agent or from the TUI, names the review by its id.
 
-This resolves the restriction the MVP left in place, where one daemon held one Walkthrough
+This resolves the restriction the MVP left in place, where one daemon held one review
 and a second session's post was refused as `walkthrough_active` until the first was over.
 
 ## Why an Inbox
@@ -94,6 +94,6 @@ override, as it does for one today.
 A concluded review leaves the Inbox but stays in memory until the agent has fetched its
 results or called `conclude`, so a late `fetch_results` still gets an answer.
 
-The comment on `Session` saying concurrent Walkthroughs are out of scope "until the
-multiplexed inbox exists" is resolved by this ADR. The code's `Abandon` is renamed to
+The comment on `Session` saying concurrent reviews are out of scope "until the multiplexed
+inbox exists" is resolved by this ADR. The code's `Abandon` is renamed to
 match **Dismissal**.

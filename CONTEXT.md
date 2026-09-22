@@ -35,7 +35,7 @@ no opinion about the code and never decides what to show.
 _Avoid_: reviewer, review bot, diff viewer
 
 **Authoring Agent**:
-The agent that made the changes and drives the walkthrough. Named for the fact
+The agent that made the changes and drives the Review. Named for the fact
 that its authority here comes from having written the code and known why.
 _Avoid_: the AI, the assistant, the model
 
@@ -43,28 +43,41 @@ _Avoid_: the AI, the assistant, the model
 The human being walked through the changes.
 _Avoid_: the user, the developer
 
-**Walkthrough**:
-One complete review session over one set of changes: a Brief followed by an
-ordered sequence of Steps.
-_Avoid_: review, session, run
+**Review**:
+The whole exchange over one piece of work: from the Authoring Agent's first post,
+through every Revision Round, until it is concluded or dismissed. It has an id,
+minted by dbn, that every call about it names.
+_Avoid_: session, walkthrough
+
+**Round**:
+One pass of a Review: the Brief and ordered Steps the Authoring Agent posts, and
+the Reviewer working through them until they Hand Off. Round 1 is the first; every
+round after it is a Revision Round. A Replacement puts new Steps into the same
+round rather than starting another.
+_Avoid_: walkthrough, pass, iteration
 
 **Brief**:
-The opening screen of a Walkthrough, shown before any code. States what the
-Reviewer originally asked for, the approach the Authoring Agent took, its
-Provenance, and the list of Steps to come. Always present, regardless of how
-small the change is.
-_Avoid_: summary, overview, table of contents
+What the Authoring Agent writes to open a Round: the approach it took, so the
+Reviewer can judge the approach apart from the code implementing it, and in round 1
+the Goal. Required on every Round, however small the change. It is authored, not composed: dbn shows it on the
+Overview and hands it back to the agent to re-ground it, but adds nothing to it.
+_Avoid_: summary, table of contents
 
-**Provenance**:
-A Brief's declaration of where its account of intent came from: *stated* (the
-Authoring Agent was there, or read the session transcript, and can cite it) or
-*inferred* (reverse-engineered from the changes themselves). Required, and shown
-to the Reviewer, because a guessed intent reads exactly as confidently as a known
-one and deserves far less trust.
-_Avoid_: source, confidence, basis
+**Goal**:
+What the work set out to achieve, as the Reviewer asked for it, and what every
+Round's approach and code are judged against. It belongs to the Review, not a
+Round: given in round 1's Brief and carried forward to every Overview after it. A
+Revision Round restates it only when what the Reviewer wants has changed.
+_Avoid_: ask, request, task, objective
+
+**Overview**:
+The Reviewer's opening screen of a Round, shown before any code. dbn composes it
+from the Brief and what it knows itself: in a Revision Round, what became of each
+of the last round's Comments and what was withdrawn since; and the Steps to come.
+_Avoid_: brief, summary, table of contents
 
 **Step**:
-One numbered stop in a Walkthrough: a single self-contained idea the Authoring
+One numbered stop in a Round: a single self-contained idea the Authoring
 Agent names, carrying whatever Excerpts across whatever files that idea touches.
 Steps are ordered so each is comprehensible given only the Steps before it.
 _Avoid_: chunk, chunk set, section, slice
@@ -140,7 +153,7 @@ A renamed file's *source* path — the name it had at the merge-base — standin
 its *destination*, the name it has now. Every atom of a renamed file is derived
 under the destination, so an Acknowledgement or an old-side Excerpt written about
 the name the file came from would otherwise account for nothing. dbn resolves the
-source to the destination when a Walkthrough is posted, and the Reviewer sees the
+source to the destination when a Round is posted, and the Reviewer sees the
 destination throughout. The alias lapses when the branch reused the freed-up name
 for a new file: that name carries atoms of its own, so it means that file.
 _Avoid_: move, moved, old name, path mapping
@@ -168,17 +181,18 @@ _Avoid_: reference, citation, pointer, location
 
 **Comment**:
 A Reviewer's remark raised against an Anchor, either a request for an edit or a
-question, collected during the Walkthrough and responded to only once it ends. Resolves
+question, collected during the Round and responded to only once it ends. Resolves
 to *addressed*, *answered* or *declined*. An answer or a decline carries the Authoring
 Agent's response; an addressed Comment may carry one too. A question that needs a live
 exchange still belongs in the harness chat (ADR-0011).
 _Avoid_: change request, note, feedback, todo
 
 **Revision Round**:
-The Authoring Agent responding to the collected Comments, followed by a fresh
-Walkthrough over just the resulting changes. Its Brief maps every Comment to its
-resolution, so an answer or a decline is read before any code. Repeats until the Reviewer
-hands a Walkthrough off having raised nothing. Lines it has already shown are pre-marked:
+Any Round after the first: the Authoring Agent responding to the collected
+Comments, with a fresh Brief and Steps over just the resulting changes. Its
+Overview shows every Comment's resolution, so an answer or a decline is read
+before any code. Repeats until the Reviewer hands a Round off having raised
+nothing. Lines it has already shown are pre-marked:
 coverage does not demand them again, and they cost nothing against a Step's budget.
 _Avoid_: fix pass, iteration, follow-up
 
@@ -191,9 +205,9 @@ Reviewer.
 _Avoid_: deletion (which is measured against the merge-base), revert
 
 **Replacement**:
-A Walkthrough the Authoring Agent posts in place of the one still under review,
+A Brief and Steps the Authoring Agent posts in place of the round still under review,
 because the Reviewer asked for a change mid-round or the plan was wrong (ADR-0004).
-It is the same review and the same round: the id stays, the Reviewer's Comments
+It is the same Review and the same Round: the id stays, the Reviewer's Comments
 carry over without their Steps, and a replaced Revision Round is still scoped
 against the round before it. Not a Revision Round, which needs a Hand Off first.
 _Avoid_: re-post, amendment
@@ -223,7 +237,7 @@ _Avoid_: abandon (which suggests someone walked away, as a silent agent does), d
 
 **Round Snapshot**:
 A git tree object recording each repository's working tree as it stood when a
-Walkthrough was accepted. It does three jobs.
+Round was accepted. It does three jobs.
 - It is what the round's code is read from. The Reviewer sees, expands and
   anchors exactly what was posted, and a file edited since is *changed on disk*,
   flagged with a warning rather than hidden (ADR-0004).
@@ -238,23 +252,17 @@ The Change Set is not derived from a snapshot; it still comes from the working
 tree.
 _Avoid_: stash, checkpoint, baseline
 
-**Position**:
-Where a line stood in a given Round Snapshot: a file path and a line number.
-What the round-over-round mapping answers with, and the unit that decides
-whether a Changed Line was already shown.
-_Avoid_: location, coordinate, address
-
 **Problem**:
 One fault in a refused post: what kind it is, and what specifically to fix. A
 refusal carries every problem dbn could find rather than the first, so an agent
-fixes them all before re-sending the Walkthrough. At most one per kind, in the
+fixes them all before posting again. At most one per kind, in the
 order dbn checks them.
 _Avoid_: error, failure, violation
 
 **Coverage Ledger**:
 dbn's own record, derived from git rather than from the Authoring Agent, of every
 Changed Line and Opaque Change under review, and whether each has been shown by an
-Excerpt or covered by an Acknowledgement. A Walkthrough cannot be completed while any
+Excerpt or covered by an Acknowledgement. A Round cannot be posted while any
 remains unaccounted for. It constrains
 completeness only — never ordering, grouping or size.
 _Avoid_: checklist, manifest, progress
