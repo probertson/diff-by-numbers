@@ -55,6 +55,7 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t) // fetch.ts gains line 4 "ADDED"; LOCKFILE is new
 	walkthrough := map[string]any{
+		"label":        "LABEL-the-review",
 		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -63,7 +64,7 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 			"acknowledgements": []any{map[string]any{"files": []any{"LOCKFILE"}, "reason": "generated"}},
 		}},
 	}
-	postRound(t, server.URL, walkthrough)
+	first := postRound(t, server.URL, walkthrough)
 	// A Comment keeps the review going into a Revision Round: a hand-off with
 	// nothing raised would end it.
 	httpPost(t, server.URL+"/goto/1")
@@ -73,6 +74,8 @@ func TestARevisionRoundIsShadedByWhatMovedThroughTheDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	walkthrough["dispositions"] = []any{map[string]any{"comment_id": 1, "status": "addressed"}}
+	walkthrough["revises"] = first.ReviewID
+	delete(walkthrough, "label") // a Revision Round keeps the label the review was given
 	postRound(t, server.URL, walkthrough)
 	httpPost(t, server.URL+"/goto/1")
 

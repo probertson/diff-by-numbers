@@ -12,6 +12,7 @@ import (
 // accept for that repo.
 func minimalRound(root string) map[string]any {
 	return map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal":     "goal",
 			"approach": "approach",

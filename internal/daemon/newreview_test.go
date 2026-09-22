@@ -51,7 +51,7 @@ func TestARefusedPostAfterAHandOffLeavesTheConcludedReviewAnswerable(t *testing.
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	postRound(t, server.URL, minimalRound(root))
+	posted := postRound(t, server.URL, minimalRound(root))
 	httpPost(t, server.URL+"/finish")
 	broken := minimalRound(root)
 	broken["steps"] = broken["steps"].([]any)[:1]
@@ -61,7 +61,7 @@ func TestARefusedPostAfterAHandOffLeavesTheConcludedReviewAnswerable(t *testing.
 	if refused.Accepted || !refused.has("uncovered_changes") {
 		t.Fatalf("new work gets no pre-marking from the finished review, so leaving the lockfile out is uncovered_changes; got accepted=%v %s", refused.Accepted, refused.summary())
 	}
-	if message := fetchResults(t, server.URL).Message; !strings.Contains(message, "complete") {
+	if message := fetchResults(t, server.URL, posted.ReviewID).Message; !strings.Contains(message, "complete") {
 		t.Errorf("the concluded review should still report complete, got %q", message)
 	}
 }

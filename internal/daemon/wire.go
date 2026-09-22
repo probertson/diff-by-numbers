@@ -56,7 +56,8 @@ type wireRound struct {
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Round covers. A Round may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
 	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit in round 1"`
-	Label        string            `json:"label,omitempty" jsonschema:"An optional short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. It is not the review's id — dbn mints that — only a display aid. On a Revision Round you may omit it to keep the one you first gave"`
+	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
+	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments, alongside the dispositions accounting for them. Leave it out and this post starts a new Review"`
 	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
 }
 
@@ -121,14 +122,33 @@ type stepReportWire struct {
 	Status string `json:"status" jsonschema:"unseen, seen, or flagged"`
 }
 
+// fetchInput names the review whose results are wanted. The id is optional on
+// the wire so an agent that has lost it can call without one and be told what is
+// open, rather than being refused by the schema with nothing to go on.
+type fetchInput struct {
+	ReviewID string `json:"review_id,omitempty" jsonschema:"The id of the review to ask about, as post_round returned it. Call without it only if you have lost it: you will be refused, and told which reviews are open"`
+}
+
+// openReviewWire is one review the daemon is holding, as the refusal for a
+// fetch that named none lists it.
+type openReviewWire struct {
+	ID    string `json:"id"`
+	Label string `json:"label" jsonschema:"The name the Authoring Agent gave it"`
+	State string `json:"state" jsonschema:"under_review while the Reviewer is working through it, handed_off once they have handed it back to you"`
+}
+
 type fetchResult struct {
-	Posted   bool             `json:"posted" jsonschema:"Whether a Round was ever posted. If false, nothing was ever accepted and there is nothing to wait for"`
+	Posted   bool             `json:"posted" jsonschema:"Whether the review you named has a Round posted. False also when the call was refused — read problems"`
 	Finished bool             `json:"finished" jsonschema:"Whether the Reviewer has handed the Round off to you"`
 	Message  string           `json:"message"`
 	Goal     string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
 	Approach string           `json:"approach"`
 	Comments []commentWire    `json:"comments"`
 	Steps    []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
+	Problems []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
+	// OpenReviews is filled only when a fetch named no review: it is how an agent
+	// that lost its id finds it again.
+	OpenReviews []openReviewWire `json:"open_reviews,omitempty" jsonschema:"The reviews dbn is holding, when you called without a review_id. Find yours and call again with its id"`
 }
 
 func (w wireRound) toDomain() review.Round {
@@ -209,6 +229,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 }
 
 type describeInput struct {
+	ReviewID     string           `json:"review_id,omitempty" jsonschema:"The id of the review you are about to post a Revision Round of, so dbn pre-marks what that review has already shown. Leave it out when planning a new review's first round"`
 	Repositories []wireRepository `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_round"`
 }
 

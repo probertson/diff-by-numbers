@@ -18,6 +18,7 @@ func TestAPostAfterACompleteReviewStartsANewOneThroughTheDaemon(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	walkthrough := map[string]any{
+		"label":        "LABEL-the-review",
 		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{

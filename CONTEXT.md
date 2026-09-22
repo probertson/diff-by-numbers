@@ -220,6 +220,14 @@ which is why it is not called *finishing*, a word that reads as a synonym of
 leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete
 
+**Label**:
+The short name the Authoring Agent gives a Review when it opens it, such as
+"auth refactor". It is what the Reviewer tells one Review from another by in the
+Inbox, so it is required, and it is not the Review's id: dbn mints that, and the
+Label never identifies anything. A later Round keeps the Label unless it gives a
+new one.
+_Avoid_: name, title, description
+
 **Inbox**:
 Every review the daemon holds that is not yet concluded, listed for the Reviewer
 to pick from, with those that need the Reviewer first and those handed off and

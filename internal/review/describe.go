@@ -70,11 +70,30 @@ type ChangeDescription struct {
 // duplicated dbn's derivation and got it subtly wrong — renames, untracked files,
 // pre-marking. This answers from the same ledger a post is validated against,
 // scoped the same way the next post would be, so the two cannot disagree.
+// It names no review, so it plans a first round: there is nothing to pre-mark
+// against. DescribeRevision is how a Revision Round is planned.
 func (s *Session) DescribeChanges(set ChangeSet) (ChangeDescription, error) {
+	return s.describe(set, nil)
+}
+
+// DescribeRevision describes the changes as the next Revision Round of the
+// review named by id would be checked, pre-marking what that review's latest
+// round already showed. What it pre-marks depends on which review it describes,
+// so the id is required rather than inferred (ADR-0015).
+// The round it pre-marks against is the one Revise would answer: the round just
+// handed off, or — while a round is still under review, where the next post is a
+// Replacement — whatever that round answers.
+func (s *Session) DescribeRevision(id string, set ChangeSet) (ChangeDescription, error) {
+	if rejection := s.named(id, "describe against", "describe without a review_id to plan a new review"); rejection != nil {
+		return ChangeDescription{}, rejection
+	}
+	return s.describe(set, s.nextAnswering())
+}
+
+func (s *Session) describe(set ChangeSet, earlier *earlierRound) (ChangeDescription, error) {
 	if rejection := validateChangeSet(set); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
-	earlier := s.nextAnswering()
 	// A snapshot is only for pre-marking here, so a first round writes none.
 	l, _, rejection := s.scopedLedger(set, earlier, earlier != nil)
 	if rejection != nil {

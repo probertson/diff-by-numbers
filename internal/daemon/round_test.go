@@ -77,11 +77,11 @@ func TestFetchResultsHandsBackTheGoal(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	postRound(t, server.URL, roundWithRepository(root, map[string]any{"root": root, "base": "main"}))
+	posted := postRound(t, server.URL, roundWithRepository(root, map[string]any{"root": root, "base": "main"}))
 
 	results := decodeResult[struct {
 		Goal string `json:"goal"`
-	}](t, callTool(t, server.URL, "fetch_results", struct{}{}))
+	}](t, callTool(t, server.URL, "fetch_results", map[string]any{"review_id": posted.ReviewID}))
 
 	if results.Goal != "GOAL-tenant-scoping" {
 		t.Errorf("fetch_results should hand back the Goal to re-ground the agent, got %q", results.Goal)
@@ -120,11 +120,11 @@ func viewedGoal(t *testing.T, baseURL string) string {
 	return view.Brief.Goal
 }
 
-func fetchedGoal(t *testing.T, baseURL string) string {
+func fetchedGoal(t *testing.T, baseURL, reviewID string) string {
 	t.Helper()
 	return decodeResult[struct {
 		Goal string `json:"goal"`
-	}](t, callTool(t, baseURL, "fetch_results", struct{}{})).Goal
+	}](t, callTool(t, baseURL, "fetch_results", map[string]any{"review_id": reviewID})).Goal
 }
 
 // handedOffWithAComment posts round 1 with the given Goal, raises one Comment and
@@ -140,10 +140,11 @@ func handedOffWithAComment(t *testing.T, baseURL, root, goal string) string {
 	return posted.ReviewID
 }
 
-// revisionWithBrief is a Revision Round addressing that one Comment.
-func revisionWithBrief(root string, brief map[string]any) map[string]any {
+// revisionWithBrief is a Revision Round of reviewID, addressing that one Comment.
+func revisionWithBrief(root, reviewID string, brief map[string]any) map[string]any {
 	round := minimalRound(root)
 	round["brief"] = brief
+	round["revises"] = reviewID
 	round["dispositions"] = []any{map[string]any{"comment_id": 1, "status": "addressed"}}
 	return round
 }
@@ -154,14 +155,14 @@ func TestARevisionRoundCarriesTheGoalForward(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	handedOffWithAComment(t, server.URL, root, "GOAL-first")
+	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	postRound(t, server.URL, revisionWithBrief(root, map[string]any{"approach": "renamed it"}))
+	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"approach": "renamed it"}))
 
 	if goal := viewedGoal(t, server.URL); goal != "GOAL-first" {
 		t.Errorf("the Revision Round's Overview should carry round 1's Goal, got %q", goal)
 	}
-	if goal := fetchedGoal(t, server.URL); goal != "GOAL-first" {
+	if goal := fetchedGoal(t, server.URL, reviewID); goal != "GOAL-first" {
 		t.Errorf("fetch_results should hand back round 1's Goal, got %q", goal)
 	}
 }
@@ -172,9 +173,9 @@ func TestARevisionRoundMayRestateTheGoal(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	root := featureRepo(t)
-	handedOffWithAComment(t, server.URL, root, "GOAL-first")
+	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	postRound(t, server.URL, revisionWithBrief(root, map[string]any{"goal": "GOAL-changed", "approach": "renamed it"}))
+	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"goal": "GOAL-changed", "approach": "renamed it"}))
 
 	if goal := viewedGoal(t, server.URL); goal != "GOAL-changed" {
 		t.Errorf("a restated Goal should replace the old one, got %q", goal)
@@ -279,11 +280,13 @@ func TestNoToolSpeaksOfAWalkthrough(t *testing.T) {
 	}
 }
 
-func TestFetchResultsWithNothingPostedSpeaksOfARound(t *testing.T) {
+func TestFetchResultsSpeaksOfRoundsNotWalkthroughs(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
+	root := featureRepo(t)
+	posted := postRound(t, server.URL, minimalRound(root))
 
-	message := fetchResults(t, server.URL).Message
+	message := fetchResults(t, server.URL, posted.ReviewID).Message
 
 	if strings.Contains(message, "Walkthrough") || !strings.Contains(message, "Round") {
 		t.Errorf("the advisory should speak of a Round, got %q", message)

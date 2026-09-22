@@ -25,7 +25,12 @@ func TestReplacingKeepsTheReviewAndCarriesItsCommentsOver(t *testing.T) {
 	session, _ := underReview(t)
 	raised := raise(t, session, 2, 2, "rename this")
 
-	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
+	// A Replacement leaves the label out, as a Revision Round does: the review
+	// keeps the one it was given.
+	unlabelled := appRound([]review.Step{appStep(1, 3)}, nil)
+	unlabelled.Label = ""
+
+	err := session.Replace("rev-1", unlabelled)
 
 	if err != nil {
 		t.Fatalf("expected the replacement to be accepted, got %v", err)
@@ -159,8 +164,7 @@ func revisedTwice(t *testing.T, deriver review.Deriver) *review.Session {
 	if err := session.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	addressed := []review.Disposition{{CommentID: 1, Status: review.DispositionAddressed}}
-	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, addressed))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 3)}, nil)))
 	return session
 }
 
@@ -233,6 +237,8 @@ func TestReplacingAReviewHandedOffWithNothingRaisedPointsAtANewReview(t *testing
 
 	err := session.Replace("rev-1", appRound([]review.Step{appStep(1, 3)}, nil))
 
-	assertRejected(t, err, review.RejectedUnknownReview)
+	// The id is right, the review is over: said as such, so the agent does not
+	// go looking for a mistyped id.
+	assertRejected(t, err, review.RejectedReviewOver)
 	assertDetailContains(t, err, "post without replaces to start a new review")
 }

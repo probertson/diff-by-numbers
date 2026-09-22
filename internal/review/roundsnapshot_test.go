@@ -81,7 +81,7 @@ func TestARejectedPostLeavesTheViewReadingTheRoundOnScreen(t *testing.T) {
 	misdisposed := revising(validRound())
 	misdisposed.Dispositions = append(misdisposed.Dispositions, review.Disposition{CommentID: 7, Status: review.DispositionAddressed})
 
-	err := session.Post(misdisposed)
+	err := session.Revise(session.ReviewID(), misdisposed)
 
 	assertRejected(t, err, review.RejectedMalformedDisposition)
 	if deriver.taken != 2 {

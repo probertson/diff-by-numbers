@@ -71,7 +71,7 @@ func TestShimConnectsToAnExistingDaemonRatherThanStartingASecond(t *testing.T) {
 	session := connectShim(t, ctx, bin, env)
 	defer session.Close()
 
-	if !fetch(t, ctx, session).Posted {
+	if !fetch(t, ctx, session, posted.ReviewID).Posted {
 		t.Error("expected the shim to reach the existing daemon holding the posted review, not a fresh one")
 	}
 }
@@ -286,9 +286,9 @@ func concludeVia(t *testing.T, ctx context.Context, session *mcp.ClientSession, 
 	}
 }
 
-func fetch(t *testing.T, ctx context.Context, session *mcp.ClientSession) fetchOutcome {
+func fetch(t *testing.T, ctx context.Context, session *mcp.ClientSession, reviewID string) fetchOutcome {
 	t.Helper()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "fetch_results", Arguments: map[string]any{}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "fetch_results", Arguments: map[string]any{"review_id": reviewID}})
 	if err != nil {
 		t.Fatalf("fetch_results failed: %v", err)
 	}
@@ -345,6 +345,7 @@ func featureRepo(t *testing.T) string {
 
 func minimalRound(root string) map[string]any {
 	return map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal":     "goal",
 			"approach": "approach",

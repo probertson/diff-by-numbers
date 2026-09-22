@@ -79,6 +79,7 @@ func TestANewFileListedAsSectionsIsAcceptedWithoutNamingItsBlankLines(t *testing
 
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
 	err := session.Post(review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Add the config file",
 			Approach: "Two sections, listed one per Excerpt",

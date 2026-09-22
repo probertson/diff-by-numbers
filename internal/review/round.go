@@ -8,6 +8,17 @@ type Brief struct {
 	Approach string
 }
 
+// OpenReview is a review the daemon is still holding: enough for the Authoring
+// Agent to recognise its own among several, which is what it is listed for when
+// a call names no review (ADR-0015).
+type OpenReview struct {
+	ID    string
+	Label string
+	// HandedOff is the Reviewer having handed the round back, so the review is
+	// waiting on the Authoring Agent rather than on them.
+	HandedOff bool
+}
+
 // Side qualifies a line range. Deleted lines exist only on the old side, added
 // lines only on the new.
 type Side string

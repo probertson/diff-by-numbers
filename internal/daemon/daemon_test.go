@@ -57,6 +57,7 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 
 	root := featureRepo(t)
 	posted := map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal":     "GOAL-tenant-scoping",
 			"approach": "APPROACH-thread-the-id-through",
@@ -213,6 +214,7 @@ func get(t *testing.T, url string) string {
 // entry supplied by the caller so a test can vary just that.
 func roundWithRepository(root string, repository map[string]any) map[string]any {
 	return map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal":     "GOAL-tenant-scoping",
 			"approach": "APPROACH-thread-the-id-through",
@@ -248,6 +250,7 @@ func TestASingleRepositoryPostMayOmitTheRepository(t *testing.T) {
 
 	root := featureRepo(t)
 	postRound(t, server.URL, map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal":     "GOAL-tenant-scoping",
 			"approach": "APPROACH-thread-the-id-through",

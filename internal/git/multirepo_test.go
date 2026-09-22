@@ -38,6 +38,7 @@ func TestARoundSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 	write(t, service, "app.ts", "alpha\nbeta\ngamma\n") // adds new-side lines 2, 3
 
 	walkthrough := review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Change both repositories at once",
 			Approach: "A Step per repository",
@@ -84,6 +85,7 @@ func TestCoverageDistinguishesSameNamedFilesAcrossRepositories(t *testing.T) {
 	// Both Steps excerpt the *portal's* app.ts; the service's change is covered by
 	// nothing, even though a same-named file was shown.
 	walkthrough := review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal: "x", Approach: "y",
 		},

@@ -285,6 +285,7 @@ func TestAnUntrackedFileCanBeCoveredByAnAcknowledgement(t *testing.T) {
 // roundCovering is the smallest Round that shows one range of one file.
 func walkthroughCovering(root, file string, first, last int) review.Round {
 	return review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Add a line and some notes",
 			Approach: "One code change, one new file",

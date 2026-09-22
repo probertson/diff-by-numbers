@@ -42,7 +42,7 @@ func TestARevisionRoundKeepsTheSameID(t *testing.T) {
 	handOffWithAComment(t, session)
 
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil)))
 
 	if got := session.ReviewID(); got != "rev-1" {
 		t.Errorf("expected the id to persist across a Revision Round, got %q", got)
@@ -67,7 +67,7 @@ func TestALabelSurvivesARevisionThatOmitsIt(t *testing.T) {
 	handOffWithAComment(t, session)
 
 	deriver.lines = changedApp(1, 4)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil))) // no label
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(4, 4)}, nil))) // no label
 
 	if got := session.Label(); got != "auth refactor" {
 		t.Errorf("expected the label to persist across a Revision Round, got %q", got)

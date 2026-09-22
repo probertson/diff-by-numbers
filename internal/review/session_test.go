@@ -10,6 +10,7 @@ import (
 
 func validRound() review.Round {
 	return review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Add retry with backoff to the fetch layer",
 			Approach: "Wrap the transport in a retrier, then thread the policy through callers",
@@ -87,6 +88,15 @@ func mustPost(t *testing.T, session *review.Session, w review.Round) {
 	t.Helper()
 	if err := session.Post(w); err != nil {
 		t.Fatalf("expected the Round to be accepted, got %v", err)
+	}
+}
+
+// mustRevise posts a Revision Round of the review under way, which names the
+// review it continues.
+func mustRevise(t *testing.T, session *review.Session, w review.Round) {
+	t.Helper()
+	if err := session.Revise(session.ReviewID(), w); err != nil {
+		t.Fatalf("expected the Revision Round to be accepted, got %v", err)
 	}
 }
 
@@ -421,7 +431,7 @@ func TestEachAcceptedRoundIsANewPosting(t *testing.T) {
 	_ = session.Post(validRound()) // rejected: one is already under review
 	rejected := session.View().Posting
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(validRound()))
+	mustRevise(t, session, revising(validRound()))
 	revised := session.View().Posting
 
 	if first == 0 || rejected != first {

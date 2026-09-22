@@ -68,7 +68,8 @@ type Session struct {
 	// preserved across its Revision Rounds and Replacements, so the Authoring
 	// Agent can refer back to the review to replace or conclude it.
 	id string
-	// label is the optional human-readable name carried on the Round.
+	// label is the human-readable name the Review is told apart by, required when
+	// it is opened and carried through its later Rounds.
 	label string
 	// concluded records an explicit conclusion. A review also reads as concluded
 	// by inference — see isConcluded — when a round finishes with nothing raised.
@@ -134,8 +135,8 @@ func (s *Session) LastPost() PostKind {
 	return PostedNewReview
 }
 
-// Label returns the optional human-readable name the Authoring Agent attached to
-// the review, or "" if none was given.
+// Label returns the human-readable name the Authoring Agent gave the review, or
+// "" before its first Round is accepted.
 func (s *Session) Label() string { return s.label }
 
 // Post submits a Round for review. The first is round 1 of the Session's
@@ -143,20 +144,58 @@ func (s *Session) Label() string { return s.label }
 // Revision Round: it re-derives the full Change Set, pre-marks what is
 // unchanged, and must account for those Comments.
 //
-// A Session holds one Review for its whole life, so once that Review is over —
-// concluded explicitly, by a hand-off that raised nothing, or dismissed — it
-// takes no more posts. New work is a new Review, in a new Session.
+// A Session holds one Review for its whole life, so Post opens that Review and
+// nothing else: a Revision Round of it goes through Revise, which names it, and
+// once the Review is over — concluded explicitly, by a hand-off that raised
+// nothing, or dismissed — new work is a new Review in a new Session.
 func (s *Session) Post(w Round) error {
 	if s.Over() {
 		return reject(RejectedReviewOver,
 			"review %q is over; new work is a new review", s.id)
 	}
-	if s.current != nil && !s.finished {
+	if s.Begun() {
 		return reject(RejectedWalkthroughActive,
-			"a Round is already under review (id %s); to update it, post again with replaces: %q; otherwise wait for the Reviewer to hand it off",
-			s.id, s.id)
+			"review %s is open; a Revision Round of it names it with revises: %q, and replaces: %q changes the round under review in place",
+			s.id, s.id, s.id)
 	}
+	if w.Label == "" {
+		return reject(RejectedMissingLabel,
+			"a new review needs a label: a short name the Reviewer can tell it apart by, such as \"auth refactor\"")
+	}
+	return s.accept(w, nil, false)
+}
+
+// Revise posts a Revision Round of the review named by id: the Authoring Agent
+// answering the Comments the Reviewer raised. It is accepted only once that
+// round has been handed off with Comments — before that there is nothing to
+// answer, and a hand-off that raised nothing ended the review.
+func (s *Session) Revise(id string, w Round) error {
+	if rejection := s.named(id, "revise", "post without revises to start a new review"); rejection != nil {
+		return rejection
+	}
+	if !s.finished {
+		return reject(RejectedWalkthroughActive,
+			"the Reviewer has not handed review %s off yet; wait for the hand-off, or post with replaces: %q to change the round in place",
+			id, id)
+	}
+	// Past those guards the round is handed off, which is the earlier round the
+	// next post answers.
 	return s.accept(w, s.nextAnswering(), false)
+}
+
+// named checks that id is this Session's Review and that it is still going, so
+// every call that names a review is refused the same way. verb says what the
+// caller was trying to do, and instead is what to do about a review that is
+// over.
+func (s *Session) named(id, verb, instead string) *Rejection {
+	if s.current == nil || id != s.id {
+		return reject(RejectedUnknownReview,
+			"no review with id %q is under review, so there is nothing to %s", id, verb)
+	}
+	if s.isConcluded() {
+		return reject(RejectedReviewOver, "review %q is concluded; %s", id, instead)
+	}
+	return nil
 }
 
 // nextAnswering is the earlier round the next accepted post would answer: the
@@ -184,15 +223,10 @@ func (s *Session) nextAnswering() *earlierRound {
 // Revision Round's replacement answers to the same earlier round the replaced
 // one did. What changes is what the Reviewer walks, so they start it afresh.
 func (s *Session) Replace(id string, w Round) error {
-	if s.current == nil || id != s.id {
-		return reject(RejectedUnknownReview,
-			"no review with id %q is under review, so there is nothing to replace", id)
-	}
 	// Concluded outright, or by a hand-off that raised nothing: either way the
 	// review is over, and new work is a new review.
-	if s.isConcluded() {
-		return reject(RejectedUnknownReview,
-			"review %q is concluded; post without replaces to start a new review", id)
+	if rejection := s.named(id, "replace", "post without replaces to start a new review"); rejection != nil {
+		return rejection
 	}
 	if s.finished {
 		return reject(RejectedRoundHandedOff,
@@ -308,7 +342,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	// The Session's first Round mints the Review's id, which then never changes,
 	// and takes the Round's label as given; a later posting only updates the
 	// label if one is supplied, so an agent that omits it does not blank it.
-	if !s.begun() {
+	if !s.Begun() {
 		s.id = s.mint()
 		s.label = w.Label
 	} else if w.Label != "" {
@@ -396,15 +430,15 @@ func (s *Session) Abandon() error {
 // — so it will take no further post. A Session with nothing yet posted has not
 // begun, so it is not over.
 func (s *Session) Over() bool {
-	if !s.begun() {
+	if !s.Begun() {
 		return false
 	}
 	return s.current == nil || s.isConcluded()
 }
 
-// begun reports whether the Session's Review has had its first Round accepted,
+// Begun reports whether the Session's Review has had its first Round accepted,
 // which is when it is given its id.
-func (s *Session) begun() bool { return s.id != "" }
+func (s *Session) Begun() bool { return s.id != "" }
 
 // Results reports how the review is going. It answers immediately, whether or
 // not the Reviewer has finished.

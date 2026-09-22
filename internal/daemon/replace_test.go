@@ -20,6 +20,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	root := featureRepo(t)
 	walkthrough := func() map[string]any {
 		return map[string]any{
+			"label":        "LABEL-the-review",
 			"brief":        map[string]any{"goal": "x", "approach": "y"},
 			"repositories": []any{map[string]any{"root": root, "base": "main"}},
 			"steps": []any{
@@ -63,7 +64,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 		Comments []struct {
 			CarriedOver bool `json:"carried_over"`
 		} `json:"comments"`
-	}](t, callTool(t, server.URL, "fetch_results", struct{}{}))
+	}](t, callTool(t, server.URL, "fetch_results", map[string]any{"review_id": first.ReviewID}))
 	if len(results.Comments) != 1 || !results.Comments[0].CarriedOver {
 		t.Errorf("expected carried_over to reach the agent, got %+v", results.Comments)
 	}

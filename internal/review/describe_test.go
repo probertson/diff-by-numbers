@@ -127,7 +127,7 @@ func TestBeforeARevisionRoundTheDescriptionPreMarksWhatThePostWill(t *testing.T)
 	mustPost(t, session, first)
 	handOffWithAComment(t, session)
 
-	d, err := session.DescribeChanges(appRound(nil, nil).ChangeSet)
+	d, err := session.DescribeRevision(session.ReviewID(), appRound(nil, nil).ChangeSet)
 
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestBeforeARevisionRoundTheDescriptionPreMarksWhatThePostWill(t *testing.T)
 		t.Error("expected the untouched binary to read as already shown")
 	}
 	// And the post agrees: covering only what is left is enough.
-	if err := session.Post(revising(appRound([]review.Step{appStep(2, 2)}, nil))); err != nil {
+	if err := session.Revise(session.ReviewID(), revising(appRound([]review.Step{appStep(2, 2)}, nil))); err != nil {
 		t.Errorf("expected a post covering only the line still to cover to be accepted, got %v", err)
 	}
 }

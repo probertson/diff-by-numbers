@@ -93,7 +93,8 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	}
 
 	// Round 1: post, flag the code Step, finish.
-	postRound(t, server.URL, map[string]any{
+	first := postRound(t, server.URL, map[string]any{
+		"label": "LABEL-the-review",
 		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 	})
 	httpPost(t, server.URL+"/goto/1")
@@ -101,8 +102,10 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 	httpPost(t, server.URL+"/finish")
 
 	// Round 2: a Revision Round declining the one Comment.
+	// No label: a Revision Round keeps the one the review was given.
 	revised := postRound(t, server.URL, map[string]any{
-		"brief": brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
+		"revises": first.ReviewID,
+		"brief":   brief, "repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "the name is deliberate"}},
 	})
 
@@ -136,7 +139,7 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 			ID           int `json:"id"`
 			ReRaisedFrom int `json:"re_raised_from"`
 		} `json:"comments"`
-	}](t, callTool(t, server.URL, "fetch_results", struct{}{}))
+	}](t, callTool(t, server.URL, "fetch_results", map[string]any{"review_id": first.ReviewID}))
 
 	if len(results.Comments) != 1 || results.Comments[0].ReRaisedFrom != 1 {
 		t.Errorf("expected re_raised_from to reach the agent, got %+v", results.Comments)
@@ -159,14 +162,14 @@ func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
 		"acknowledgements": []any{map[string]any{"repository": root, "files": []any{"LOCKFILE"}, "reason": "generated"}},
 	}}
 	brief := map[string]any{"goal": "x", "approach": "y"}
-	body := map[string]any{"brief": brief,
+	body := map[string]any{"label": "LABEL-the-review", "brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps}
 
-	postRound(t, server.URL, body)
+	first := postRound(t, server.URL, body)
 	httpPost(t, server.URL+"/goto/1")
 	raiseComment(t, server.URL, 0, 4, 4, "please rename this")
 	httpPost(t, server.URL+"/finish")
-	withDecline := map[string]any{"brief": brief,
+	withDecline := map[string]any{"revises": first.ReviewID, "brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps,
 		"dispositions": []any{map[string]any{"comment_id": 1, "status": "declined", "response": "deliberate"}}}
 	postRound(t, server.URL, withDecline)

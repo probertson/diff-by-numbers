@@ -64,6 +64,7 @@ func TestDescribeChangesLeavesAReviewUnderWayAlone(t *testing.T) {
 	defer server.Close()
 	root := featureRepo(t)
 	postRound(t, server.URL, map[string]any{
+		"label":        "LABEL-the-review",
 		"brief":        map[string]any{"goal": "x", "approach": "y"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -96,5 +97,56 @@ func TestDescribeChangesReportsABadBaseAsAProblem(t *testing.T) {
 
 	if len(got.Problems) != 1 || got.Problems[0].Reason != "derivation_failed" {
 		t.Errorf("expected a derivation_failed problem, got %+v", got)
+	}
+}
+
+// A description is scoped by the Review it names: pre-marking only makes sense
+// against a particular Review's latest round (ADR-0015).
+func TestDescribeChangesPreMarksAgainstTheReviewItNames(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
+
+	got := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"review_id":    reviewID,
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+	}))
+
+	if !got.RevisionRound || got.StillToCover == nil {
+		t.Errorf("naming a handed-off Review describes the next Revision Round, got %+v", got)
+	}
+}
+
+// Without an id there is no Review to scope against, so it plans a first round —
+// which is what an agent calling before it posts anything needs.
+func TestDescribeChangesWithoutAnIDPlansAFirstRound(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	handedOffWithAComment(t, server.URL, root, "GOAL-first")
+
+	got := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+	}))
+
+	if got.RevisionRound || got.StillToCover != nil {
+		t.Errorf("naming no Review plans a first round, got %+v", got)
+	}
+}
+
+func TestDescribeChangesWithAnUnknownIDIsRefused(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	postRound(t, server.URL, minimalRound(root))
+
+	got := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"review_id":    "no-such-id",
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+	}))
+
+	if len(got.Problems) != 1 || got.Problems[0].Reason != "unknown_review" {
+		t.Errorf("expected an unknown id to be refused as unknown_review, got %+v", got.Problems)
 	}
 }

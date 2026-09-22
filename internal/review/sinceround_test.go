@@ -44,7 +44,7 @@ func secondRound(t *testing.T, deriver *roundsDeriver, resolver review.Resolver)
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
 	return session
 }
 
@@ -235,7 +235,7 @@ func TestAStepWithNothingNewOrEditedSinceThePreviousRoundIsMarkedUnchanged(t *te
 	split := appRound([]review.Step{appStep(1, 3), appStep(4, 6)}, nil)
 	mustPost(t, session, split)
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(split))
+	mustRevise(t, session, revising(split))
 
 	unchanged := session.View().UnchangedSincePrevious
 
@@ -291,7 +291,7 @@ func withdrawnBelow(t *testing.T, lines []review.ChangedLine, steps ...review.St
 	w := appRound(steps, nil)
 	mustPost(t, session, w)
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(w))
+	mustRevise(t, session, revising(w))
 	return session
 }
 
@@ -370,7 +370,7 @@ func TestAnEditIsDrawnOnceInAStepThatShowsItInTwoRanges(t *testing.T) {
 	w := appRound([]review.Step{twoRanges}, nil)
 	mustPost(t, session, w)
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(w))
+	mustRevise(t, session, revising(w))
 	mustAdvance(t, session)
 
 	step := session.View().Step
@@ -411,7 +411,7 @@ func TestSinceThePreviousRoundADeletionItAlreadyHadIsPlain(t *testing.T) {
 	mustPost(t, session, appRound([]review.Step{appStep(1, 6), deletion}, nil))
 	handOffWithAComment(t, session)
 	deriver.lines = append(lines, review.ChangedLine{File: "app.ts", Side: review.OldSide, Line: 8})
-	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6), deletion}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 6), deletion}, nil)))
 	if err := session.GoTo(2); err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func TestARoundThatCannotBeComparedOffersNoComparison(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
 	mustPost(t, session, appRound([]review.Step{appStep(1, 6)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 6)}, nil)))
 
 	view := session.View()
 
@@ -479,7 +479,7 @@ func TestALineRewrittenInAFileRenamedSinceThePreviousRoundIsReadFromItsOldName(t
 	session := review.NewSession(renameResolver{}, deriver)
 	mustPost(t, session, appRound([]review.Step{appStep(1, 3)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 3)}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 3)}, nil)))
 	mustAdvance(t, session)
 
 	got := previousRowsIn(session.View().Step.Excerpts[0])

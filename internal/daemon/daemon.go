@@ -544,8 +544,10 @@ func (d *Daemon) mcpServer() *mcp.Server {
 			"Send it once and completely: the Reviewer navigates it without involving you. " +
 			"Order Steps so each is comprehensible given only the Steps before it, and send " +
 			"line ranges rather than code — dbn reads the working tree itself. " +
-			"It returns a review id; record it, and pass it to conclude when the review is done. " +
-			"To update a review still under review, post again with replaces set to its id.",
+			"A new review needs a label, and returns a review id: record it, and name it in every " +
+			"later call about this review. Post a Revision Round with revises set to that id, once " +
+			"the Reviewer has handed off; to change the round under review in place, post with " +
+			"replaces set to it instead.",
 	}, d.postRound)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -553,15 +555,18 @@ func (d *Daemon) mcpServer() *mcp.Server {
 		Description: "Describe the changes under review as dbn derives them, without posting: per " +
 			"file, its status and the Changed Line ranges a Round must cover, and the edits " +
 			"whose removed lines ride along with their replacement. It is worked out exactly as " +
-			"post_round checks coverage, including what a Revision Round has already shown, " +
-			"so plan Excerpts from it rather than from git diff. It changes nothing; call it " +
-			"before planning round 1 and again before a Revision Round.",
+			"post_round checks coverage, so plan Excerpts from it rather than from git diff. " +
+			"Give review_id when you are planning a Revision Round and it reports what that " +
+			"review has already shown; leave it out to plan a new review's first round. It " +
+			"changes nothing, so call it as often as you like.",
 	}, d.describeChanges)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "fetch_results",
-		Description: "Ask how the review went. Returns immediately whether or not the Reviewer " +
-			"has handed off; it never waits. Call it once the Reviewer says they are done. " +
+		Description: "Ask how the review named by review_id went. Returns immediately whether or " +
+			"not the Reviewer has handed off; it never waits. Call it once the Reviewer says they " +
+			"are done. If you have lost the id, call it without one: you will be refused, and told " +
+			"which reviews dbn is holding, by id and label. " +
 			"If it reports the review complete (the Reviewer handed off having raised nothing), " +
 			"the loop is over and dbn treats the review as concluded.",
 	}, d.fetchResults)
@@ -586,6 +591,8 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 	switch {
 	case in.Replaces != "":
 		err = d.session.Replace(in.Replaces, in.toDomain())
+	case in.Revises != "":
+		err = d.session.Revise(in.Revises, in.toDomain())
 	case !d.session.Over():
 		err = d.session.Post(in.toDomain())
 	default:
@@ -611,7 +618,13 @@ func (d *Daemon) describeChanges(_ context.Context, _ *mcp.CallToolRequest, in d
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	description, err := d.session.DescribeChanges(toChangeSet(in.Repositories))
+	var description review.ChangeDescription
+	var err error
+	if in.ReviewID == "" {
+		description, err = d.session.DescribeChanges(toChangeSet(in.Repositories))
+	} else {
+		description, err = d.session.DescribeRevision(in.ReviewID, toChangeSet(in.Repositories))
+	}
 	if err != nil {
 		var rejection *review.Rejection
 		if errors.As(err, &rejection) {
@@ -640,9 +653,22 @@ func (d *Daemon) conclude(_ context.Context, _ *mcp.CallToolRequest, in conclude
 	return nil, concludeResult{Concluded: true, Message: "the review is concluded; dbn will release it once nothing else needs it"}, nil
 }
 
-func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, fetchResult, error) {
+func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetchInput) (*mcp.CallToolResult, fetchResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	if in.ReviewID == "" {
+		return nil, d.refuseUnnamedFetch(), nil
+	}
+	if in.ReviewID != d.session.ReviewID() || !d.session.Begun() {
+		return nil, fetchResult{
+			Message: fmt.Sprintf("no review with id %q; call fetch_results without an id to see what is open", in.ReviewID),
+			Problems: []problemWire{{
+				Reason: string(review.RejectedUnknownReview),
+				Detail: fmt.Sprintf("dbn is not holding a review with id %q", in.ReviewID),
+			}},
+		}, nil
+	}
 
 	results, err := d.session.Results()
 	if err != nil {
@@ -660,6 +686,39 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, _ struc
 	}
 
 	return nil, toFetchResult(results, message), nil
+}
+
+// refuseUnnamedFetch answers a fetch that named no review: it lists what is
+// open, which is how an agent that lost its id — to compaction, usually — gets
+// it back. Guessing on its behalf is what ADR-0015 rules out.
+func (d *Daemon) refuseUnnamedFetch() fetchResult {
+	open := d.openReviews()
+	message := "no review is open, so there is nothing to ask about"
+	if len(open) > 0 {
+		message = "fetch_results needs the review_id post_round gave you; the reviews dbn is holding are listed below"
+	}
+	return fetchResult{
+		Message: message,
+		Problems: []problemWire{{
+			Reason: string(review.RejectedMissingReviewID),
+			Detail: "name the review to ask about in review_id",
+		}},
+		OpenReviews: open,
+	}
+}
+
+// openReviews lists the reviews the daemon is holding, in the order it holds
+// them. It answers under the caller's lock.
+func (d *Daemon) openReviews() []openReviewWire {
+	open, ok := d.session.Open()
+	if !ok {
+		return nil
+	}
+	state := "under_review"
+	if open.HandedOff {
+		state = "handed_off"
+	}
+	return []openReviewWire{{ID: open.ID, Label: open.Label, State: state}}
 }
 
 // problemsOf puts a rejection's problems on the wire in the order dbn found

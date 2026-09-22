@@ -54,10 +54,15 @@ const (
 	// RejectedMalformedDisposition means a Revision Round does not account for the
 	// previous round's Comments correctly.
 	RejectedMalformedDisposition RejectionReason = "malformed_disposition"
-	// RejectedUnknownReview means a conclude or a replacement names a review id
-	// that is not the one currently under review — including one that has been
-	// concluded, which is no longer under review at all.
+	// RejectedUnknownReview means a call names a review id dbn is not holding.
+	// A review it holds but that is over is RejectedReviewOver instead, so an
+	// agent can tell a wrong id from a review that has ended.
 	RejectedUnknownReview RejectionReason = "unknown_review"
+	// RejectedMissingReviewID means a call that must name a review named none.
+	RejectedMissingReviewID RejectionReason = "missing_review_id"
+	// RejectedMissingLabel means a new review was posted without the label the
+	// Reviewer tells reviews apart by.
+	RejectedMissingLabel RejectionReason = "missing_label"
 	// RejectedReviewOver means a post was made to a Session whose Review has
 	// ended. A Session holds one Review for its whole life, so new work belongs in
 	// a new one.

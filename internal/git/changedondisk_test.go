@@ -21,6 +21,7 @@ func TestEditingAFileMidReviewLeavesThePostedVersionOnScreen(t *testing.T) {
 	run(t, root, "add", ".")
 
 	walkthrough := review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal: "x", Approach: "y",
 		},

@@ -14,7 +14,8 @@ end your turn, and pick the results up later.
 
 The dbn daemon exposes four MCP tools: `describe_changes`, `post_round`,
 `fetch_results`, and `conclude`. If they are not available, dbn's MCP server is
-not registered — see the project README for the one-time setup. (You do not need to start anything
+not registered — see the project README for the one-time setup. (You do not need
+to start anything
 first: registering the shim is enough. It starts the daemon on demand the moment
 your session connects.)
 
@@ -31,7 +32,9 @@ here.
 ## Planning a Round
 
 **Start with `describe_changes`**, giving it the same `repositories` you will
-post. It returns dbn's own account of the change set, worked out exactly as a
+post, and — when you are planning a Revision Round — the `review_id` of the
+review you are revising, so it pre-marks what that review has already shown. It
+returns dbn's own account of the change set, worked out exactly as a
 post is checked:
 - each file's status (`renamed` files say where they came from),
 - the Changed Line ranges your Excerpts must cover,
@@ -142,25 +145,35 @@ commit", the base is `HEAD~1`.
 
 Call `post_round` once, complete. Name every repository under review in
 `repositories` (each with its own `base` ref, e.g. the default branch), then the
-`brief` and the ordered `steps`. You may add an optional `label` — a short name
-like "auth refactor" — to help a reviewer tell several reviews apart.
+`brief` and the ordered `steps`. `label` is **required** on a new review — a
+short name like "auth refactor", which is how the reviewer tells several reviews
+apart.
 
-`post_round` returns a `review_id`. **Record it**: you pass it back to
-`conclude` when the review is over. It also returns a `message`: **relay it** to
-the human, since it says how they open the review, and say you will pick up
-their feedback when they are done.
+`post_round` returns a `review_id`. **Record it**: every later call about this
+review names it — `fetch_results`, `describe_changes`, the `revises` of a
+Revision Round, `replaces`, and `conclude`. It also returns a `message`:
+**relay it** to the human, since it says how they open the review, and say you
+will pick up their feedback when they are done.
 Then **end your turn**. Do not poll.
+
+**If you lose the id** — after compaction, say — call `fetch_results` with no
+`review_id`. You will be refused, and told which reviews dbn is holding, by id,
+label and state. Pick yours out and call again with its id. Do not start a new
+review to get a fresh one: that leaves the reviewer with two.
 
 ## Collecting feedback and revising
 
-When the human says they have handed the review off, call `fetch_results`. It returns
-immediately (it never waits) with the reviewer's Comments, each carrying an
-anchored reference to the exact code it concerns. Respond to each: a Comment may
-ask for a change or ask a question.
+When the human says they have handed the review off, call
+`fetch_results` with your `review_id`. It returns immediately (it never waits)
+with the reviewer's Comments, each carrying an anchored reference to the exact
+code it concerns. Respond to each: a Comment may ask for a change or ask a
+question.
 
-Then post a **Revision Round**: another `post_round`, over the full change
-set again, but this time include `dispositions` — one entry per Comment you were
-handed, with a `status` you choose and a `response` the reviewer sees before any
+Then post a **Revision Round**: another `post_round`, over the full change set
+again, with `revises` set to your `review_id` — that is what makes it a round of
+that review rather than a new one — and this time include `dispositions`: one
+entry per Comment you were handed, with a `status` you choose and a `response`
+the reviewer sees before any
 code:
 
 - `addressed` — you made a change. A `response` is optional but welcome, e.g. to
@@ -213,8 +226,9 @@ say the review is complete.
 
 ## Updating a Round while it is under review
 
-`post_round` is refused while a Round is under review and not handed off.
-To change it in place, post again with `replaces` set to its `review_id`. Do
+A post that names neither `revises` nor `replaces` is a new review, and dbn
+refuses one while it is holding a review that is not over. To change the round
+under review in place, post again with `replaces` set to its `review_id`. Do
 that only when:
 
 - the reviewer asked you, in the chat, for a change during the review, or
@@ -224,7 +238,8 @@ Do not use it to slip in changes nobody asked for. Edits the reviewer did not
 request wait for the Revision Round, so the review does not move under them.
 
 The replacement is validated like any post and keeps the same `review_id`
-(and label, unless you give a new one). The reviewer starts it again from the
+(and label, unless you give a new one; a Revision Round keeps it too). The
+reviewer starts it again from the
 top. Their Comments carry over with `carried_over` set and no Step, since the
 Steps they were raised on are gone. Replacing a Revision Round needs its
 `dispositions` again. It is still scoped against the last round the reviewer
@@ -241,8 +256,8 @@ the loop. There is nothing more you must do, and your next `post_round`
 starts a new review with a new `review_id`, not a Revision Round of this one.
 
 For any other ending — you decide to stop, or the reviewer declines everything and
-you will post no further round — call `conclude` with the `review_id` from
-`post_round`. Concluding does not discard anything; it tells dbn the review
+you will post no further round — call `conclude` with your `review_id`.
+Concluding does not discard anything; it tells dbn the review
 is over so it can release the daemon it started for you. A `post_round`
 after that starts a new review with a new `review_id`. A review you never
 conclude just leaves the daemon holding it, which is untidy, not harmful.

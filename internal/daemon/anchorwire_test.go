@@ -47,6 +47,7 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	defer server.Close()
 	root := editedRepo(t)
 	postRound(t, server.URL, map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
 		},
@@ -102,6 +103,7 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 	defer server.Close()
 	root := editedRepo(t)
 	postRound(t, server.URL, map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
 		},
@@ -164,6 +166,7 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	defer server.Close()
 	root := editedRepo(t)
 	postRound(t, server.URL, map[string]any{
+		"label": "LABEL-the-review",
 		"brief": map[string]any{
 			"goal": "rework the guard", "approach": "renamed it",
 		},

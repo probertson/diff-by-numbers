@@ -20,6 +20,7 @@ func TestPointingAtTheAfterSideShowsTheBeforeEndToEnd(t *testing.T) {
 	resolver := workingtree.NewResolver()
 	session := review.NewSession(resolver, git.NewDeriver())
 	walkthrough := review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Rework line two",
 			Approach: "Point at the after-side; the before rides along",

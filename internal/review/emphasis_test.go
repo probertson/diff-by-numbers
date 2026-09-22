@@ -53,7 +53,7 @@ func TestSinceThePreviousRoundAnEditedLineCarriesWhatChanged(t *testing.T) {
 	session := review.NewSession(resolver, deriver)
 	mustPost(t, session, appRound([]review.Step{appStep(1, 2)}, nil))
 	handOffWithAComment(t, session)
-	mustPost(t, session, revising(appRound([]review.Step{appStep(1, 2)}, nil)))
+	mustRevise(t, session, revising(appRound([]review.Step{appStep(1, 2)}, nil)))
 	mustAdvance(t, session)
 
 	got := emphasisOf(session.View().Step.Excerpts[0].Lines)

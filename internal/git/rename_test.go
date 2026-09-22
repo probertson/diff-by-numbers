@@ -89,6 +89,7 @@ func TestAnOldSideExcerptNamingTheOldPathRendersTheBeforeSide(t *testing.T) {
 
 	session := review.NewSession(workingtree.NewResolver(), git.NewDeriver())
 	err := session.Post(review.Round{
+		Label: "LABEL-the-review",
 		Brief: review.Brief{
 			Goal:     "Move the fetch layer under src/ and drop the dead line",
 			Approach: "One move, one deletion",

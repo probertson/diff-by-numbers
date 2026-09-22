@@ -91,6 +91,16 @@ func (s *Session) isConcluded() bool {
 	return s.concluded || (s.finished && len(s.comments) == 0)
 }
 
+// Open describes the review this Session holds, for a surface listing what the
+// daemon is holding. It reports false once the review is over, since a review
+// that has ended is not one the Authoring Agent can still post to.
+func (s *Session) Open() (OpenReview, bool) {
+	if !s.Active() {
+		return OpenReview{}, false
+	}
+	return OpenReview{ID: s.id, Label: s.label, HandedOff: s.finished}, true
+}
+
 // Concluded reports whether the posted review is over. It is false when nothing
 // is posted: there is no review to have concluded.
 func (s *Session) Concluded() bool {
