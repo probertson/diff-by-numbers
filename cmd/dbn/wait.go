@@ -46,18 +46,18 @@ func runWait(args []string, out io.Writer) error {
 		return fmt.Errorf("dbn wait needs the review id post_round gave you; run `dbn wait -h` for usage")
 	}
 
-	answer, err := daemon.AwaitHandover(waitContext(), daemonURL(*port), id, waitRetry)
+	answer, err := daemon.Wait(waitContext(), daemonURL(*port), id, waitRetry)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, handoverLine(answer))
+	fmt.Fprintln(out, waitLine(answer))
 	return nil
 }
 
-// handoverLine is the one line a wait ends with: what happened, and what to
+// waitLine is the one line a wait ends with: what happened, and what to
 // call next. It never carries the results — fetch_results stays their only
 // source, and it is what re-grounds the agent (ADR-0008).
-func handoverLine(answer daemon.WaitWire) string {
+func waitLine(answer daemon.WaitWire) string {
 	id := answer.ReviewID
 	review := "Review " + id
 	if answer.Label != "" {

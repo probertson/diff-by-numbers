@@ -16,7 +16,7 @@ import (
 // here and exits when the Reviewer hands off or dismisses. The harness wakes the
 // agent when it exits (ADR-0016). The agent itself never waits.
 
-// WaitWire is what the wait endpoint answers: the Handover that ended the wait,
+// WaitWire is what the wait endpoint answers: the outcome of the Round that ended the wait,
 // or none yet when the poll was held as long as it is held.
 type WaitWire struct {
 	// Event is one of the Wait constants, or "" for "not yet: poll again".
@@ -30,7 +30,7 @@ type WaitWire struct {
 // The events that end a wait. A Hand Off with Comments is the one left over.
 const (
 	WaitConcluded = string(review.HandedOffNothingRaised)
-	WaitDismissed = string(review.HandoverDismissed)
+	WaitDismissed = string(review.Dismissed)
 	// WaitUnknown is a daemon that answered but is not holding the review: it
 	// restarted and lost it, usually. Without it a wait would retry forever.
 	WaitUnknown = "unknown"
@@ -105,19 +105,19 @@ func (d *Daemon) agentTold(id string) bool {
 	return !w.lastClosed.IsZero() && time.Since(w.lastClosed) < d.waiterGrace
 }
 
-// handover is the answer for a wait on a Review, under the caller's lock.
-func (d *Daemon) handover(id string) WaitWire {
+// waitAnswer is the answer for a wait on a Review, under the caller's lock.
+func (d *Daemon) waitAnswer(id string) WaitWire {
 	session, ok := d.review(id)
 	if !ok {
 		return WaitWire{Event: WaitUnknown, ReviewID: id}
 	}
-	event := session.Handover()
-	if event != review.NotHandedOver {
+	event := session.Outcome()
+	if event != review.NoOutcomeYet {
 		// A waiter handed an event exits rather than polling again, so the
 		// grace a "not yet" gave it ends here too.
 		listening := d.waitersOf(id)
 		listening.lastClosed = time.Time{}
-		if event != review.HandoverDismissed {
+		if event != review.Dismissed {
 			listening.told = true
 		}
 	}
@@ -129,14 +129,14 @@ func (d *Daemon) handover(id string) WaitWire {
 	}
 }
 
-// awaitHandover serves one long poll: an answer at once if the wait is already
+// serveWait serves one long poll: an answer at once if the wait is already
 // over, otherwise held until the Reviewer hands off or dismisses, or until the
 // hold runs out and the answer is "not yet".
-func (d *Daemon) awaitHandover(w http.ResponseWriter, r *http.Request) {
+func (d *Daemon) serveWait(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("review")
 
 	d.mu.Lock()
-	answer := d.handover(id)
+	answer := d.waitAnswer(id)
 	if answer.Event != "" {
 		d.mu.Unlock()
 		writeWait(w, answer)
@@ -162,7 +162,7 @@ func (d *Daemon) awaitHandover(w http.ResponseWriter, r *http.Request) {
 	listening := d.waitersOf(id)
 	delete(listening.open, poll)
 	if !gone {
-		answer = d.handover(id)
+		answer = d.waitAnswer(id)
 	}
 	// Only a "not yet" is followed by another poll. A waiter handed an event
 	// exits, and one whose connection went has died or lost its daemon, so
@@ -184,17 +184,17 @@ func writeWait(w http.ResponseWriter, answer WaitWire) {
 	}
 }
 
-// AwaitHandover waits on the Review id at the daemon at baseURL until the
+// Wait waits on the Review id at the daemon at baseURL until the
 // Reviewer hands it off or dismisses it, or the daemon says it does not know
 // it. A daemon that cannot be reached is asked again after retry, for as long as
 // ctx allows: only a daemon that answers can end the wait, so an outage or a
 // `dbn update` restart is waited through rather than reported.
-func AwaitHandover(ctx context.Context, baseURL, id string, retry time.Duration) (WaitWire, error) {
+func Wait(ctx context.Context, baseURL, id string, retry time.Duration) (WaitWire, error) {
 	// No timeout of its own beyond a generous bound on one poll: the daemon
 	// answers every poll well inside it.
 	client := &http.Client{Timeout: 2 * defaultWaitHold}
 	for {
-		answer, err := pollHandover(ctx, client, baseURL, id)
+		answer, err := pollWait(ctx, client, baseURL, id)
 		switch {
 		case err == nil && answer.Event != "":
 			return answer, nil
@@ -209,10 +209,10 @@ func AwaitHandover(ctx context.Context, baseURL, id string, retry time.Duration)
 	}
 }
 
-// pollHandover makes one poll. Anything but a well-formed answer is an error,
+// pollWait makes one poll. Anything but a well-formed answer is an error,
 // which the caller retries: something other than dbn on the port is no more an
 // answer than nothing there.
-func pollHandover(ctx context.Context, client *http.Client, baseURL, id string) (WaitWire, error) {
+func pollWait(ctx context.Context, client *http.Client, baseURL, id string) (WaitWire, error) {
 	target := fmt.Sprintf("%s/reviews/%s/wait", baseURL, url.PathEscape(id))
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {

@@ -114,35 +114,35 @@ func (s *Session) Open() (OpenReview, bool) {
 	}, true
 }
 
-// Handover is what the Reviewer has done with a Review that its Authoring Agent
-// can act on: handed it off, or dismissed it. Nothing else the Reviewer does —
-// opening it, moving through it, raising a Comment — is the agent's business
-// until then (ADR-0016).
-type Handover string
+// RoundOutcome is what has become of the Round on screen that its Authoring
+// Agent can act on: the Reviewer handed it off, or dismissed the review.
+// Nothing else the Reviewer does — opening it, moving through it, raising a
+// Comment — is the agent's business until then (ADR-0016).
+type RoundOutcome string
 
 const (
-	// NotHandedOver is a Review still with the Reviewer.
-	NotHandedOver Handover = ""
+	// NoOutcomeYet is a Round still with the Reviewer.
+	NoOutcomeYet RoundOutcome = ""
 	// HandedOffWithComments is a Hand Off with Comments for the agent to work.
-	HandedOffWithComments Handover = "handed_off"
+	HandedOffWithComments RoundOutcome = "handed_off"
 	// HandedOffNothingRaised is a Hand Off with nothing raised, which concludes
 	// the review.
-	HandedOffNothingRaised Handover = "concluded"
-	// HandoverDismissed is the Reviewer discarding the review.
-	HandoverDismissed Handover = "dismissed"
+	HandedOffNothingRaised RoundOutcome = "concluded"
+	// Dismissed is the Reviewer discarding the review, and with it the Round.
+	Dismissed RoundOutcome = "dismissed"
 )
 
-// Handover reports whether the Review has come back to its agent. Every post
-// starts its Round afresh, so a Hand Off of an earlier Round the agent has since
+// Outcome reports what has become of the Round on screen. Every post starts
+// its Round afresh, so a Hand Off of an earlier Round the agent has since
 // answered with a Revision Round is not reported again.
-func (s *Session) Handover() Handover {
+func (s *Session) Outcome() RoundOutcome {
 	switch {
 	case s.current == nil:
-		return NotHandedOver
+		return NoOutcomeYet
 	case s.dismissed:
-		return HandoverDismissed
+		return Dismissed
 	case !s.finished:
-		return NotHandedOver
+		return NoOutcomeYet
 	case len(s.comments) == 0:
 		return HandedOffNothingRaised
 	}

@@ -581,7 +581,7 @@ func (d *Daemon) Handler() http.Handler {
 
 	// The long poll `dbn wait` sits on. It answers for an id dbn is not holding
 	// rather than refusing it, because that answer ends the wait (ADR-0016).
-	mux.HandleFunc("GET /reviews/{review}/wait", d.awaitHandover)
+	mux.HandleFunc("GET /reviews/{review}/wait", d.serveWait)
 
 	mux.HandleFunc("POST /reviews/{review}/advance", d.navHandler((*review.Session).Advance))
 	mux.HandleFunc("POST /reviews/{review}/since-previous", d.navHandler((*review.Session).ToggleSincePreviousRound))
