@@ -23,3 +23,19 @@ func TestThePostedMessageNamesAPortThatIsNotTheDefault(t *testing.T) {
 		t.Errorf("expected the command to carry the port, got %q", message)
 	}
 }
+
+func TestTheWaitCommandNamesTheReview(t *testing.T) {
+	command := waitCommand("a1b2", DefaultPort)
+
+	if command != "dbn wait a1b2" {
+		t.Errorf("expected %q, got %q", "dbn wait a1b2", command)
+	}
+}
+
+func TestTheWaitCommandNamesAPortThatIsNotTheDefault(t *testing.T) {
+	command := waitCommand("a1b2", 7374)
+
+	if command != "dbn wait a1b2 -port 7374" {
+		t.Errorf("expected %q, got %q", "dbn wait a1b2 -port 7374", command)
+	}
+}

@@ -151,10 +151,46 @@ apart.
 
 `post_round` returns a `review_id`. **Record it**: every later call about this
 review names it — `fetch_results`, `describe_changes`, the `revises` of a
-Revision Round, `replaces`, and `conclude`. It also returns a `message`:
-**relay it** to the human, since it says how they open the review, and say you
-will pick up their feedback when they are done.
-Then **end your turn**. Do not poll.
+Revision Round, `replaces`, and `conclude`. It also returns a `message` and a
+`wait_command`. After every accepted post — a new review, a Revision Round, or a
+Replacement:
+
+1. **Relay the `message`** to the human, since it says how they open the
+   review, and say you will pick up their feedback when they are done.
+2. **If your harness can run a command in the background and wake you when it
+   exits**, run `wait_command` that way, exactly as given. (In Claude Code, that
+   is the Bash tool with `run_in_background`.) It blocks, costing nothing, until
+   the reviewer hands the review off or dismisses it, then prints one line and
+   exits — which wakes you.
+3. **End your turn.** Do not poll.
+
+**Never run `wait_command` in the foreground.** It would block your turn until
+the reviewer is done, which can be hours. If your harness cannot run it in the
+background and wake you, do not run it at all: end your turn, and the human will
+tell you when they are done. Do the same if a post result has no `wait_command`:
+the dbn you are talking to predates it.
+
+A wait left running from before a Replacement keeps waiting, and a second one on
+the same review is harmless: both end on the same event.
+
+Running `wait_command` each round may ask the human for permission every time.
+Suggest they allow it once, e.g. with the Claude Code permission rule
+`Bash(dbn wait:*)`.
+
+### When the wait ends
+
+When you are woken, read the command's output. It is exactly one line, and never
+carries the results — `fetch_results` is still where they are:
+
+- **"… was handed off with N Comments. Call fetch_results …"** — collect them
+  and post a Revision Round, as below.
+- **"… was handed off with nothing raised; the review is concluded. Call
+  fetch_results …"** — call it: that releases the review, and the loop is over.
+- **"… was dismissed by the Reviewer. Call fetch_results …"** — call it to see
+  what they raised; see *If they dismiss it* below.
+- **"Review … is no longer known to dbn …"** — the daemon lost it, usually by
+  restarting. Do not post the work again; tell the reviewer what happened and ask
+  them what they want.
 
 **If you lose the id** — after compaction, say — call `fetch_results` with no
 `review_id`. You will be refused, and told which reviews dbn is holding, by id,
@@ -163,8 +199,8 @@ review to get a fresh one: that leaves the reviewer with two.
 
 ## Collecting feedback and revising
 
-When the human says they have handed the review off, call
-`fetch_results` with your `review_id`. It returns immediately (it never waits)
+When your wait ends with a Hand Off, or the human says they have handed the
+review off, call `fetch_results` with your `review_id`. It returns immediately (it never waits)
 with the reviewer's Comments, each carrying an anchored reference to the exact
 code it concerns. Respond to each: a Comment may ask for a change or ask a
 question.

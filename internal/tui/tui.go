@@ -1891,8 +1891,9 @@ func (m model) windowedList(title string, items [][]string, cursor int, continue
 
 // doneView is the handed-off screen, with three faces the reviewer can be on
 // after handing off: waiting for a Revision Round, a Revision Round has arrived,
-// or the review is complete. The copy here is the manual-relay baseline; a later
-// change swaps it to push wording once dbn can notify the agent directly.
+// or the review is complete. Whether it says the agent has been told or sends
+// the Reviewer to tell it is the daemon's call (ADR-0016): the screen only
+// repeats it, since a Reviewer who stops relaying must be able to trust it.
 func (m model) doneView() string {
 	if m.view == nil {
 		return labelSt.Render("Review handed off")
@@ -1902,7 +1903,7 @@ func (m model) doneView() string {
 		var b strings.Builder
 		b.WriteString(labelSt.Render("Review complete") + "\n\n")
 		b.WriteString("You handed off having raised nothing, so the review is over.\n\n")
-		b.WriteString(dimSt.Render("This screen stays until your agent collects the result; dbn then returns you to the Inbox. Press i to go back now, q to exit — or r to resume, if you changed your mind.") + "\n")
+		b.WriteString(dimSt.Render(m.agentTellLine()+" This screen stays until your agent collects the result; dbn then returns you to the Inbox. Press i to go back now, q to exit — or r to resume, if you changed your mind.") + "\n")
 		return b.String()
 	case doneRevision:
 		var inner strings.Builder
@@ -1973,7 +1974,16 @@ func (m model) commentsWaitingCallOut() string {
 	if raised == 1 {
 		verb = "is"
 	}
-	return fmt.Sprintf("%s %s waiting for your agent — tell it you're done and it will collect them.", count, verb)
+	return fmt.Sprintf("%s %s waiting for your agent. %s", count, verb, m.agentTellLine())
+}
+
+// agentTellLine says whether the Reviewer still has to tell their agent they
+// handed off: not when a `dbn wait` was handed it, and otherwise yes.
+func (m model) agentTellLine() string {
+	if m.view.AgentTold {
+		return "Your agent has been told."
+	}
+	return "Tell your agent you've handed off."
 }
 
 // stepCounts tallies how many Steps the reviewer saw and flagged, for the

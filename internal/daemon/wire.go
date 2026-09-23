@@ -114,6 +114,9 @@ type postResult struct {
 	ReviewID string        `json:"review_id,omitempty" jsonschema:"The id dbn assigned this review. Record it: pass it to conclude when the review is fully done so dbn can release it"`
 	Problems []problemWire `json:"problems,omitempty" jsonschema:"Everything wrong with this Round, not just the first thing found. Fix them all before posting again"`
 	Message  string        `json:"message,omitempty" jsonschema:"When accepted: what to tell the human, including how they open the review. Relay it to them, then end your turn"`
+	// WaitCommand is how the agent hears the Reviewer is done without being
+	// told: its harness runs it outside any turn (ADR-0016).
+	WaitCommand string `json:"wait_command,omitempty" jsonschema:"When accepted: a shell command that blocks until the Reviewer hands off or dismisses this review, then prints one line saying which and what to call next. Run it only as a background command your harness wakes you from when it exits, never in the foreground: it would block your turn until the Reviewer is done. If your harness cannot do that, do not run it; the Reviewer will tell you"`
 }
 
 // postedMessage is written for the agent to relay: the Authoring Agent cannot
@@ -133,6 +136,17 @@ func postedMessage(kind review.PostKind, port int) string {
 		lead = "The Round is replaced."
 	}
 	return fmt.Sprintf("%s The Reviewer opens it by running %s in a terminal; if dbn is already open, it appears there. Tell them it's ready, then end your turn.", lead, command)
+}
+
+// waitCommand is the `dbn wait` an agent runs in the background to hear when
+// the Reviewer is done with its review. Like the relay message, it carries the
+// port whenever it is not the one dbn finds on its own.
+func waitCommand(id string, port int) string {
+	command := "dbn wait " + id
+	if port != DefaultPort {
+		command += fmt.Sprintf(" -port %d", port)
+	}
+	return command
 }
 
 // problemWire is one fault in a refused post. A rejection carries at most one

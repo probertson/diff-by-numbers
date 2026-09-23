@@ -58,6 +58,13 @@ type Daemon struct {
 	// port is where this daemon listens, so an agent can be told how the
 	// Reviewer reaches it. It is the default until Serve says otherwise.
 	port int
+
+	// waiting is what the daemon knows of the `dbn wait`s on each review, keyed
+	// by review id. waitHold is how long a poll is held; waiterGrace how long a
+	// waiter counts as listening after its poll closes.
+	waiting     map[string]*waiters
+	waitHold    time.Duration
+	waiterGrace time.Duration
 }
 
 // Option configures a Daemon at construction.
@@ -71,9 +78,12 @@ func WithSelfExit() Option {
 
 func New(opts ...Option) *Daemon {
 	d := &Daemon{
-		reviews: map[string]*review.Session{},
-		quit:    make(chan struct{}),
-		port:    DefaultPort,
+		reviews:     map[string]*review.Session{},
+		quit:        make(chan struct{}),
+		port:        DefaultPort,
+		waiting:     map[string]*waiters{},
+		waitHold:    defaultWaitHold,
+		waiterGrace: defaultWaiterGrace,
 	}
 	d.touch()
 	for _, opt := range opts {
@@ -106,6 +116,7 @@ func (d *Daemon) hold(session *review.Session) {
 // is still held, so a late fetch is answered rather than read as a wrong id.
 func (d *Daemon) release(id string) {
 	delete(d.reviews, id)
+	delete(d.waiting, id)
 	for i, held := range d.order {
 		if held == id {
 			d.order = append(d.order[:i], d.order[i+1:]...)
@@ -466,7 +477,17 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	}))
 
-	mux.HandleFunc("POST /reviews/{review}/finish", d.navHandler((*review.Session).Finish))
+	// A Hand Off is one of the events a `dbn wait` is waiting for, so it wakes
+	// every poll open on the review. Whether the agent is told is then a fact
+	// about this Hand Off, not an earlier one the Reviewer since took back.
+	mux.HandleFunc("POST /reviews/{review}/finish", d.navHandler(func(session *review.Session) error {
+		if err := session.Finish(); err != nil {
+			return err
+		}
+		d.waitersOf(session.ReviewID()).told = false
+		d.wake(session.ReviewID())
+		return nil
+	}))
 	mux.HandleFunc("POST /reviews/{review}/reopen", d.navHandler((*review.Session).Reopen))
 
 	mux.HandleFunc("POST /reviews/{review}/reraise/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
@@ -522,6 +543,7 @@ func (d *Daemon) Handler() http.Handler {
 			// reviews the Reviewer has yet to look at.
 			session.MarkOpened()
 			view = toViewWire(session.View())
+			view.AgentTold = view.Finished && d.agentTold(session.ReviewID())
 			return nil
 		})
 		w.Header().Set("Content-Type", "application/json")
@@ -557,6 +579,10 @@ func (d *Daemon) Handler() http.Handler {
 		}
 	}))
 
+	// The long poll `dbn wait` sits on. It answers for an id dbn is not holding
+	// rather than refusing it, because that answer ends the wait (ADR-0016).
+	mux.HandleFunc("GET /reviews/{review}/wait", d.awaitHandover)
+
 	mux.HandleFunc("POST /reviews/{review}/advance", d.navHandler((*review.Session).Advance))
 	mux.HandleFunc("POST /reviews/{review}/since-previous", d.navHandler((*review.Session).ToggleSincePreviousRound))
 	mux.HandleFunc("POST /reviews/{review}/back", d.navHandler((*review.Session).Back))
@@ -577,7 +603,13 @@ func (d *Daemon) Handler() http.Handler {
 	// as an MCP tool: an agent cannot dismiss a review of its own work. The
 	// review stays held as its own tombstone until the agent has been told.
 	mux.HandleFunc("POST /reviews/{review}/dismiss", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
-		err := d.locked(func() error { return session.Dismiss() })
+		err := d.locked(func() error {
+			if err := session.Dismiss(); err != nil {
+				return err
+			}
+			d.wake(session.ReviewID())
+			return nil
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -782,7 +814,12 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 		}
 		return nil, postResult{}, err
 	}
-	return nil, postResult{Accepted: true, ReviewID: session.ReviewID(), Message: postedMessage(session.LastPost(), d.port)}, nil
+	return nil, postResult{
+		Accepted:    true,
+		ReviewID:    session.ReviewID(),
+		Message:     postedMessage(session.LastPost(), d.port),
+		WaitCommand: waitCommand(session.ReviewID(), d.port),
+	}, nil
 }
 
 // accept puts a post where it belongs: a Revision Round or a Replacement into

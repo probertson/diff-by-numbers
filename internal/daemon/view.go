@@ -130,6 +130,10 @@ type ViewWire struct {
 	// Dismissed says the Reviewer discarded this review, so a window holding it
 	// has nothing left to show.
 	Dismissed bool `json:"dismissed,omitempty"`
+	// AgentTold says the Authoring Agent has heard about the Hand Off on screen
+	// directly, so the Reviewer need not relay it (ADR-0016). Only ever set once
+	// the Round is handed off.
+	AgentTold bool `json:"agent_told,omitempty"`
 	// Replaced says the Round on screen replaced another in place.
 	Replaced bool `json:"replaced,omitempty"`
 	// Round is which round this is; PreviousRound the one it is compared with,

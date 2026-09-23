@@ -56,7 +56,7 @@ func parseTUIArgs(args []string, usage io.Writer) (int, error) {
 	flags.Usage = func() {
 		fmt.Fprintf(usage, `usage: dbn [-port N]                 open the review TUI
        dbn <command> [flags]
-commands: serve, mcp, dump, update, version
+commands: serve, mcp, wait, dump, update, version
 run `+"`dbn <command> -h`"+` for a command's flags
 
   -port int
@@ -149,6 +149,9 @@ func run(args []string, out io.Writer) error {
 		}
 		skillcheck.Report(skillcheck.Config{Home: home, Embedded: skills.DbnReview}, out)
 		return nil
+
+	case "wait":
+		return runWait(args[1:], out)
 
 	case "dump":
 		flags := flag.NewFlagSet("dump", flag.ContinueOnError)

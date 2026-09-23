@@ -114,6 +114,41 @@ func (s *Session) Open() (OpenReview, bool) {
 	}, true
 }
 
+// Handover is what the Reviewer has done with a Review that its Authoring Agent
+// can act on: handed it off, or dismissed it. Nothing else the Reviewer does —
+// opening it, moving through it, raising a Comment — is the agent's business
+// until then (ADR-0016).
+type Handover string
+
+const (
+	// NotHandedOver is a Review still with the Reviewer.
+	NotHandedOver Handover = ""
+	// HandedOffWithComments is a Hand Off with Comments for the agent to work.
+	HandedOffWithComments Handover = "handed_off"
+	// HandedOffNothingRaised is a Hand Off with nothing raised, which concludes
+	// the review.
+	HandedOffNothingRaised Handover = "concluded"
+	// HandoverDismissed is the Reviewer discarding the review.
+	HandoverDismissed Handover = "dismissed"
+)
+
+// Handover reports whether the Review has come back to its agent. Every post
+// starts its Round afresh, so a Hand Off of an earlier Round the agent has since
+// answered with a Revision Round is not reported again.
+func (s *Session) Handover() Handover {
+	switch {
+	case s.current == nil:
+		return NotHandedOver
+	case s.dismissed:
+		return HandoverDismissed
+	case !s.finished:
+		return NotHandedOver
+	case len(s.comments) == 0:
+		return HandedOffNothingRaised
+	}
+	return HandedOffWithComments
+}
+
 // Concluded reports whether the posted review is over. It is false when nothing
 // is posted: there is no review to have concluded.
 func (s *Session) Concluded() bool {

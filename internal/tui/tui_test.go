@@ -679,7 +679,7 @@ func TestTheHandedOffScreenCallsOutTheCommentsWaiting(t *testing.T) {
 
 	out := m.doneView()
 
-	want := "3 Comments across 2 Steps are waiting for your agent — tell it you're done and it will collect them."
+	want := "3 Comments across 2 Steps are waiting for your agent. Tell your agent you've handed off."
 	if !strings.Contains(flatten(out), want) {
 		t.Errorf("expected the call-out %q, got:\n%s", want, out)
 	}

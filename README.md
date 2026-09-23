@@ -249,12 +249,16 @@ Comments you raised, and the agent is told you dismissed it.
 Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate
 through screens. Select lines to copy-by-reference (for pasting to your agent, if you want
 to ask questions mid-review) or to add a Comment. When you're done, press `h` to hand the
-review off, then tell your agent. It will then retrieve your Comments. Handing off is not
-leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the
-same Inbox.
+review off. If your agent's harness can wait on a background command (Claude Code can), the
+agent is told directly and the screen says so; otherwise it tells you to let the agent
+know. Either way, it then retrieves your Comments. Allowing `Bash(dbn wait:*)` saves being
+asked each round. Handing off is not leaving: `q` exits the viewer at any time without
+losing anything, and `dbn` reopens to the same Inbox.
 
-Other subcommands: `dbn dump` prints every review the daemon holds as text, `dbn version`
-reports the build, `dbn update` installs a newer one (see [Updating](#updating)).
+Other subcommands: `dbn wait <review_id>` blocks until you hand that review off or dismiss
+it (the agent runs it in the background, from the command dbn gives it), `dbn dump` prints
+every review the daemon holds as text, `dbn version` reports the build, `dbn update`
+installs a newer one (see [Updating](#updating)).
 
 ## Development
 
