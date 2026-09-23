@@ -287,6 +287,12 @@ Every agent session then has both servers: `dbn` (the release, on 7373) and
 `dbn-local` (this build, on 7374). Open the Reviewer's side with `./dbn -port
 7374`.
 
+There is no need to run `./dbn serve -port 7374`: each session's `dbn-local`
+shim starts a daemon on 7374 from `./dbn` if none is running, which is why a
+hand-run one may find the port already in use. That daemon lets itself go once
+no review needs it and nothing has talked to it for a minute, and the next
+session to need it starts another from whatever `./dbn` is then.
+
 The installed `dbn-review` skill is the released one, and the `wait_command` a
 post returns runs whichever `dbn` is on your PATH, which is also the release. So
 tell the test session to use the development copies of both, e.g.:
