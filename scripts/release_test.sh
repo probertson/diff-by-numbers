@@ -4,11 +4,12 @@
 # It drives the real release.sh against a throwaway repository with a real
 # `origin`: a bare repo on disk, so pushes and tags are genuine git operations
 # that go nowhere near GitHub. Nothing is stubbed but the tests the script would
-# run (SKIP_TESTS=1) and the confirmation prompt (fed on stdin).
+# run (SKIP_TESTS=1), the confirmation prompt (fed on stdin) and the editor the
+# release notes are written in (a script that writes canned notes).
 #
 # That lets us assert the release's external behaviour — the plugin version it
-# writes, the commit it makes, which commit the tag lands on, and the state it
-# leaves the tree in — without cutting a release.
+# writes, the commit it makes, which commit the tag lands on, the notes the tag
+# carries, and the state it leaves the tree in — without cutting a release.
 #
 # Pure POSIX sh; no bats. Run directly (`sh scripts/release_test.sh`) or via
 # `go test ./internal/releasescript`, which execs this file.
@@ -49,10 +50,18 @@ trap cleanup EXIT INT TERM
 
 # new_repo — a throwaway clone with a bare origin, seeded with the two files a
 # release touches. Sets WORK and ORIGIN.
+#
+# Also writes the stand-in editor: it keeps a copy of the draft it was handed in
+# $SAND/draft, then replaces the draft with whatever is in $SAND/notes.
 new_repo() {
 	SAND=$(mktemp -d)
 	sandboxes="${sandboxes}${SAND}
 "
+	cat >"$SAND/editor.sh" <<-EDITOR
+		cp "\$1" "$SAND/draft"
+		cat "$SAND/notes" >"\$1"
+	EDITOR
+	printf '## Fixes\n\n- A fix worth telling people about\n' >"$SAND/notes"
 	ORIGIN="$SAND/origin.git"
 	WORK="$SAND/work"
 
@@ -93,7 +102,8 @@ new_repo() {
 # cut_release VERSION — run the real release script, answering the prompt with "y".
 # Captures combined output in RELEASE_OUT and the exit status in RELEASE_STATUS.
 cut_release() {
-	RELEASE_OUT=$(cd "$WORK" && printf 'y\n' | SKIP_TESTS=1 sh "$RELEASE" "$1" 2>&1)
+	RELEASE_OUT=$(cd "$WORK" && printf 'y\n' |
+		SKIP_TESTS=1 GIT_EDITOR="sh $SAND/editor.sh" sh "$RELEASE" "$1" 2>&1)
 	RELEASE_STATUS=$?
 }
 
@@ -105,6 +115,12 @@ cut_release() {
 # everything up to the colon, then keep what is between the quotes.
 version_in() {
 	grep '"version"' "$1" | head -n 1 | cut -d: -f2 | tr -d ' ",'
+}
+
+# drafted_commits — the commit lines in the draft the editor was handed, up to
+# the scissors line.
+drafted_commits() {
+	awk '/>8/ { exit } /^- / { print }' "$SAND/draft"
 }
 
 # ---------------------------------------------------------------------------
@@ -142,8 +158,23 @@ check_equal "marketplace.json is left byte-for-byte alone" \
 	"$(git -C "$WORK" show "$(git -C "$WORK" rev-list --max-parents=0 HEAD):.claude-plugin/marketplace.json")" \
 	"$(cat "$WORK/.claude-plugin/marketplace.json")"
 
+check_equal "the tag's subject says what it is" \
+	"Release v1.2.3" "$(git -C "$WORK" tag -l --format='%(contents:subject)' v1.2.3)"
+
+# The body is what GoReleaser publishes, so it has to be the notes exactly: the
+# Markdown heading kept, the scissors line and instructions gone.
+check_equal "the tag's body is the release notes as written" \
+	"$(cat "$SAND/notes")" "$(git -C "$WORK" tag -l --format='%(contents:body)' v1.2.3)"
+
+check_equal "the first release's draft lists every commit" \
+	"- Initial commit" "$(drafted_commits)"
+
 # A bump keyword has to resolve against the tag just cut and carry the same
 # behaviour, since that is how a release is normally cut.
+echo "a feature" >"$WORK/feature.txt"
+git -C "$WORK" add feature.txt
+git -C "$WORK" commit -qm "Add a feature"
+git -C "$WORK" push -q origin main
 cut_release PATCH
 
 if [ "$RELEASE_STATUS" -ne 0 ]; then
@@ -157,6 +188,31 @@ check_equal "a PATCH bump resolves against the tag just cut" \
 
 check_equal "the bumped release is tagged at its own commit" \
 	"$(git -C "$WORK" rev-parse HEAD)" "$(git -C "$WORK" rev-list -n 1 v1.2.4)"
+
+# Only what changed since the last release. The "Release v1.2.3" commit is left
+# out without any filtering, because it is the commit the previous tag is on.
+check_equal "the draft lists only the commits since the previous release" \
+	"- Add a feature" "$(drafted_commits)"
+
+# Empty notes are the way out of a release, so nothing may have happened yet.
+new_repo
+printf '\n  \n' >"$SAND/notes"
+cut_release v3.0.0
+
+if [ "$RELEASE_STATUS" -eq 0 ]; then
+	fail "a release with empty notes is aborted" "it exited 0: $RELEASE_OUT"
+else
+	pass "a release with empty notes is aborted"
+fi
+
+check_equal "an aborted release makes no commit" \
+	"Initial commit" "$(git -C "$WORK" log -1 --pretty=%s)"
+
+check_equal "an aborted release leaves the tree clean" \
+	"" "$(git -C "$WORK" status --porcelain)"
+
+check_equal "an aborted release makes no tag" \
+	"" "$(git -C "$WORK" tag -l v3.0.0)"
 
 # Re-cutting a version whose plugin.json is already correct must not fail on an
 # empty commit: the script has to notice there is nothing to write.

@@ -43,6 +43,14 @@ release:
   github:
     owner: probertson
     name: diff-by-numbers
+  # The release notes, written by scripts/release.sh into the annotated tag's
+  # message body, head the release; the generated commit list follows.
+  header: |
+    {{ .TagBody }}
 
 changelog:
   use: github
+  filters:
+    exclude:
+      # The plugin-version commit release.sh makes: bookkeeping, not a change.
+      - "^Release v"

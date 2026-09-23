@@ -1,7 +1,8 @@
 #!/bin/sh
 # release.sh — cut a dbn release: validate, tag, and push a version tag, which
 # triggers the GitHub release workflow (GoReleaser) that builds and publishes the
-# binaries the installer downloads.
+# binaries the installer downloads. Opens your git editor on a draft of the
+# release notes, which are published at the top of the GitHub release.
 #
 # Usage: scripts/release.sh vX.Y.Z
 #        scripts/release.sh MAJOR|MINOR|PATCH   # bump the latest vX.Y.Z tag
@@ -74,8 +75,52 @@ plugin_manifest=".claude-plugin/plugin.json"
 [ -f "$plugin_manifest" ] || die "${plugin_manifest} not found — is this the dbn repository?"
 plugin_version=${version#v}
 
+# Temp files go outside the repository: one left behind inside it would be
+# untracked, and the *next* release would then die on its clean-tree check.
+tmp_manifest=$(mktemp) || die "could not create a temporary file"
+tmp_notes=$(mktemp) || die "could not create a temporary file"
+tmp_tag_message=$(mktemp) || die "could not create a temporary file"
+trap 'rm -f "$tmp_manifest" "$tmp_notes" "$tmp_tag_message"' EXIT INT TERM
+
+# The release notes travel in the annotated tag's message, and GoReleaser puts
+# its body at the top of the GitHub release (release.header in .goreleaser.yaml).
+# The tag is made in the same step as the release, so the two cannot drift apart.
+#
+# The draft lists the commits since the previous release for the author to turn
+# into notes. Instructions sit below a scissors line and are cut off there,
+# rather than being '#' comment lines stripped like a commit message's, because
+# the notes are Markdown and a '## Fixes' heading has to survive.
+scissors='# ------------------------ >8 ------------------------'
+previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+if [ -n "$previous" ]; then
+	range="${previous}..HEAD"
+	since="since ${previous}"
+else
+	range=HEAD
+	since="in this first release"
+fi
+{
+	git log --no-merges --reverse --format='- %s' "$range"
+	printf '\n%s\n' "$scissors"
+	printf '# Write the release notes for %s above this line; this line and\n' "$version"
+	printf '# everything below it are removed. Markdown is fine, headings included.\n'
+	printf '# The list above is the commits %s, as a starting point.\n' "$since"
+	printf '# Leave the notes empty to abort the release.\n'
+} >"$tmp_notes"
+
+# git var resolves the editor exactly as git commit would: GIT_EDITOR,
+# core.editor, VISUAL, EDITOR, then vi. It is run through sh -c, as git runs it,
+# so an editor configured with arguments ("code --wait") works.
+editor=$(git var GIT_EDITOR) || die "could not work out which editor to use"
+sh -c "${editor} \"\$@\"" "$editor" "$tmp_notes" || die "the editor exited with an error — aborted"
+
+notes=$(sed "/^${scissors}\$/,\$d" "$tmp_notes")
+printf '%s\n' "$notes" | grep -q '[^[:space:]]' || die "the release notes are empty — aborted"
+
+printf 'Release notes for %s:\n\n%s\n\n' "$version" "$notes"
 printf 'About to set the plugin version to %s, commit it as "Release %s", push main,\n' "$plugin_version" "$version"
-printf 'then tag %s at that commit and push the tag, triggering the release build.\n' "$version"
+printf 'then tag %s at that commit with the notes above and push the tag,\n' "$version"
+printf 'triggering the release build.\n'
 printf 'Continue? [y/N] '
 read -r reply
 case "$reply" in
@@ -88,12 +133,6 @@ esac
 # were it ever to gain a nested "version", this would need a real JSON tool.
 # The result is read back and checked, because a silently unchanged manifest is
 # the whole bug this guards against.
-#
-# The temp file goes outside the repository: one left behind inside it would be
-# untracked, and the *next* release would then die on its clean-tree check.
-tmp_manifest=$(mktemp) || die "could not create a temporary file"
-trap 'rm -f "$tmp_manifest"' EXIT INT TERM
-
 sed 's/\("version"[[:space:]]*:[[:space:]]*\)"[^"]*"/\1"'"$plugin_version"'"/' \
 	"$plugin_manifest" >"$tmp_manifest" || die "could not rewrite ${plugin_manifest}"
 cat "$tmp_manifest" >"$plugin_manifest" || die "could not write ${plugin_manifest}"
@@ -116,7 +155,10 @@ fi
 echo "pushing main..."
 git push origin main
 
-git tag -a "$version" -m "Release ${version}"
+# The subject line is what `git tag -n` shows; GoReleaser publishes the body.
+# Whitespace cleanup, not git's default strip, so Markdown headings survive.
+printf 'Release %s\n\n%s\n' "$version" "$notes" >"$tmp_tag_message"
+git tag -a "$version" -F "$tmp_tag_message" --cleanup=whitespace
 git push origin "$version"
 
 printf '\npushed %s — watch the release build at:\n' "$version"
