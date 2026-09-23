@@ -272,6 +272,33 @@ knows nothing of MCP, git, or the terminal. The git adapter (`internal/git`)
 derives changed lines; the working-tree adapter (`internal/workingtree`) reads
 and fingerprints files. The daemon and TUI are deliberately thin.
 
+### Trying a development build
+
+A development build can run beside the released dbn without replacing it. Build
+it at the repository root, then register it once as a second MCP server on its
+own port, from the repository root:
+
+```sh
+go build -o ./dbn ./cmd/dbn
+claude mcp add dbn-local -s user -- "$PWD/dbn" mcp -port 7374
+```
+
+Every agent session then has both servers: `dbn` (the release, on 7373) and
+`dbn-local` (this build, on 7374). Open the Reviewer's side with `./dbn -port
+7374`.
+
+The installed `dbn-review` skill is the released one, and the `wait_command` a
+post returns runs whichever `dbn` is on your PATH, which is also the release. So
+tell the test session to use the development copies of both, e.g.:
+
+> Use the `dbn-local` tools and follow `<repo>/skills/dbn-review/SKILL.md`
+> rather than the installed `dbn-review` skill. When you run `wait_command`,
+> replace the leading `dbn` with `<repo>/dbn`.
+
+where `<repo>` is the absolute path of this checkout. The command already
+carries `-port 7374`, so it reaches the development daemon. To skip the
+permission prompt each round, allow `Bash(<repo>/dbn wait:*)`.
+
 ### Cutting a release
 
 ```sh
