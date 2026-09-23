@@ -222,11 +222,15 @@ func exitGraceDuration() time.Duration {
 }
 
 // shouldExit is the whole of the self-exit decision, kept pure. The daemon stays
-// alive while it still holds something worth holding, and otherwise until it has
-// been idle through the grace window — where "not idle" means an agent call, a
-// TUI poll, or the shim keepalive touched it recently, i.e. someone is still here.
-func shouldExit(needed bool, idle, grace time.Duration) bool {
-	if needed {
+// alive while a review is still live, and otherwise until it has been idle
+// through the grace window — where "not idle" means an agent call, a TUI poll, or
+// the shim keepalive touched it recently, i.e. someone is still here.
+//
+// A review that has ended — concluded or dismissed — does not hold the daemon
+// open. Its agent has nothing to collect but the fact that it is over, and the
+// Reviewer who ended it is the one who tells them so.
+func shouldExit(activeReview bool, idle, grace time.Duration) bool {
+	if activeReview {
 		return false
 	}
 	return idle >= grace
@@ -252,7 +256,7 @@ func (d *Daemon) monitorForExit() {
 		case <-d.quit:
 			return
 		case <-ticker.C:
-			if shouldExit(d.needed(), d.idleFor(), grace) {
+			if shouldExit(d.activeReview(), d.idleFor(), grace) {
 				d.Shutdown()
 				return
 			}
@@ -594,34 +598,6 @@ func (d *Daemon) activeReview() bool {
 		}
 	}
 	return false
-}
-
-// tombstoneLife is how long a dismissed review is kept for an agent that has
-// not come back to be told. It is generous against how long an agent takes to
-// ask — its next call, usually — and short against leaving a daemon up all day
-// for a session that has gone for good.
-const tombstoneLife = time.Hour
-
-// needed reports whether anything the daemon holds would be lost by exiting: a
-// live review, or a review dismissed recently enough that its agent is probably
-// still coming back to be told (ADR-0015). It sweeps tombstones nobody came for.
-func (d *Daemon) needed() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	needed := false
-	for id, session := range d.reviews {
-		switch {
-		case session.Active():
-			needed = true
-		case session.Dismissed() && time.Since(session.DismissedAt()) < tombstoneLife:
-			needed = true
-		case session.Dismissed():
-			// Nobody came for it. The agent is gone, or it will hear the same
-			// "no such review" a restarted daemon would have given it.
-			d.release(id)
-		}
-	}
-	return needed
 }
 
 // inbox lists the reviews the Reviewer can still pick from: everything the

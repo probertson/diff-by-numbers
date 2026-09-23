@@ -249,6 +249,11 @@ handed off, not against the Round you replaced.
 Never dismiss a review yourself: discarding one is the reviewer's decision, not
 yours.
 
+**If dbn has no record of your review at all** — `unknown_review`, and it is not
+in the list a bare `fetch_results` gives you — then it is gone: the daemon was
+restarted, or the review ended a while ago. Do not post the same work again to
+"recover" it. Tell the reviewer what happened and ask them what they want.
+
 **If they dismiss it**, `fetch_results` comes back with `dismissed` set instead
 of results. The review is over: a Revision Round of it will be refused. Anything
 they raised before dismissing it comes with the answer — read it, since it is

@@ -88,9 +88,6 @@ type Session struct {
 	// dismissed records that the Reviewer discarded the review, which is what
 	// the Authoring Agent is told in place of results.
 	dismissed bool
-	// dismissedAt is when they did, which bounds how long the tombstone is kept
-	// for an agent that never comes back to ask.
-	dismissedAt time.Time
 	// posted is when the round on screen was accepted, which is what the Inbox
 	// measures a row's age from.
 	posted time.Time
@@ -454,7 +451,8 @@ func validateNewSideResolves(steps []Step, resolver Resolver, round RoundSource)
 //
 // What the Reviewer raised is kept, and so is the id: the Session becomes the
 // tombstone its agent is told about, so a dismissed review reads as dismissed
-// rather than as an id dbn never had (ADR-0015).
+// rather than as an id dbn never had (ADR-0015). The tombstone lives as long as
+// the daemon does: it is memory, not a promise.
 func (s *Session) Dismiss() error {
 	if s.current == nil {
 		return reject(RejectedNoRound, "there is no Round to dismiss")
@@ -464,13 +462,8 @@ func (s *Session) Dismiss() error {
 			"review %q is already over; there is nothing to dismiss", s.id)
 	}
 	s.dismissed = true
-	s.dismissedAt = s.now()
 	return nil
 }
-
-// DismissedAt is when the Reviewer discarded the review, or the zero time if
-// they did not.
-func (s *Session) DismissedAt() time.Time { return s.dismissedAt }
 
 // Dismissed reports that the Reviewer discarded this review.
 func (s *Session) Dismissed() bool { return s.dismissed }

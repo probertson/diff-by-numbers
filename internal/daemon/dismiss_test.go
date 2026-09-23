@@ -67,6 +67,10 @@ func TestFetchResultsReportsADismissalOnceThenForgetsIt(t *testing.T) {
 	}
 }
 
+// A review that has ended does not hold the daemon open: its agent has nothing
+// to collect but the fact that it is over, and the Reviewer who ended it is the
+// one who tells them so. An auto-started daemon holding only these may exit, and
+// the tombstone goes with it.
 func TestADismissedReviewLeavesTheDaemonIdle(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
