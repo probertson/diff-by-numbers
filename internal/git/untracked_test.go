@@ -305,6 +305,10 @@ func walkthroughCovering(root, file string, first, last int) review.Round {
 // machine's: a derivation per review, leaking a copy of the index each time,
 // would be a slow disk leak nobody would trace back here.
 func TestDerivingLeavesNoTemporaryFilesBehind(t *testing.T) {
+	// A private temp directory, because the shared one is not ours to count:
+	// `go test ./...` runs the daemon and workingtree packages alongside this
+	// one, and their derivations create and remove the same dbn- temporaries.
+	t.Setenv("TMPDIR", t.TempDir())
 	root := newRepo(t)
 	run(t, root, "checkout", "-q", "-b", "feature")
 	write(t, root, "notes.md", "alpha\n")
@@ -363,6 +367,7 @@ func TestAnUntrackedFileWhoseNameLooksLikePathspecMagicIsStillDerived(t *testing
 
 // countTempFiles counts the temporaries dbn creates, by their prefixes, so an
 // unrelated process writing to TMPDIR during the test cannot upset the count.
+// Another dbn process can, so a caller wants a TMPDIR of its own.
 func countTempFiles(t *testing.T) int {
 	t.Helper()
 	total := 0
