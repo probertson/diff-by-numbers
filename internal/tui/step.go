@@ -1120,7 +1120,7 @@ func (c client) composeAnchor(run selectedRun) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	response, err := http.Post(c.base+"/anchor", "application/json", bytes.NewReader(body))
+	response, err := http.Post(c.url("/anchor"), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", false
 	}
