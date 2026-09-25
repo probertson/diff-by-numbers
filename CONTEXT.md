@@ -73,7 +73,9 @@ _Avoid_: ask, request, task, objective
 **Overview**:
 The Reviewer's opening screen of a Round, shown before any code. dbn composes it
 from the Brief and what it knows itself: in a Revision Round, what became of each
-of the last round's Comments and what was withdrawn since; and the Steps to come.
+of the last round's Comments and Agent Questions and what was withdrawn since; any
+Agent Questions on the Round itself; and the Steps to come, marking those that carry
+an Agent Question.
 _Avoid_: brief, summary, table of contents
 
 **Step**:
@@ -187,12 +189,31 @@ Agent's response; an addressed Comment may carry one too. A question that needs 
 exchange still belongs in the harness chat (ADR-0011).
 _Avoid_: change request, note, feedback, todo
 
+**Agent Question**:
+A question the Authoring Agent puts to the Reviewer, which dbn knows about and shows
+apart from the narration: the reverse of a Comment (ADR-0017). It attaches to the Round,
+shown with the Brief, when it is about the approach, or to a Step, shown at the top of
+that Step, when it is about its code. A Step's question is never shown on the Overview,
+since it needs the Steps before it for its context; the Overview only marks which Steps
+carry one. A Round that carried any is never concluded by its Hand Off: the agent reads
+the Answers and posts a Revision Round unless nothing needs changing. That Round gives
+each question a status: *addressed*, *no change needed*, *asked again* (linking the
+question that replaces it) or, for one left unanswered, *agent's call*. There is no
+*declined*, because the agent cannot overrule an Answer.
+_Avoid_: query, prompt, decision request, ask
+
+**Answer**:
+The Reviewer's free-text reply to an Agent Question. It is editable until Hand Off, like a
+Comment. A question handed off without one reaches the agent marked *unanswered*, never
+as agreement.
+_Avoid_: reply, response (which is the agent's, on a disposition)
+
 **Revision Round**:
 Any Round after the first: the Authoring Agent responding to the collected
-Comments, with a fresh Brief and Steps over just the resulting changes. Its
-Overview shows every Comment's resolution, so an answer or a decline is read
-before any code. Repeats until the Reviewer hands a Round off having raised
-nothing. Lines it has already shown are pre-marked:
+Comments and Answers, with a fresh Brief and Steps over just the resulting changes. Its
+Overview shows every Comment's resolution and every Agent Question's status, so an
+answer or a decline is read before any code. Repeats until the Reviewer hands a Round
+off having raised nothing, in a Round that asked nothing either. Lines it has already shown are pre-marked:
 coverage does not demand them again, and they cost nothing against a Step's budget.
 _Avoid_: fix pass, iteration, follow-up
 
@@ -208,14 +229,16 @@ _Avoid_: deletion (which is measured against the merge-base), revert
 A Brief and Steps the Authoring Agent posts in place of the round still under review,
 because the Reviewer asked for a change mid-round or the plan was wrong (ADR-0004).
 It is the same Review and the same Round: the id stays, the Reviewer's Comments
-carry over without their Steps, and a replaced Revision Round is still scoped
+and answered Agent Questions carry over without their Steps, unanswered Agent Questions
+are dropped for the agent to ask again, and a replaced Revision Round is still scoped
 against the round before it. Not a Revision Round, which needs a Hand Off first.
 _Avoid_: re-post, amendment
 
 **Hand Off**:
 The Reviewer ending a round and passing the baton back: it locks their own edits
 until they resume, and authorizes the Authoring Agent to respond to the Reviewer's
-Comments in the next Revision Round. A turn boundary in a loop, not a conclusion —
+Comments and Answers in the next Revision Round. Unanswered Agent Questions do not block
+it: the Reviewer confirms them and they go back marked *unanswered*. A turn boundary in a loop, not a conclusion —
 which is why it is not called *finishing*, a word that reads as a synonym of
 leaving the viewer.
 _Avoid_: finish, finalize, submit, sign off, complete
