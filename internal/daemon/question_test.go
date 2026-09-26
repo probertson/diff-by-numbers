@@ -186,3 +186,44 @@ func TestARoundLevelQuestionIsShownWithTheBriefAndReturnedOnNoStep(t *testing.T)
 		t.Errorf("expected the Step's question on Step 1, got %+v", onStep)
 	}
 }
+
+func TestARevisionRoundAccountsForTheQuestionsOverTheWire(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	posted := postRound(t, server.URL, askingOnStep1(root, "3 or 5?"))
+	review := reviewURL(server.URL, posted.ReviewID)
+	answer(t, review, 1, "5")
+	httpPost(t, review+"/finish")
+	revision := minimalRound(root)
+	delete(revision, "label")
+	revision["revises"] = posted.ReviewID
+
+	refused := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", revision))
+	revision["question_statuses"] = []any{map[string]any{"question_id": 1, "status": "addressed", "response": "raised it to 5"}}
+	postRound(t, server.URL, revision)
+	var overview struct {
+		AccountedQuestions []struct {
+			Question struct {
+				Text   string `json:"text"`
+				Answer string `json:"answer"`
+			} `json:"question"`
+			Status   string `json:"status"`
+			Response string `json:"response"`
+		} `json:"accounted_questions"`
+	}
+	if err := json.Unmarshal([]byte(get(t, review+"/view")), &overview); err != nil {
+		t.Fatal(err)
+	}
+
+	if refused.Accepted || !refused.has("malformed_question_status") {
+		t.Errorf("expected a Revision Round leaving the question out to be refused, got %s", refused.summary())
+	}
+	if len(overview.AccountedQuestions) != 1 {
+		t.Fatalf("expected the earlier question on the Overview, got %+v", overview.AccountedQuestions)
+	}
+	got := overview.AccountedQuestions[0]
+	if got.Question.Text != "3 or 5?" || got.Question.Answer != "5" || got.Status != "addressed" || got.Response != "raised it to 5" {
+		t.Errorf("expected the question, its Answer and its status, got %+v", got)
+	}
+}

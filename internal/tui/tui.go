@@ -2577,6 +2577,9 @@ func (m model) brief() string {
 	if len(m.view.Dispositions) > 0 {
 		b.WriteString(m.sinceTheLastRound(m.viewport.Width))
 	}
+	if len(m.view.AccountedQuestions) > 0 {
+		b.WriteString(m.questionsFromTheLastRound(m.viewport.Width))
+	}
 	if len(m.view.Withdrawn) > 0 {
 		b.WriteString(m.withdrawnSince(m.viewport.Width))
 	}

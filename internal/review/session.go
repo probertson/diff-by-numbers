@@ -71,8 +71,10 @@ type Session struct {
 	// is on screen.
 	editChanges map[string]changesWithin
 	// dispositions accounts for the previous round's Comments in a Revision
-	// Round, for display before any code.
-	dispositions []ResolvedDisposition
+	// Round, for display before any code, and accountedQuestions for its Agent
+	// Questions.
+	dispositions       []ResolvedDisposition
+	accountedQuestions []AccountedQuestion
 	// id is the review's identity, minted when a new review is first posted and
 	// preserved across its Revision Rounds and Replacements, so the Authoring
 	// Agent can refer back to the review to replace or conclude it.
@@ -197,9 +199,10 @@ func (s *Session) Post(w Round) error {
 }
 
 // Revise posts a Revision Round of the review named by id: the Authoring Agent
-// answering the Comments the Reviewer raised. It is accepted only once that
-// round has been handed off with Comments — before that there is nothing to
-// answer, and a hand-off that raised nothing ended the review.
+// answering the Comments the Reviewer raised, and acting on the Answers to its
+// Agent Questions. It is accepted only once that round has been handed off with
+// something raised — before that there is nothing to answer, and a hand-off
+// that raised nothing ended the review.
 func (s *Session) Revise(id string, w Round) error {
 	if rejection := s.named(id, "revise", "post without revises to start a new review"); rejection != nil {
 		return rejection
@@ -243,7 +246,7 @@ func (s *Session) nextAnswering() *earlierRound {
 	case s.current == nil || s.isConcluded():
 		return nil
 	case s.finished:
-		return &earlierRound{state: s.latest, comments: s.comments}
+		return &earlierRound{state: s.latest, comments: s.comments, questions: s.Questions()}
 	}
 	return s.answering
 }
@@ -267,10 +270,12 @@ func (s *Session) Replace(id string, w Round) error {
 }
 
 // earlierRound is what a Revision Round answers to: the round before it, as it
-// was scoped, and the Comments that round raised.
+// was scoped, the Comments that round raised and the Agent Questions it asked,
+// with their Answers.
 type earlierRound struct {
-	state    roundState
-	comments []Comment
+	state     roundState
+	comments  []Comment
+	questions []AgentQuestion
 }
 
 // accept validates a Round and, if it passes, makes it the one under
@@ -322,6 +327,16 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 			"this is round 1; there are no Comments to dispose of"))
 	}
 
+	var accountedQuestions []AccountedQuestion
+	if earlier != nil {
+		accounted, rejection := accountForQuestions(w.QuestionStatuses, earlier.questions)
+		add(rejection)
+		accountedQuestions = accounted
+	} else if len(w.QuestionStatuses) > 0 {
+		add(reject(RejectedMalformedQuestionStatus,
+			"this is round 1; there are no Agent Questions to account for"))
+	}
+
 	add(validateNewSideResolves(w.Steps, s.resolver, round))
 
 	add(ledger.validateBudget(w.Steps))
@@ -341,6 +356,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.seen = map[int]bool{}
 	s.finished = false
 	s.dispositions = dispositions
+	s.accountedQuestions = accountedQuestions
 	s.answering = earlier
 	s.latest = captureRound(ledger, round)
 	s.replaced = replacing

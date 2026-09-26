@@ -93,6 +93,70 @@ func (m model) sinceTheLastRound(width int) string {
 	return b.String()
 }
 
+// questionGroups are the headings the previous round's Agent Questions sit
+// under, by the status the agent gave each. The agent's own calls come first:
+// the Reviewer was asked and never decided them, so they are the ones to check.
+func questionGroups() []dispositionGroup {
+	return []dispositionGroup{
+		{status: "agents_call", heading: "Agent's call", mark: "◆", style: warnSt},
+		{status: "addressed", heading: "Addressed", mark: "✓", style: addSt},
+		{status: "no_change_needed", heading: "No change needed", mark: "=", style: accentSt},
+	}
+}
+
+// questionsFromTheLastRound draws what the agent did with each Agent Question
+// the previous round asked: the question, the Reviewer's Answer or that there
+// was none, and the agent's response, grouped by status as the Comments are.
+// dbn holds the question and the Answer, so the agent never restates them.
+func (m model) questionsFromTheLastRound(width int) string {
+	var b strings.Builder
+	b.WriteString(labelSt.Render("Agent Questions from the last round") + "\n")
+	indent := strings.Repeat(" ", dispositionIndent)
+	for _, group := range questionGroups() {
+		var members []daemon.AccountedQuestionWire
+		for _, accounted := range m.view.AccountedQuestions {
+			if accounted.Status == group.status {
+				members = append(members, accounted)
+			}
+		}
+		if len(members) == 0 {
+			continue
+		}
+		name := fmt.Sprintf("%s (%d)", group.heading, len(members))
+		b.WriteString(indent + fitRow(name, labelSt.Render(name), width-dispositionIndent) + "\n")
+		for _, accounted := range members {
+			for _, row := range accountedQuestionItem(group, accounted, width) {
+				b.WriteString(row + "\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+// accountedQuestionItem draws one earlier Agent Question: the mark, its number
+// and where it was asked, then the question, the Answer and the agent's
+// response, each hanging in its own block like a Comment's.
+func accountedQuestionItem(group dispositionGroup, accounted daemon.AccountedQuestionWire, width int) []string {
+	question := accounted.Question
+	where := fmt.Sprintf("Step %d", question.Step)
+	if question.Step == 0 {
+		where = "with the Brief"
+	}
+	tail := fmt.Sprintf(" #%d  %s", question.ID, where)
+	rows := []string{strings.Repeat(" ", dispositionIndent) +
+		fitRow(group.mark+tail, group.style.Render(group.mark)+dimSt.Render(tail), width-dispositionIndent)}
+	rows = append(rows, hangingField("agent asked: ", question.Text, dimSt, width)...)
+	if question.Answered() {
+		rows = append(rows, hangingField("you answered: ", question.Answer, dimSt, width)...)
+	} else {
+		rows = append(rows, hangingField("you answered: ", "nothing — it went back unanswered", dimSt, width)...)
+	}
+	if accounted.Response != "" {
+		rows = append(rows, hangingField("agent: ", accounted.Response, accentSt, width)...)
+	}
+	return append(rows, "")
+}
+
 // dispositionStatus is the group a disposition belongs to, defaulting anything
 // the daemon did not name to addressed, which is what the Overview showed before
 // answered and declined were distinguished. Every surface that sorts by status

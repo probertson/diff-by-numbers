@@ -131,6 +131,9 @@ type Round struct {
 	// Questions are the Agent Questions about the approach rather than any
 	// Step's code, shown with the Brief (ADR-0017).
 	Questions []Question
+	// QuestionStatuses accounts for the previous round's Agent Questions when
+	// this Round is a Revision Round, as Dispositions does for its Comments.
+	QuestionStatuses []QuestionAccount
 	// Label is an optional human-readable name the Authoring Agent may attach so a
 	// Reviewer juggling several reviews can tell them apart. It is not the review's
 	// identity — that is minted by dbn — only a display aid. It survives a Revision

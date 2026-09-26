@@ -376,3 +376,45 @@ func TestAStepWithoutQuestionsHasTheStatusLineItAlwaysHad(t *testing.T) {
 		t.Errorf("a Step that asks nothing should read as it always did, got %q", out)
 	}
 }
+
+func accountedQuestion(id int, text, answer, status, response string) daemon.AccountedQuestionWire {
+	return daemon.AccountedQuestionWire{
+		Question: daemon.QuestionWire{ID: id, Step: 2, Text: text, Answer: answer},
+		Status:   status, Response: response,
+	}
+}
+
+func TestTheRevisionOverviewShowsEachEarlierQuestionWithItsAnswerAndStatus(t *testing.T) {
+	m := roundModel(80)
+	m.view.AccountedQuestions = []daemon.AccountedQuestionWire{
+		accountedQuestion(1, "3 or 5 retries?", "5", "addressed", "raised the cap to 5"),
+		accountedQuestion(2, "keep the old name?", "", "agents_call", "kept it, since callers use it"),
+	}
+
+	out := m.brief()
+	flat := flatten(out)
+
+	for _, want := range []string{
+		"Agent Questions from the last round",
+		"Agent's call (1)", "keep the old name?", "unanswered", "kept it, since callers use it",
+		"Addressed (1)", "3 or 5 retries?", "you answered: 5", "raised the cap to 5",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("expected %q on the Overview, got:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "Agent's call") > strings.Index(out, "Addressed") {
+		t.Errorf("the agent's own calls come first: the Reviewer never decided them, got:\n%s", out)
+	}
+	if strings.Index(out, "Agent Questions from the last round") > strings.Index(out, "Steps") {
+		t.Errorf("expected the earlier questions before the Steps, got:\n%s", out)
+	}
+}
+
+func TestAnOverviewWithNoEarlierQuestionsSaysNothingOfThem(t *testing.T) {
+	m := roundModel(80, addressed(1))
+
+	if out := m.brief(); strings.Contains(out, "Agent Questions from") {
+		t.Errorf("a round that asked nothing before should not announce it, got:\n%s", out)
+	}
+}

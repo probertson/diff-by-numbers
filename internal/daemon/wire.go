@@ -57,15 +57,24 @@ type wireDisposition struct {
 	Response  string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it before any code. Required when status is 'answered' (it is the answer) or 'declined' (why you won't, in a line or two; the Reviewer may re-raise it). Optional but welcome when 'addressed', e.g. to note how you made the change"`
 }
 
+type wireQuestionStatus struct {
+	QuestionID int    `json:"question_id" jsonschema:"The id of an Agent Question from the previous round this accounts for"`
+	Status     string `json:"status" jsonschema:"'addressed' if the Answer led you to change something, 'no_change_needed' if the Answer agreed with the code as it stood, 'agents_call' if the question went unanswered and you went ahead on your own judgment. There is no declining an Answer: the Reviewer was asked to decide"`
+	Response   string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it with the question and its Answer before any code. Required for 'agents_call': what you chose. Optional otherwise, e.g. to note how you made the change"`
+}
+
 type wireRound struct {
 	Brief        wireBrief         `json:"brief"`
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Round covers. A Round may span several"`
 	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
 	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit in round 1"`
 	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
-	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments, alongside the dispositions accounting for them. Leave it out and this post starts a new Review"`
+	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments or Agent Questions, alongside the dispositions and question statuses accounting for them. Leave it out and this post starts a new Review"`
 	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
 	Questions    []wireQuestion    `json:"questions,omitempty" jsonschema:"Agent Questions about the approach rather than any one Step's code, shown with the Brief where the Reviewer judges the approach. A question about a Step's code belongs on that Step instead"`
+	// QuestionStatuses sits apart from Dispositions: a question is the agent's
+	// own, so its statuses are not a Comment's.
+	QuestionStatuses []wireQuestionStatus `json:"question_statuses,omitempty" jsonschema:"When this is a Revision Round, or a replacement of one, one entry per Agent Question the previous round asked, answered or not, saying what you did with it. Omit when the previous round asked nothing"`
 }
 
 // InboxWire is the Reviewer's Inbox: every review the daemon holds that is not
@@ -274,6 +283,15 @@ func (w wireRound) toDomain() review.Round {
 		})
 	}
 
+	statuses := make([]review.QuestionAccount, 0, len(w.QuestionStatuses))
+	for _, s := range w.QuestionStatuses {
+		statuses = append(statuses, review.QuestionAccount{
+			QuestionID: s.QuestionID,
+			Status:     review.QuestionStatus(s.Status),
+			Response:   s.Response,
+		})
+	}
+
 	return review.Round{
 		Brief: review.Brief{
 			Goal:     w.Brief.Goal,
@@ -284,6 +302,8 @@ func (w wireRound) toDomain() review.Round {
 		Dispositions: dispositions,
 		Label:        w.Label,
 		Questions:    toQuestions(w.Questions),
+
+		QuestionStatuses: statuses,
 	}
 }
 

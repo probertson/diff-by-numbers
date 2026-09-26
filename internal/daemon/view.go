@@ -97,10 +97,23 @@ type QuestionWire struct {
 // Answered reports whether the Reviewer has answered the question.
 func (q QuestionWire) Answered() bool { return q.Answer != "" }
 
+// AccountedQuestionWire is an Agent Question of the previous round as a
+// Revision Round's Overview shows it: what was asked, what the Reviewer
+// answered, and what the agent did about it.
+type AccountedQuestionWire struct {
+	Question QuestionWire `json:"question"`
+	Status   string       `json:"status"`
+	Response string       `json:"response,omitempty"`
+}
+
+func toQuestionWire(question review.AgentQuestion) QuestionWire {
+	return QuestionWire{ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer}
+}
+
 func toQuestionWires(questions []review.AgentQuestion) []QuestionWire {
 	var out []QuestionWire
 	for _, question := range questions {
-		out = append(out, QuestionWire{ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer})
+		out = append(out, toQuestionWire(question))
 	}
 	return out
 }
@@ -161,6 +174,9 @@ type ViewWire struct {
 	// RoundQuestions are the Agent Questions asked on the Round, which the
 	// Overview shows with the Brief.
 	RoundQuestions []QuestionWire `json:"round_questions,omitempty"`
+	// AccountedQuestions are the previous round's Agent Questions, each with its
+	// Answer and the status the agent gave it.
+	AccountedQuestions []AccountedQuestionWire `json:"accounted_questions,omitempty"`
 	// Round is which round this is; PreviousRound the one it is compared with,
 	// 0 in a first round. SincePreviousRound says the code is shaded by what
 	// changed since then rather than since the merge-base.
@@ -317,6 +333,13 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Note:      comment.Note,
 			Location:  comment.Anchor.Location(),
 			Anchor:    comment.Anchor.Render(),
+		})
+	}
+	for _, accounted := range v.AccountedQuestions {
+		wire.AccountedQuestions = append(wire.AccountedQuestions, AccountedQuestionWire{
+			Question: toQuestionWire(accounted.Question),
+			Status:   string(accounted.Status),
+			Response: accounted.Response,
 		})
 	}
 	for _, w := range v.Withdrawn {

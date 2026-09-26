@@ -72,6 +72,9 @@ const (
 	RejectedNoPreviousRound RejectionReason = "no_previous_round"
 	// RejectedMalformedQuestion means an Agent Question is empty.
 	RejectedMalformedQuestion RejectionReason = "malformed_question"
+	// RejectedMalformedQuestionStatus means a Revision Round does not account for
+	// the previous round's Agent Questions correctly.
+	RejectedMalformedQuestionStatus RejectionReason = "malformed_question_status"
 	// RejectedNoSuchQuestion means an Answer names an Agent Question the Round on
 	// screen did not ask.
 	RejectedNoSuchQuestion RejectionReason = "no_such_question"
