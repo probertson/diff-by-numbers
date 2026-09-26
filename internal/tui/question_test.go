@@ -234,7 +234,7 @@ func TestTheConclusionScreenDoesNotPromiseTheEndWhenQuestionsWereAsked(t *testin
 	if strings.Contains(out, "completes the review") {
 		t.Errorf("a Round with questions is not concluded at Hand Off, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 Answer and 1 unanswered question for your agent") {
+	if !strings.Contains(out, "1 Agent Question answered and 1 unanswered for your agent") {
 		t.Errorf("expected the Answers counted for the agent, got:\n%s", out)
 	}
 }
@@ -245,7 +245,7 @@ func TestTheHandedOffScreenCountsAnswersAlongsideComments(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 Comment across 1 Step and 1 Answer are waiting for your agent") {
+	if !strings.Contains(out, "1 Comment across 1 Step and 1 Agent Question answered are waiting for your agent") {
 		t.Errorf("expected the Answer counted with the Comment, got:\n%s", out)
 	}
 }
@@ -256,7 +256,7 @@ func TestTheHandedOffScreenCountsAnswersWhenNoCommentWasRaised(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 unanswered question is waiting for your agent") {
+	if !strings.Contains(out, "1 Agent Question left unanswered is waiting for your agent") {
 		t.Errorf("expected the unanswered question counted, got:\n%s", out)
 	}
 }
@@ -547,5 +547,30 @@ func TestClearingACarriedOverAnswerSaysToWithdrawItInstead(t *testing.T) {
 	}
 	if status := saved.(model).status; !strings.Contains(status, "withdraw") {
 		t.Errorf("expected to be told to withdraw it instead, got %q", status)
+	}
+}
+
+func TestTheAgentQuestionCountReadsByWhatWasAnswered(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		answers []string
+		want    string
+	}{
+		{"all answered", []string{"3", "yes"}, "2 Agent Questions answered"},
+		{"none answered", []string{"", ""}, "2 Agent Questions left unanswered"},
+		{"some answered", []string{"3", "yes", ""}, "2 Agent Questions answered and 1 unanswered"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := concludingModel()
+			for i, answer := range tc.answers {
+				m.view.Questions = append(m.view.Questions, question(i+1, "?", answer))
+			}
+
+			out := flatten(m.conclusionView())
+
+			if !strings.Contains(out, tc.want+" for your agent") {
+				t.Errorf("expected %q, got:\n%s", tc.want, out)
+			}
+		})
 	}
 }

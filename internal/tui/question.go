@@ -72,18 +72,22 @@ func (m model) answerCounts() (answered, unanswered int) {
 	return answered, unanswered
 }
 
-// answerPhrases names what the Round's Agent Questions send the agent — so many
-// Answers, so many unanswered — each only when there are some.
+// answerPhrases names what the Round's Agent Questions send the agent, by what
+// the Reviewer did with them: "2 Agent Questions answered and 1 unanswered",
+// "2 Agent Questions answered", or "2 Agent Questions left unanswered". It is
+// a list of one, or none when the Round asked nothing, so a caller can join it
+// with the Comments.
 func (m model) answerPhrases() []string {
 	answered, unanswered := m.answerCounts()
-	var phrases []string
-	if answered > 0 {
-		phrases = append(phrases, pluralize(answered, "Answer"))
+	switch {
+	case answered > 0 && unanswered > 0:
+		return []string{fmt.Sprintf("%s answered and %d unanswered", pluralize(answered, "Agent Question"), unanswered)}
+	case answered > 0:
+		return []string{pluralize(answered, "Agent Question") + " answered"}
+	case unanswered > 0:
+		return []string{pluralize(unanswered, "Agent Question") + " left unanswered"}
 	}
-	if unanswered > 0 {
-		phrases = append(phrases, pluralize(unanswered, "unanswered question"))
-	}
-	return phrases
+	return nil
 }
 
 // askedWhere names where a question was asked: on a Step, or with the Brief
