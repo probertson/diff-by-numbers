@@ -71,9 +71,45 @@ func waitLine(answer daemon.WaitWire) string {
 	case daemon.WaitUnknown:
 		return fmt.Sprintf("Review %s is no longer known to dbn; the daemon was probably restarted. Tell the Reviewer.", id)
 	}
-	comments := fmt.Sprintf("%d Comments", answer.Comments)
-	if answer.Comments == 1 {
-		comments = "1 Comment"
+	// Something was raised: Comments, Agent Questions, or both. What each count
+	// names is only said when there is some of it.
+	var raised, work []string
+	if answer.Comments > 0 {
+		raised = append(raised, counted(answer.Comments, "Comment", "Comments"))
+		work = append(work, "Comments")
 	}
-	return fmt.Sprintf("%s was handed off with %s. Call fetch_results with review_id %s, work the Comments, then post a Revision Round.", review, comments, id)
+	if answer.Answers > 0 {
+		raised = append(raised, counted(answer.Answers, "Answer", "Answers"))
+	}
+	if answer.Unanswered > 0 {
+		raised = append(raised, counted(answer.Unanswered, "unanswered question", "unanswered questions"))
+	}
+	if answer.Answers+answer.Unanswered > 0 {
+		work = append(work, "questions")
+	}
+	// Every question answered and nothing else raised is the one Hand Off the
+	// agent may end the review from: only it can tell whether an Answer calls
+	// for a change (ADR-0017).
+	if answer.Comments == 0 && answer.Unanswered == 0 {
+		return fmt.Sprintf("%s was handed off with %s. Call fetch_results with review_id %s and read them: conclude if no Answer calls for a change, otherwise post a Revision Round.",
+			review, listed(raised), id)
+	}
+	return fmt.Sprintf("%s was handed off with %s. Call fetch_results with review_id %s, work the %s, then post a Revision Round.",
+		review, listed(raised), id, listed(work))
+}
+
+// counted says how many of something there are, in the singular for one.
+func counted(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// listed reads a list as a phrase: "a", "a and b", "a, b and c".
+func listed(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }

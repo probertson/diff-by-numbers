@@ -117,6 +117,8 @@ type StepView struct {
 	OversizeJustification string
 	Excerpts              []ExcerptView
 	Acknowledgements      []AcknowledgementView
+	// Questions are the Agent Questions asked about this Step's code.
+	Questions []AgentQuestion
 }
 
 // Coverage is the live progress the Reviewer sees: how many Changed Lines the
@@ -152,6 +154,7 @@ type ViewModel struct {
 	// StepStatuses[i] is the derived disposition of Step i+1.
 	StepStatuses []StepStatus
 	Comments     []Comment
+	Questions    []AgentQuestion // every Agent Question of the Round, answered or not
 	Finished     bool
 	// Concluded reports whether the review loop is over — finished having raised
 	// nothing, or ended explicitly. It lets the finished screen tell "a Revision
@@ -208,6 +211,7 @@ func (s *Session) View() ViewModel {
 		Seen:         s.seenFlags(),
 		StepStatuses: s.stepStatuses(),
 		Comments:     s.Comments(),
+		Questions:    s.Questions(),
 		Finished:     s.finished,
 		Concluded:    s.isConcluded(),
 		Dismissed:    s.dismissed,
@@ -244,6 +248,7 @@ func (s *Session) stepView(position int) *StepView {
 		OversizeJustification: step.OversizeJustification,
 		Excerpts:              excerpts,
 		Acknowledgements:      acknowledgements,
+		Questions:             s.questionsOnStep(position),
 	}
 }
 

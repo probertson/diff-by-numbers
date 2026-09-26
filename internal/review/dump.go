@@ -31,6 +31,9 @@ func (s *Session) Dump() string {
 		if step.OversizeJustification != "" {
 			fmt.Fprintf(&out, "    oversized because: %s\n", step.OversizeJustification)
 		}
+		for _, question := range step.Questions {
+			fmt.Fprintf(&out, "    asks: %s\n", question.Text)
+		}
 		for _, excerpt := range step.Excerpts {
 			fmt.Fprintf(&out, "    %s %s:%d-%d (%s side)\n",
 				excerpt.Repository, excerpt.File, excerpt.FirstLine, excerpt.LastLine, excerpt.Side)

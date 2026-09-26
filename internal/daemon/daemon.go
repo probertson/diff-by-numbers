@@ -464,6 +464,28 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	}))
 
+	// An Answer is put rather than posted: answering again replaces it, and an
+	// empty one clears it.
+	mux.HandleFunc("PUT /reviews/{review}/answer/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "id must be a number", http.StatusBadRequest)
+			return
+		}
+		var req struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad answer", http.StatusBadRequest)
+			return
+		}
+		if err := d.locked(func() error { return session.AnswerQuestion(id, req.Answer) }); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}))
+
 	mux.HandleFunc("DELETE /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
@@ -945,8 +967,8 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 		message = "the Reviewer dismissed this review — it is over, and a Revision Round of it will be refused. Anything they raised before dismissing it is below; post new work as a new review"
 	case review.HandedOffNothingRaised:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
-	case review.HandedOffWithComments:
-		message = "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
+	case review.HandedOffWithSomethingRaised:
+		message = handedOffMessage(results)
 	default:
 		if results.Posted {
 			message = "the Reviewer has not handed off the Round yet"
@@ -954,6 +976,29 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 	}
 
 	return nil, toFetchResult(results, message), nil
+}
+
+// handedOffMessage tells the agent what to do with a Hand Off that left it
+// something to read. A Round that asked nothing reads as it always has.
+func handedOffMessage(results review.Results) string {
+	answered, unanswered := review.CountAnswers(results.Questions)
+	if len(results.Questions) == 0 {
+		return "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
+	}
+	if len(results.Comments) == 0 && unanswered == 0 {
+		return "the Reviewer has handed off and answered every Agent Question below. If no Answer calls for a change, conclude the review; otherwise make the changes and post a Revision Round"
+	}
+	var work []string
+	if len(results.Comments) > 0 {
+		work = append(work, "respond to each Comment (make the change, answer the question, or decline)")
+	}
+	if answered > 0 {
+		work = append(work, "act on each Answer to your Agent Questions")
+	}
+	if unanswered > 0 {
+		work = append(work, "go ahead on your own judgment where a question went unanswered, or ask it again")
+	}
+	return "the Reviewer has handed off; " + strings.Join(work, ", ") + ", then post a Revision Round"
 }
 
 // refuseUnnamedFetch answers a fetch that named no review: it lists what is

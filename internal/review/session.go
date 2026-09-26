@@ -20,6 +20,8 @@ type Results struct {
 	// told only "dismissed" would have nothing to act on.
 	Dismissed bool
 	Comments  []Comment
+	// Questions are the Round's Agent Questions, each with its Answer or none.
+	Questions []AgentQuestion
 	// Brief and StepReports let the agent re-ground itself when it comes to work
 	// the Comments, since its own context may have moved on or been
 	// compacted since it posted (ADR-0008).
@@ -44,6 +46,7 @@ type Session struct {
 	seen          map[int]bool
 	comments      []Comment
 	nextCommentID int
+	questions     []AgentQuestion // the Round's Agent Questions, with what the Reviewer answered
 	finished      bool
 	// latest is the accepted round on screen: its Round, which its code is read
 	// from, and the atoms it showed. It is what the next Revision Round is scoped
@@ -367,6 +370,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 		s.comments = nil
 		s.nextCommentID = 0
 	}
+	s.questions = askedIn(w.Steps, 0)
 
 	// The Session's first Round mints the Review's id, which then never changes,
 	// and takes the Round's label as given; a later posting only updates the
@@ -497,6 +501,7 @@ func (s *Session) Results() (Results, error) {
 		Finished:    s.finished,
 		Dismissed:   s.dismissed,
 		Comments:    s.Comments(),
+		Questions:   s.Questions(),
 		Brief:       s.current.Brief,
 		StepReports: reports,
 	}, nil

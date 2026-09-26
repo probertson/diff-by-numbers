@@ -100,6 +100,9 @@ type Step struct {
 	// OversizeJustification is required only when a Step exceeds the size
 	// budget. dbn never forbids a large Step, it only demands a reason.
 	OversizeJustification string
+	// Questions are the Agent Questions the agent asks about this Step's code,
+	// shown at the top of the Step apart from its Explanation (ADR-0017).
+	Questions []Question
 }
 
 // Repository is one repository's contribution to a Change Set, carrying its own

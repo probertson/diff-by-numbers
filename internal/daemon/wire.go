@@ -39,6 +39,11 @@ type wireStep struct {
 	Excerpts              []wireExcerpt         `json:"excerpts,omitempty" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself. A Step needs at least one Excerpt or one Acknowledgement"`
 	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes are mechanical and covered without reading, in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
 	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"A last resort: why this Step cannot be split below the size budget. Before giving one, split an oversized Step by idea into smaller Steps; justify only a Step whose idea genuinely does not divide. dbn never refuses a justified Step"`
+	Questions             []wireQuestion        `json:"questions,omitempty" jsonschema:"Agent Questions about this Step's code: decisions or judgments you need from the Reviewer before going on, shown at the top of the Step apart from the explanation. Ask only what the Reviewer must decide, never 'does this look OK?', and write each so it can be answered from this Step and the Steps before it. The Reviewer answers in free text; a Round that asks anything is never concluded at Hand Off"`
+}
+
+type wireQuestion struct {
+	Text string `json:"text" jsonschema:"The question, answerable from its Step and the Steps before it"`
 }
 
 type wireRepository struct {
@@ -178,6 +183,18 @@ type commentWire struct {
 	CarriedOver  bool `json:"carried_over,omitempty" jsonschema:"Set when the Comment was raised on a Round you since replaced in place. Its step is 0, since that Round's Steps are gone; its anchor still quotes the code it was raised on"`
 }
 
+// questionWire is an Agent Question as fetch_results returns it: what was asked
+// and what the Reviewer answered, or that they did not.
+type questionWire struct {
+	ID       int    `json:"id"`
+	Step     int    `json:"step" jsonschema:"The Step number the question was asked on"`
+	Question string `json:"question"`
+	Answer   string `json:"answer,omitempty" jsonschema:"What the Reviewer answered, in free text"`
+	// Unanswered is set rather than left to an empty answer, so the agent never
+	// reads silence as agreement.
+	Unanswered bool `json:"unanswered,omitempty" jsonschema:"Set when the Reviewer handed off without answering. It is not agreement: go ahead on your own judgment and say what you chose, or ask again"`
+}
+
 type stepReportWire struct {
 	Number int    `json:"number"`
 	Name   string `json:"name"`
@@ -208,6 +225,7 @@ type fetchResult struct {
 	Goal      string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
 	Approach  string           `json:"approach"`
 	Comments  []commentWire    `json:"comments"`
+	Questions []questionWire   `json:"questions,omitempty" jsonschema:"Every Agent Question you asked this round, with the Reviewer's Answer or marked unanswered"`
 	Steps     []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
 	Problems  []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
 	// OpenReviews is filled only when a fetch named no review: it is how an agent
@@ -242,6 +260,7 @@ func (w wireRound) toDomain() review.Round {
 			Excerpts:              excerpts,
 			Acknowledgements:      acknowledgements,
 			OversizeJustification: s.OversizeJustification,
+			Questions:             toQuestions(s.Questions),
 		})
 	}
 
@@ -266,6 +285,14 @@ func (w wireRound) toDomain() review.Round {
 	}
 }
 
+func toQuestions(wires []wireQuestion) []review.Question {
+	var out []review.Question
+	for _, q := range wires {
+		out = append(out, review.Question{Text: q.Text})
+	}
+	return out
+}
+
 func toFetchResult(r review.Results, message string) fetchResult {
 	out := fetchResult{
 		Posted:    r.Posted,
@@ -285,6 +312,15 @@ func toFetchResult(r review.Results, message string) fetchResult {
 
 			ReRaisedFrom: comment.ReRaisedFrom,
 			CarriedOver:  comment.CarriedOver,
+		})
+	}
+	for _, question := range r.Questions {
+		out.Questions = append(out.Questions, questionWire{
+			ID:         question.ID,
+			Step:       question.Step,
+			Question:   question.Text,
+			Answer:     question.Answer,
+			Unanswered: !question.Answered(),
 		})
 	}
 	for _, sr := range r.StepReports {

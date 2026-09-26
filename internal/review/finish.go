@@ -94,11 +94,13 @@ func (s *Session) isConcluded() bool {
 }
 
 // raisedNothing reports whether the Round on screen leaves the Authoring Agent
-// nothing to read: no Comment raised. It is the one place that is decided, so
-// the inferred conclusion, the Round's outcome and what the agent is told all
-// agree on it.
+// nothing to read: no Comment raised, and no Agent Question asked. A question
+// counts whether or not it was answered: an Answer may call for a change, which
+// must be reviewed like any other, and one left unanswered is still the agent's
+// to act on (ADR-0017). It is the one place that is decided, so the inferred
+// conclusion, the Round's outcome and what the agent is told all agree on it.
 func (s *Session) raisedNothing() bool {
-	return len(s.comments) == 0
+	return len(s.comments) == 0 && len(s.questions) == 0
 }
 
 // Open describes the review this Session holds, for a surface listing what the
@@ -131,8 +133,9 @@ type RoundOutcome string
 const (
 	// NoOutcomeYet is a Round still with the Reviewer.
 	NoOutcomeYet RoundOutcome = ""
-	// HandedOffWithComments is a Hand Off with Comments for the agent to work.
-	HandedOffWithComments RoundOutcome = "handed_off"
+	// HandedOffWithSomethingRaised is a Hand Off with something for the agent to
+	// read: Comments to work, or Answers to its Agent Questions.
+	HandedOffWithSomethingRaised RoundOutcome = "handed_off"
 	// HandedOffNothingRaised is a Hand Off with nothing raised, which concludes
 	// the review.
 	HandedOffNothingRaised RoundOutcome = "concluded"
@@ -154,7 +157,7 @@ func (s *Session) Outcome() RoundOutcome {
 	case s.raisedNothing():
 		return HandedOffNothingRaised
 	}
-	return HandedOffWithComments
+	return HandedOffWithSomethingRaised
 }
 
 // Concluded reports whether the posted review is over. It is false when nothing

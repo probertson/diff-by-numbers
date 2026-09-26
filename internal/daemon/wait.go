@@ -23,8 +23,12 @@ type WaitWire struct {
 	Event    string `json:"event"`
 	ReviewID string `json:"review_id"`
 	Label    string `json:"label,omitempty"`
-	// Comments is how many the Reviewer raised, for a Hand Off.
-	Comments int `json:"comments"`
+	// Comments is how many the Reviewer raised, for a Hand Off. Answers and
+	// Unanswered count the Round's Agent Questions the Reviewer did and did not
+	// answer.
+	Comments   int `json:"comments"`
+	Answers    int `json:"answers,omitempty"`
+	Unanswered int `json:"unanswered,omitempty"`
 }
 
 // The events that end a wait. A Hand Off with Comments is the one left over.
@@ -121,11 +125,14 @@ func (d *Daemon) waitAnswer(id string) WaitWire {
 			listening.told = true
 		}
 	}
+	answered, unanswered := review.CountAnswers(session.Questions())
 	return WaitWire{
-		Event:    string(event),
-		ReviewID: id,
-		Label:    session.Label(),
-		Comments: len(session.Comments()),
+		Event:      string(event),
+		ReviewID:   id,
+		Label:      session.Label(),
+		Comments:   len(session.Comments()),
+		Answers:    answered,
+		Unanswered: unanswered,
 	}
 }
 

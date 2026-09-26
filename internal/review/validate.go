@@ -67,6 +67,9 @@ func validateSteps(steps []Step, changeSet ChangeSet) *Rejection {
 			return reject(RejectedMalformedStep,
 				"Step %d shows nothing: it has neither an Excerpt nor an Acknowledgement", position)
 		}
+		if rejection := validateQuestions(step.Questions, fmt.Sprintf("Step %d", position)); rejection != nil {
+			return rejection
+		}
 		for j, excerpt := range step.Excerpts {
 			if rejection := validateExcerpt(excerpt, position, j+1, changeSet); rejection != nil {
 				return rejection

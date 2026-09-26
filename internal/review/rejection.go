@@ -70,6 +70,11 @@ const (
 	// RejectedNoPreviousRound means the Reviewer asked to compare a first round
 	// with the round before it, which does not exist.
 	RejectedNoPreviousRound RejectionReason = "no_previous_round"
+	// RejectedMalformedQuestion means an Agent Question is empty.
+	RejectedMalformedQuestion RejectionReason = "malformed_question"
+	// RejectedNoSuchQuestion means an Answer names an Agent Question the Round on
+	// screen did not ask.
+	RejectedNoSuchQuestion RejectionReason = "no_such_question"
 	// RejectedAlreadyReRaised means a resolution the Reviewer disputed already has
 	// a Comment standing against it this round, so re-raising again would only
 	// send the agent the same point twice.

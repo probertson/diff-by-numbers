@@ -288,6 +288,9 @@ type model struct {
 	// before the hand-off. Zero value modeReview, as above.
 	reraiseReturn mode
 	reraiseCursor int // selected row among the resolutions still open to push-back
+	// questionCursor is the selected row among the Agent Questions offered to
+	// answer.
+	questionCursor int
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -333,6 +336,7 @@ const (
 	modeDone                   // the hand-off summary
 	modeReraise                // choosing a declined Comment to re-raise
 	modeConclusion             // reached by advancing past the last Step: the pre-hand-off on-ramp
+	modeQuestions              // choosing which of several Agent Questions to answer
 	// modeInbox is the window's home: every review the daemon holds, to pick
 	// from. It is last so the zero value stays modeReview, which several
 	// "where does leaving here go" fields rely on.
@@ -489,6 +493,20 @@ func (c client) raiseComment(run selectedRun, note string) bool {
 func (c client) editComment(id int, note string) bool {
 	body, _ := json.Marshal(map[string]any{"note": note})
 	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/comment/%d", c.url(""), id), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// answerQuestion puts the Reviewer's Answer to an Agent Question; an empty one
+// clears it.
+func (c client) answerQuestion(id int, answer string) bool {
+	body, _ := json.Marshal(map[string]any{"answer": answer})
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/answer/%d", c.url(""), id), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -890,6 +908,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateList(key)
 		case modeReraise:
 			return m.updateReraise(key)
+		case modeQuestions:
+			return m.updateQuestions(key)
 		case modeConclusion:
 			return m.updateConclusion(key)
 		case modeDone:
@@ -958,6 +978,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "h", "H":
 			return m.handOff()
+		case "a":
+			return m.answer()
 		}
 
 		if m.inStep() {
@@ -1481,6 +1503,9 @@ func (m model) View() string {
 	case modeReraise:
 		body = m.reraiseView()
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
+	case modeQuestions:
+		body = m.questionsView()
+		persistent = keybar("↑/↓ move", "enter answer", "<esc> back")
 	case modeConclusion:
 		body = m.conclusionView()
 		persistent = keybar("← back", "g Overview", "l list", "h hand off", "i inbox", "q exit")
@@ -1620,6 +1645,9 @@ func (m model) modeKeys() string {
 		return keybar("↑/↓ extend", "y copy", "c comment", m.wrapToggleKey(), "<esc> stop selecting")
 	}
 	tokens := []string{"↑/↓ move"}
+	if len(m.view.Step.Questions) > 0 {
+		tokens = append(tokens, "a answer")
+	}
 	line := m.cursor.lines[m.cursor.cursor]
 	if line.kind == kindCode {
 		tokens = append(tokens, "<space>/v select", "y copy", "c comment")
@@ -1927,11 +1955,18 @@ func (m model) commentsWaitingCallOut() string {
 	if flagged > 0 {
 		count += " across " + pluralize(flagged, "Step")
 	}
+	var waiting []string
+	answers := m.answerPhrases()
+	if raised > 0 || len(answers) == 0 {
+		waiting = append(waiting, count)
+	}
+	waiting = append(waiting, answers...)
+	answered, unanswered := m.answerCounts()
 	verb := "are"
-	if raised == 1 {
+	if raised+answered+unanswered == 1 {
 		verb = "is"
 	}
-	return fmt.Sprintf("%s %s waiting for your agent. %s", count, verb, m.agentTellLine())
+	return fmt.Sprintf("%s %s waiting for your agent. %s", andList(waiting), verb, m.agentTellLine())
 }
 
 // agentTellLine says whether the Reviewer still has to tell their agent they
@@ -1991,9 +2026,16 @@ func (m model) conclusionView() string {
 		// mid-sentence: it is the one thing that must register before the hand-off
 		// (#74). With nothing raised the hand-off is simply the end, and the
 		// invitation to look over what you raised goes with the count.
+		// Agent Questions go back whether answered or not, so a Round that asked
+		// any is never the end of the review at Hand Off (ADR-0017).
 		raised := len(m.view.Comments)
+		var forAgent []string
 		if raised > 0 {
-			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n\n")
+			forAgent = append(forAgent, pluralize(raised, "Comment"))
+		}
+		forAgent = append(forAgent, m.answerPhrases()...)
+		if len(forAgent) > 0 {
+			b.WriteString(accentSt.Render(andList(forAgent)+" for your agent") + "\n\n")
 		} else {
 			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
 		}
@@ -2565,6 +2607,9 @@ func (m model) step() string {
 	b.WriteString(step.Explanation + "\n")
 	if step.OversizeJustification != "" {
 		b.WriteString("\n" + warnSt.Render("oversized: ") + step.OversizeJustification + "\n")
+	}
+	if len(step.Questions) > 0 {
+		b.WriteString("\n" + questionBlock(step.Questions, m.width) + "\n")
 	}
 
 	for _, excerpt := range step.Excerpts {

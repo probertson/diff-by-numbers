@@ -82,6 +82,27 @@ type StepWire struct {
 	OversizeJustification string                `json:"oversize_justification,omitempty"`
 	Excerpts              []ExcerptWire         `json:"excerpts"`
 	Acknowledgements      []AcknowledgementWire `json:"acknowledgements,omitempty"`
+	Questions             []QuestionWire        `json:"questions,omitempty"`
+}
+
+// QuestionWire is an Agent Question as the TUI draws it, with the Reviewer's
+// Answer so far.
+type QuestionWire struct {
+	ID     int    `json:"id"`
+	Step   int    `json:"step"`
+	Text   string `json:"text"`
+	Answer string `json:"answer,omitempty"`
+}
+
+// Answered reports whether the Reviewer has answered the question.
+func (q QuestionWire) Answered() bool { return q.Answer != "" }
+
+func toQuestionWires(questions []review.AgentQuestion) []QuestionWire {
+	var out []QuestionWire
+	for _, question := range questions {
+		out = append(out, QuestionWire{ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer})
+	}
+	return out
 }
 
 type BriefWire struct {
@@ -124,6 +145,7 @@ type ViewWire struct {
 	Seen         []bool            `json:"seen"`
 	StepStatuses []string          `json:"step_statuses"`
 	Comments     []CommentWire     `json:"comments"`
+	Questions    []QuestionWire    `json:"questions,omitempty"`
 	Finished     bool              `json:"finished"`
 	Concluded    bool              `json:"concluded"`
 	Dispositions []DispositionWire `json:"dispositions,omitempty"`
@@ -255,6 +277,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Dismissed: v.Dismissed,
 		Replaced:  v.Replaced,
 
+		Questions: toQuestionWires(v.Questions),
+
 		Round:                  v.Round,
 		PreviousRound:          v.PreviousRound,
 		SincePreviousRound:     v.SincePreviousRound,
@@ -302,6 +326,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Name:                  v.Step.Name,
 			Explanation:           v.Step.Explanation,
 			OversizeJustification: v.Step.OversizeJustification,
+			Questions:             toQuestionWires(v.Step.Questions),
 		}
 		if len(v.Step.Excerpts) > 0 {
 			step.Excerpts = toExcerptWires(v.Step.Excerpts)

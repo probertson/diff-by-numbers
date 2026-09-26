@@ -224,6 +224,67 @@ func TestAWaitEndsWhenTheReviewerHandsOffWithComments(t *testing.T) {
 	}
 }
 
+// asking is roundOver with Agent Questions on its one Step.
+func asking(root string, extra map[string]any, questions ...string) map[string]any {
+	round := roundOver(root, extra)
+	var asked []any
+	for _, text := range questions {
+		asked = append(asked, map[string]any{"text": text})
+	}
+	round["steps"].([]any)[0].(map[string]any)["questions"] = asked
+	return round
+}
+
+// answerQuestion puts the Reviewer's Answer to an Agent Question.
+func answerQuestion(t *testing.T, baseURL, id string, question int, text string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"answer": text})
+	request, err := http.NewRequest(http.MethodPut, baseURL+"/reviews/"+id+"/answer/"+strconv.Itoa(question), bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("answering answered %s", response.Status)
+	}
+}
+
+func TestAWaitNamesAnswersAndUnansweredQuestionsAlongsideComments(t *testing.T) {
+	baseURL, port := daemonOn(t, daemon.New())
+	review := postOver(t, baseURL, asking(reviewRepo(t), map[string]any{"label": "auth refactor"}, "3 or 5?", "keep the name?"))
+	wait := startWait(t, port, review.ReviewID)
+	raise(t, baseURL, review.ReviewID, "rename this")
+	answerQuestion(t, baseURL, review.ReviewID, 1, "3")
+
+	reviewer(t, baseURL, review.ReviewID, "finish", nil)
+
+	want := "Review " + review.ReviewID + " (auth refactor) was handed off with 1 Comment, 1 Answer and 1 unanswered question. " +
+		"Call fetch_results with review_id " + review.ReviewID + ", work the Comments and questions, then post a Revision Round.\n"
+	if got := wait.line(t); got != want {
+		t.Errorf("expected\n%q\ngot\n%q", want, got)
+	}
+}
+
+func TestAWaitOnAnsweredQuestionsLeavesTheAgentToConcludeOrRevise(t *testing.T) {
+	baseURL, port := daemonOn(t, daemon.New())
+	review := postOver(t, baseURL, asking(reviewRepo(t), map[string]any{"label": "auth refactor"}, "3 or 5?", "keep the name?"))
+	wait := startWait(t, port, review.ReviewID)
+	answerQuestion(t, baseURL, review.ReviewID, 1, "3")
+	answerQuestion(t, baseURL, review.ReviewID, 2, "yes")
+
+	reviewer(t, baseURL, review.ReviewID, "finish", nil)
+
+	want := "Review " + review.ReviewID + " (auth refactor) was handed off with 2 Answers. " +
+		"Call fetch_results with review_id " + review.ReviewID + " and read them: conclude if no Answer calls for a change, otherwise post a Revision Round.\n"
+	if got := wait.line(t); got != want {
+		t.Errorf("expected\n%q\ngot\n%q", want, got)
+	}
+}
+
 func TestAWaitEndsWhenTheReviewerHandsOffWithNothingRaised(t *testing.T) {
 	baseURL, port := daemonOn(t, daemon.New())
 	review := postOver(t, baseURL, roundOver(reviewRepo(t), map[string]any{"label": "auth refactor"}))

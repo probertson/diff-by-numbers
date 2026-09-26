@@ -484,6 +484,12 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		// was dropped when the terminal reflowed it.
 		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrap(step.OversizeJustification)+"\n")
 	}
+	// Agent Questions come after the Explanation, which gives them their
+	// context, and before the code, which the Reviewer would otherwise read the
+	// question past. The pane below is sized from what this header leaves.
+	if len(step.Questions) > 0 {
+		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, width)+"\n")
+	}
 
 	// A file edited since the round was posted is still shown as posted, which is
 	// what the explanation was written against, so the code stays and the
