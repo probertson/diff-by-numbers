@@ -234,7 +234,7 @@ func TestTheConclusionScreenDoesNotPromiseTheEndWhenQuestionsWereAsked(t *testin
 	if strings.Contains(out, "completes the review") {
 		t.Errorf("a Round with questions is not concluded at Hand Off, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 Agent Question answered and 1 unanswered for your agent") {
+	if !strings.Contains(out, "1 agent question answered and 1 unanswered for your agent") {
 		t.Errorf("expected the Answers counted for the agent, got:\n%s", out)
 	}
 }
@@ -245,7 +245,7 @@ func TestTheHandedOffScreenCountsAnswersAlongsideComments(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 Comment across 1 Step and 1 Agent Question answered are waiting for your agent") {
+	if !strings.Contains(out, "1 Comment across 1 Step and 1 agent question answered are waiting for your agent") {
 		t.Errorf("expected the Answer counted with the Comment, got:\n%s", out)
 	}
 }
@@ -256,7 +256,7 @@ func TestTheHandedOffScreenCountsAnswersWhenNoCommentWasRaised(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 Agent Question left unanswered is waiting for your agent") {
+	if !strings.Contains(out, "1 agent question left unanswered is waiting for your agent") {
 		t.Errorf("expected the unanswered question counted, got:\n%s", out)
 	}
 }
@@ -556,9 +556,9 @@ func TestTheAgentQuestionCountReadsByWhatWasAnswered(t *testing.T) {
 		answers []string
 		want    string
 	}{
-		{"all answered", []string{"3", "yes"}, "2 Agent Questions answered"},
-		{"none answered", []string{"", ""}, "2 Agent Questions left unanswered"},
-		{"some answered", []string{"3", "yes", ""}, "2 Agent Questions answered and 1 unanswered"},
+		{"all answered", []string{"3", "yes"}, "2 agent questions answered"},
+		{"none answered", []string{"", ""}, "2 agent questions left unanswered"},
+		{"some answered", []string{"3", "yes", ""}, "2 agent questions answered and 1 unanswered"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := concludingModel()

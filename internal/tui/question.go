@@ -73,19 +73,20 @@ func (m model) answerCounts() (answered, unanswered int) {
 }
 
 // answerPhrases names what the Round's Agent Questions send the agent, by what
-// the Reviewer did with them: "2 Agent Questions answered and 1 unanswered",
-// "2 Agent Questions answered", or "2 Agent Questions left unanswered". It is
+// the Reviewer did with them: "2 agent questions answered and 1 unanswered",
+// "2 agent questions answered", or "2 agent questions left unanswered". It is
 // a list of one, or none when the Round asked nothing, so a caller can join it
-// with the Comments.
+// with the Comments. It is lower case: the Reviewer reads it, and "Agent
+// Question" capitalised is the glossary's term, not theirs.
 func (m model) answerPhrases() []string {
 	answered, unanswered := m.answerCounts()
 	switch {
 	case answered > 0 && unanswered > 0:
-		return []string{fmt.Sprintf("%s answered and %d unanswered", pluralize(answered, "Agent Question"), unanswered)}
+		return []string{fmt.Sprintf("%s answered and %d unanswered", pluralize(answered, "agent question"), unanswered)}
 	case answered > 0:
-		return []string{pluralize(answered, "Agent Question") + " answered"}
+		return []string{pluralize(answered, "agent question") + " answered"}
 	case unanswered > 0:
-		return []string{pluralize(unanswered, "Agent Question") + " left unanswered"}
+		return []string{pluralize(unanswered, "agent question") + " left unanswered"}
 	}
 	return nil
 }
