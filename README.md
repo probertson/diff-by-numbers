@@ -132,19 +132,36 @@ npx skills add probertson/diff-by-numbers/skills/dbn-review
 ```
 
 **As a Claude Code plugin**
-```sh
-# Add marketplace, one time
+
+In a Claude Code session:
+```
 /plugin marketplace add probertson/diff-by-numbers
 /plugin install dbn@diff-by-numbers
 ```
+(`/plugin install` opens the plugin panel on dbn, where you choose a scope to install it.)
 
-Third-party marketplaces do not auto-update by default, so the plugin will not
-follow dbn on its own: run `/plugin update dbn@diff-by-numbers` after upgrading
-dbn, or turn auto-update on for the marketplace. `dbn update` checks the copies
-it can find and tells you when one has fallen behind.
+Or from a terminal:
+```sh
+claude plugin marketplace add probertson/diff-by-numbers
+claude plugin install dbn@diff-by-numbers
+```
 
 The skill teaches Step sizing and narrative ordering, what goes in the Brief, when an
 Acknowledgement is appropriate, and how to run the collect-and-revise loop.
+
+#### Optional: auto-update the plugin
+
+The plugin does not auto-update by default. (Claude Code sets auto-update to
+"off" for third-party marketplaces by default.) To enable auto-updating for the
+diff-by-numbers plugin/skill:
+
+1. `/plugin` — open the plugin panel
+2. Switch to the "Marketplaces" tab
+3. Choose "diff-by-numbers"
+4. Choose "Enable auto-update"
+
+Otherwise, `dbn update` will tell you when your skill is out of date with the
+dbn you installed, and how to update it.
 
 ### 3. (Optional) Keep the daemon always running
 

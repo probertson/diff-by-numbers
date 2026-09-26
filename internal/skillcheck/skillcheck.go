@@ -31,7 +31,7 @@ type Config struct {
 // skill directory, is invisible to it, so it always says this much rather than
 // implying the copies it did check were all of them.
 const genericReminder = "Installed the dbn-review skill for another agent or in a project? " +
-	"Update it the way you installed it (e.g. npx skills add probertson/diff-by-numbers/skills/dbn-review)."
+	"Update it the way you installed it (e.g. `npx skills add probertson/diff-by-numbers/skills/dbn-review`)."
 
 // Report writes what it found about the installed dbn-review skills. It never
 // fails: a missing, malformed or unreadable install is skipped, because a
@@ -39,16 +39,23 @@ const genericReminder = "Installed the dbn-review skill for another agent or in 
 func Report(cfg Config, out io.Writer) {
 	// One line however many scopes the plugin is installed at: they are all
 	// updated by the same command, so saying it twice would only be noise.
+	//
+	// The command is the terminal one, since the Reviewer is at a terminal
+	// running `dbn update`. In a session, /plugin update only opens the plugin
+	// panel (#127). Updated from a terminal, a session already open is not told
+	// its skill changed, so it needs /reload-plugins; a new one loads it anyway.
+	// Every command printed here is in backticks, so it reads as one to copy.
 	for _, path := range pluginSkillPaths(cfg.Home) {
 		if matches, known := compare(path, cfg.Embedded); known && !matches {
 			fmt.Fprintln(out, "Your dbn-review skill (Claude Code plugin) is out of date: "+
-				"run /plugin update dbn@diff-by-numbers")
+				"run `claude plugin update dbn@diff-by-numbers`, "+
+				"then `/reload-plugins` in any Claude Code session that's already open.")
 			break
 		}
 	}
 	if matches, known := compare(userSkillPath(cfg.Home), cfg.Embedded); known && !matches {
 		fmt.Fprintln(out, "Your dbn-review skill (~/.claude/skills) is out of date: "+
-			"run npx skills add probertson/diff-by-numbers/skills/dbn-review")
+			"run `npx skills add probertson/diff-by-numbers/skills/dbn-review`")
 	}
 	fmt.Fprintln(out, genericReminder)
 }

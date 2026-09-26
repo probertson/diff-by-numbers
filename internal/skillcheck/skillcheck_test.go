@@ -39,7 +39,7 @@ func TestAStaleUserSkillSaysHowToUpdateIt(t *testing.T) {
 
 	// Asserted as one string: the generic reminder also names the npx command,
 	// so a loose check on the command alone would pass without the finding.
-	if !strings.Contains(out, "is out of date: run npx skills add probertson/diff-by-numbers/skills/dbn-review") {
+	if !strings.Contains(out, "is out of date: run `npx skills add probertson/diff-by-numbers/skills/dbn-review`\n") {
 		t.Errorf("a stale user skill should say it is out of date and name the npx command:\n%s", out)
 	}
 }
@@ -63,8 +63,13 @@ func TestAStalePluginSaysHowToUpdateIt(t *testing.T) {
 
 	out := report(t, home)
 
-	if !strings.Contains(out, "is out of date: run /plugin update dbn@diff-by-numbers") {
-		t.Errorf("a stale plugin should name the /plugin update command:\n%s", out)
+	want := "Your dbn-review skill (Claude Code plugin) is out of date: run `claude plugin update dbn@diff-by-numbers`, " +
+		"then `/reload-plugins` in any Claude Code session that's already open.\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("a stale plugin should name the terminal update command and the reload:\n%s", out)
+	}
+	if strings.Contains(out, "run /plugin update") {
+		t.Errorf("/plugin update only opens the plugin panel in a session, so it must not be offered:\n%s", out)
 	}
 	if !strings.Contains(out, "Claude Code plugin") {
 		t.Errorf("a stale plugin should say which install it means:\n%s", out)
@@ -129,10 +134,10 @@ func TestAStalePluginAndAStaleUserSkillAreBothReported(t *testing.T) {
 
 	out := report(t, home)
 
-	if !strings.Contains(out, "/plugin update dbn@diff-by-numbers") {
+	if !strings.Contains(out, "`claude plugin update dbn@diff-by-numbers`") {
 		t.Errorf("the stale plugin should be reported:\n%s", out)
 	}
-	if !strings.Contains(out, "is out of date: run npx skills add") {
+	if !strings.Contains(out, "is out of date: run `npx skills add") {
 		t.Errorf("the stale user skill should be reported:\n%s", out)
 	}
 	if !strings.Contains(out, generic) {
@@ -185,5 +190,15 @@ func writeJSON(t *testing.T, path string, doc any) {
 	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTheGenericReminderQuotesItsCommand(t *testing.T) {
+	home := t.TempDir()
+
+	out := report(t, home)
+
+	if !strings.Contains(out, "(e.g. `npx skills add probertson/diff-by-numbers/skills/dbn-review`).") {
+		t.Errorf("every command dbn update prints is in backticks, the generic one included:\n%s", out)
 	}
 }

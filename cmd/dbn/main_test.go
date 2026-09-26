@@ -127,7 +127,7 @@ func TestSkillCheckReportsOnAStaleUserSkill(t *testing.T) {
 		t.Fatalf("dbn skill-check: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "is out of date: run npx skills add") {
+	if !strings.Contains(out.String(), "is out of date: run `npx skills add") {
 		t.Errorf("skill-check did not report the stale skill:\n%s", out.String())
 	}
 }
