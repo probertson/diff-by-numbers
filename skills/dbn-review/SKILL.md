@@ -9,8 +9,10 @@ dbn is a channel for you to walk a human through the code you just wrote, in an
 order that makes sense for review rather than the order git happens to print.
 You post one complete **Round**; the reviewer navigates it themselves in a
 side terminal and raises **Comments** (requests for a change, or questions); you
-collect those and post a **Revision Round**. You never block waiting — you post,
-end your turn, and pick the results up later.
+collect those and post a **Revision Round**. When you need the reviewer to decide
+something, you can put an **Agent Question** to them in the Round, and they answer
+it. You never block waiting — you post, end your turn, and pick the results up
+later.
 
 The dbn daemon exposes four MCP tools: `describe_changes`, `post_round`,
 `fetch_results`, and `conclude`. If they are not available, dbn's MCP server is
@@ -119,6 +121,34 @@ excerpt.
 **Keep Excerpts tight.** Give each group of related changes its own Excerpt,
 rather than one wide range across unrelated ones. Unchanged lines are there to
 give a change context, not to bridge from one change to the next.
+
+### Asking the reviewer a question
+
+When you need the reviewer to decide something before you go on — a trade-off you
+could take either way, a behaviour the goal leaves open — ask it as an **Agent
+Question**, not in an explanation. A question written into the narration reads
+like the rest of it, and a reviewer reading for the design can miss it. dbn shows
+an Agent Question apart, in its own block. It also marks it on the Overview,
+counts it until it is answered, and checks with the reviewer before they hand off
+without answering.
+
+- **Ask only for a decision or a judgment.** Never "does this look OK?" — the
+  whole review asks that. Never for something you should simply state in the
+  Brief.
+- **Attach it where it belongs.** A question about a Step's code goes in that
+  Step's `questions`; it is shown at the top of the Step, and only there. A
+  question about the approach goes in the Round's own `questions`, shown with the
+  Brief.
+- **Write it so it can be answered from its Step and the Steps before it.** The
+  reviewer reads a Step's question after the Steps leading up to it, never on the
+  Overview, so it can lean on them — but not on anything later, or on
+  conversation they were not part of.
+- **There is no cap, and restraint is what keeps questions noticed.** A Round that
+  asks about everything trains the reviewer to skim past the questions.
+
+The reviewer answers in free text, and "your call" is a real answer. A Round that
+asks anything is never concluded at Hand Off, answered or not: an Answer may call
+for a change, and only you can tell. See *Collecting feedback and revising*.
 
 ### The mechanics
 
@@ -244,6 +274,15 @@ carries the results — `fetch_results` is still where they are:
 
 - **"… was handed off with N Comments. Call fetch_results …"** — collect them
   and post a Revision Round, as below.
+- **"… was handed off with 1 Comment, 2 Answers and 1 unanswered question. Call
+  fetch_results with review_id …, work the Comments and questions, then post a
+  Revision Round."** — the round asked Agent Questions. The line names only what
+  there is: Comments, Answers, unanswered questions. Collect them and post a
+  Revision Round that accounts for each, as below.
+- **"… was handed off with 2 Answers. Call fetch_results with review_id … and read
+  them: conclude if no Answer calls for a change, otherwise post a Revision
+  Round."** — every question was answered and nothing else was raised. This is
+  not a conclusion: read the Answers and decide, as below.
 - **"… was handed off with nothing raised; the review is concluded. Call
   fetch_results …"** — call it: that releases the review, and the loop is over.
 - **"… was dismissed by the Reviewer. Call fetch_results …"** — call it to see
@@ -284,6 +323,33 @@ Use `answered` for a question, even one you could read as a request; use
 led you to change the code, that is `addressed`, with the answer as its
 `response`.
 
+**Agent Questions come back too.** `fetch_results` returns each question you
+asked, with its `answer`, or marked `unanswered`. An unanswered question is not
+agreement — the reviewer handed off without deciding. Give every one a status in
+`question_statuses`, with `question_id` and a `response`. dbn shows the reviewer
+each question, their Answer and your status before any code, so you need not
+restate them:
+
+- `addressed` — the Answer led you to change something. A `response` is optional.
+- `no_change_needed` — the Answer agreed with the code as it stood. A `response`
+  is optional.
+- `agents_call` — only for an unanswered question: you went ahead on your own
+  judgment. The `response` is required: what you chose.
+- `asked_again` — the question went unanswered, or its Answer cannot be acted on
+  as written. The `response` is required: why, or what is still unclear. Ask it
+  again as a new question in this Round with `asks_again` set to the old id, on
+  the Step whose code it now concerns, or on the Round. The reviewer sees the
+  earlier wording and Answer with it, so ask what is still open rather than
+  starting over.
+
+There is no `declined`. The reviewer was asked to decide, so you cannot overrule
+their Answer. If you cannot follow it, ask again and say why.
+
+**Concluding or revising after questions.** You may `conclude` only when there
+are no Comments and every question was answered with nothing for you to change.
+Anything else — a Comment, an Answer you acted on, an unanswered question — means
+a Revision Round, even if no code moved (see *When nothing moved*, below).
+
 An anchor whose first line says `file changed since this round was posted` was
 taken from code you edited after posting: its lines and line numbers are the ones
 the reviewer saw, not what is on disk now, so find the place by its code.
@@ -311,8 +377,11 @@ or a rename you have not re-touched since the last round needs **no second
 Acknowledgement**. Only what actually moved comes back.
 
 **When nothing moved.** If you changed no code since the last round — every
-Comment `answered` or `declined` — you still post the Revision Round, because it
-is what carries your dispositions to the reviewer; do not `conclude` instead.
+Comment `answered` or `declined`, every question `no_change_needed`, your call or
+asked again — you still post the Revision Round, because it is what carries your
+dispositions, statuses and any question asked again to the reviewer; do not
+`conclude` instead. The one exception is a round with no Comments whose every
+question was answered with nothing to change: there you conclude.
 dbn still needs at least one Step, and a Step must show something, so give it an
 Excerpt re-showing code the reviewer has already read: the code the dispositions
 are about is the natural choice. Already-read lines cost nothing against the
@@ -327,7 +396,8 @@ acknowledge the same kind of change again in a later Round without saying
 why it is mechanical this time.
 
 Repeat until the reviewer hands off having raised nothing — `fetch_results` will
-say the review is complete.
+say the review is complete — or until you conclude after a round whose every
+question was answered with nothing to change.
 
 ## Updating a Round while it is under review
 
@@ -347,8 +417,13 @@ The replacement is validated like any post and keeps the same `review_id`
 (and label, unless you give a new one; a Revision Round keeps it too). The
 reviewer starts it again from the
 top. Their Comments carry over with `carried_over` set and no Step, since the
-Steps they were raised on are gone. Replacing a Revision Round needs its
-`dispositions` again. It is still scoped against the last round the reviewer
+Steps they were raised on are gone. Agent Questions they had answered carry over
+the same way, with their Answers, and come back to you at the next Hand Off.
+Questions they had not answered are dropped, so ask again, in the replacement,
+any that still matter — on the Steps that now give them context. You cannot see
+mid-round which were answered, so you may ask one again that already was; the
+reviewer sees both and resolves them. Replacing a Revision Round needs its
+`dispositions` and `question_statuses` again. It is still scoped against the last round the reviewer
 handed off, not against the Round you replaced.
 
 Never dismiss a review yourself: discarding one is the reviewer's decision, not
@@ -369,11 +444,14 @@ review.
 
 A review that ends this way — the reviewer handing off having raised nothing — is
 already concluded; dbn treats `fetch_results` reporting "complete" as the end of
-the loop. There is nothing more you must do, and your next `post_round`
+the loop. A round that asked any Agent Question never ends this way, since the
+Answers are yours to read. There is nothing more you must do, and your next `post_round`
 starts a new review with a new `review_id`, not a Revision Round of this one.
 
-For any other ending — you decide to stop, or the reviewer declines everything and
-you will post no further round — call `conclude` with your `review_id`.
+For any other ending — you decide to stop, the reviewer declines everything and
+you will post no further round, or no Comment was raised and every question was
+answered with nothing for you to change — call `conclude` with your
+`review_id`.
 Concluding does not discard anything; it tells dbn the review
 is over so it can release the daemon it started for you. A `post_round`
 after that starts a new review with a new `review_id`. A review you never

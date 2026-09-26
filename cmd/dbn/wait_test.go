@@ -19,6 +19,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/skills"
 )
 
 // `dbn wait` is driven the way an Authoring Agent's harness drives it: a real
@@ -468,5 +469,24 @@ func TestAWaitRetriesUntilTheDaemonAnswers(t *testing.T) {
 
 	if got := wait.line(t); !strings.Contains(got, "Review a1b2 is no longer known to dbn") {
 		t.Errorf("expected the daemon that came up to end the wait, got %q", got)
+	}
+}
+
+// The dbn-review skill tells an agent what each wait line means by quoting it,
+// with the review id elided. A reworded line the skill still quotes the old way
+// leaves the agent matching a line it will never see.
+func TestTheSkillQuotesTheWaitLinesForAgentQuestions(t *testing.T) {
+	skill := strings.Join(strings.Fields(skills.DbnReview), " ")
+	for _, answer := range []daemon.WaitWire{
+		{Event: "handed_off", ReviewID: "ID", Comments: 1, Answers: 2, Unanswered: 1},
+		{Event: "handed_off", ReviewID: "ID", Answers: 2},
+	} {
+		line := waitLine(answer)
+
+		quoted := strings.ReplaceAll(strings.Replace(line, "Review ID", "…", 1), "review_id ID", "review_id …")
+
+		if !strings.Contains(skill, quoted) {
+			t.Errorf("the skill does not quote the wait line\n%q", quoted)
+		}
 	}
 }

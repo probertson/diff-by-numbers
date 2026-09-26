@@ -31,11 +31,14 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
 3. **You review in a terminal** beside your agent session: `dbn` opens the TUI,
    attaches to the daemon, and draws the Round. You move through Steps,
    select a line range to copy a self-contained **Anchor** into your agent chat,
-   or raise a **Comment** in place: a change you want, or a question.
-4. **You hand off, the agent collects the Comments** with a second MCP call,
-   responds to them, and posts a **Revision Round** — the full change set again,
-   scoped by dbn to just what moved, with each of your Comments marked addressed,
-   answered or declined. Repeat until you hand off having raised nothing.
+   or raise a **Comment** in place: a change you want, or a question. Where the
+   agent needs a decision from you, it asks an **Agent Question**, set apart from
+   its narration, and you answer it where it is asked.
+4. **You hand off, the agent collects the Comments and your Answers** with a
+   second MCP call, responds to them, and posts a **Revision Round** — the full
+   change set again, scoped by dbn to just what moved, with each of your Comments
+   marked addressed, answered or declined, and each question given a status.
+   Repeat until you hand off having raised nothing.
 
 ## Installation
 
@@ -248,8 +251,9 @@ Comments you raised, and the agent is told you dismissed it.
 
 Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate
 through screens. Select lines to copy-by-reference (for pasting to your agent, if you want
-to ask questions mid-review) or to add a Comment. When you're done, press `h` to hand the
-review off. If your agent's harness can wait on a background command (Claude Code can), the
+to ask questions mid-review) or to add a Comment. Press `a` to answer an Agent Question
+where the agent asked it. When you're done, press `h` to hand the review off; if a
+question is still unanswered, dbn lists it first and lets you answer it or hand off anyway. If your agent's harness can wait on a background command (Claude Code can), the
 agent is told directly and the screen says so; otherwise it tells you to let the agent
 know. Either way, it then retrieves your Comments. Allowing `Bash(dbn wait:*)` saves being
 asked each round. Handing off is not leaving: `q` exits the viewer at any time without
