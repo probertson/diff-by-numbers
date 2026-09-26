@@ -80,7 +80,8 @@ plugin_version=${version#v}
 tmp_manifest=$(mktemp) || die "could not create a temporary file"
 tmp_notes=$(mktemp) || die "could not create a temporary file"
 tmp_tag_message=$(mktemp) || die "could not create a temporary file"
-trap 'rm -f "$tmp_manifest" "$tmp_notes" "$tmp_tag_message"' EXIT INT TERM
+tmp_skill=$(mktemp) || die "could not create a temporary file"
+trap 'rm -f "$tmp_manifest" "$tmp_notes" "$tmp_tag_message" "$tmp_skill"' EXIT INT TERM
 
 # The release notes travel in the annotated tag's message, and GoReleaser puts
 # its body at the top of the GitHub release (release.header in .goreleaser.yaml).
@@ -109,14 +110,23 @@ fi
 } >"$tmp_notes"
 
 # The dbn-review skill names the oldest dbn it works with ("Requires dbn vX.Y.Z
-# or later"). That line is kept by hand, and only a person can tell whether a
-# change to the MCP tools is one the skill relies on — so this warns rather than
-# bumps, and never stops the release. It has been forgotten before: the line
-# still named v0.2.2, a release that never shipped, two releases after the MCP
-# tools it describes were renamed.
+# or later"). What makes an older dbn too old is the skill telling the agent to
+# use an MCP tool or field that release did not have: its daemon refuses the
+# call. So the line is raised to this release exactly when the skill mentions,
+# in backticks as it names them, a tool or field that is new since the previous
+# release. Prose and reworded descriptions add no names, so they never raise it.
+# (It was once left alone by hand for two releases after the tools were renamed.)
 skill="skills/dbn-review/SKILL.md"
 schema="internal/daemon/wire.go"
+tools="internal/daemon/daemon.go"
 requires_in() { sed -n 's/.*Requires dbn \(v[0-9][0-9.]*\) or later.*/\1/p' | head -n 1; }
+# surface_at REV — every MCP field and tool name at a revision, one per line.
+surface_at() {
+	{
+		git show "$1:$schema" 2>/dev/null | sed -n 's/.*json:"\([a-z_][a-z0-9_]*\).*/\1/p'
+		git show "$1:$tools" 2>/dev/null | sed -n 's/.*Name:[[:space:]]*"\([a-z_][a-z0-9_]*\)".*/\1/p'
+	} | sort -u
+}
 # newer A B — whether version A is later than version B.
 newer() {
 	awk -v a="${1#v}" -v b="${2#v}" 'BEGIN {
@@ -128,23 +138,25 @@ newer() {
 		exit 1
 	}'
 }
-skill_warnings=""
+requires=""
+uses_new=""
+skill_warning=""
 if [ -f "$skill" ]; then
 	requires=$(requires_in <"$skill")
-	if [ -n "$previous" ] && [ -f "$schema" ] && ! git diff --quiet "$previous" HEAD -- "$schema"; then
-		was=$(git show "${previous}:${skill}" 2>/dev/null | requires_in)
-		if [ "$requires" = "$was" ]; then
-			skill_warnings="${skill_warnings}warning: the MCP schema (${schema}) changed since ${previous}, but ${skill}
-  still says \"Requires dbn ${requires} or later\". If the skill relies on the change,
-  answer n and raise that line to ${version}.
-"
-		fi
+	if [ -n "$previous" ] && [ -n "$requires" ] && newer "$version" "$requires"; then
+		before=$(surface_at "$previous")
+		for name in $(surface_at HEAD); do
+			printf '%s\n' "$before" | grep -qxF "$name" && continue
+			grep -qF "\`${name}\`" "$skill" && uses_new="${uses_new:+${uses_new}, }${name}"
+		done
 	fi
+	# A line raised by hand past this release would demand a dbn that never
+	# ships. Whether to lower it or release that version instead is a person's
+	# call, so it is only warned about.
 	if [ -n "$requires" ] && newer "$requires" "$version"; then
-		skill_warnings="${skill_warnings}warning: ${skill} says \"Requires dbn ${requires} or later\", which
+		skill_warning="warning: ${skill} says \"Requires dbn ${requires} or later\", which
   names a dbn that is not out yet: this release is ${version}. Answer n and lower
-  the line to ${version}, or release ${requires} instead.
-"
+  the line to ${version}, or release ${requires} instead."
 	fi
 fi
 
@@ -161,8 +173,11 @@ printf 'Release notes for %s:\n\n%s\n\n' "$version" "$notes"
 printf 'About to set the plugin version to %s, commit it as "Release %s", push main,\n' "$plugin_version" "$version"
 printf 'then tag %s at that commit with the notes above and push the tag,\n' "$version"
 printf 'triggering the release build.\n'
+[ -z "$uses_new" ] ||
+	printf 'The release commit also raises the skill to "Requires dbn %s or later":\nit now uses %s, new since %s.\n' \
+		"$version" "$uses_new" "$previous"
 # Last, so it is what the release is decided on rather than scrolled past.
-[ -z "$skill_warnings" ] || printf '\n%s\n' "$skill_warnings"
+[ -z "$skill_warning" ] || printf '\n%s\n' "$skill_warning"
 printf 'Continue? [y/N] '
 read -r reply
 case "$reply" in
@@ -183,14 +198,27 @@ written=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pl
 [ "$written" = "$plugin_version" ] ||
 	die "could not set the plugin version in ${plugin_manifest} (it reads '${written}')"
 
+# The skill's line is raised in the same commit, which is the one tagged, so the
+# release's binary embeds the skill as released. It is read back for the same
+# reason the manifest is.
+if [ -n "$uses_new" ]; then
+	sed "s/Requires dbn v[0-9][0-9.]* or later/Requires dbn ${version} or later/" \
+		"$skill" >"$tmp_skill" || die "could not rewrite ${skill}"
+	cat "$tmp_skill" >"$skill" || die "could not write ${skill}"
+	raised=$(requires_in <"$skill")
+	[ "$raised" = "$version" ] ||
+		die "could not raise the minimum dbn in ${skill} (it reads '${raised}')"
+fi
+
 # Nothing to commit when the manifest already carried this version, which
 # happens when an earlier attempt got this far and then failed. Re-running must
 # still tag and push rather than dying on an empty commit.
-if git diff --quiet -- "$plugin_manifest"; then
+if git diff --quiet -- "$plugin_manifest" "$skill"; then
 	echo "plugin version is already ${plugin_version}; nothing to commit"
 else
 	echo "setting the plugin version to ${plugin_version}..."
-	git add "$plugin_manifest"
+	git add -- "$plugin_manifest"
+	[ -z "$uses_new" ] || git add -- "$skill"
 	git commit -qm "Release ${version}"
 fi
 

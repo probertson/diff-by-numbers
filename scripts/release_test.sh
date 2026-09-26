@@ -234,68 +234,92 @@ fi
 check_equal "and it is still tagged" \
 	"$(git -C "$WORK" rev-parse HEAD)" "$(git -C "$WORK" rev-list -n 1 v2.0.0)"
 
-# The skill's "Requires dbn vX.Y.Z or later" line is kept by hand, so the
-# release warns when it looks forgotten: the MCP schema changed since the last
-# release and the line did not, or the line names a release that is not out.
+# The skill's "Requires dbn vX.Y.Z or later" line names the oldest dbn it works
+# with. A release raises it to itself when the skill mentions an MCP tool or
+# field that the previous release did not have, since an older daemon would
+# refuse the agent for using it.
 
-# with_skill REQUIRES — seed the skill's minimum-version line and the MCP schema
-# file, and commit them.
+# with_skill REQUIRES [MENTIONS] — seed the skill's minimum-version line, naming
+# MENTIONS in backticks the way the skill names fields, and the MCP surface
+# files; then commit.
 with_skill() {
 	mkdir -p "$WORK/skills/dbn-review" "$WORK/internal/daemon"
-	printf '# dbn-review\n\n**Requires dbn %s or later.**\n' "$1" >"$WORK/skills/dbn-review/SKILL.md"
-	[ -f "$WORK/internal/daemon/wire.go" ] || echo "package daemon" >"$WORK/internal/daemon/wire.go"
+	printf '# dbn-review\n\n**Requires dbn %s or later.** Send %s.\n' "$1" "${2:-\`label\`}" \
+		>"$WORK/skills/dbn-review/SKILL.md"
+	[ -f "$WORK/internal/daemon/wire.go" ] ||
+		printf 'type wireRound struct {\n\tLabel string `json:"label,omitempty"`\n}\n' >"$WORK/internal/daemon/wire.go"
+	[ -f "$WORK/internal/daemon/daemon.go" ] ||
+		printf 'mcp.AddTool(server, &mcp.Tool{\n\tName: "post_round",\n})\n' >"$WORK/internal/daemon/daemon.go"
 	git -C "$WORK" add -A
 	git -C "$WORK" commit -qm "Require dbn $1"
 	git -C "$WORK" push -q origin main
 }
 
-# change_schema — edit the MCP schema file and commit it.
-change_schema() {
-	echo "// a new field" >>"$WORK/internal/daemon/wire.go"
-	git -C "$WORK" commit -qam "Change the MCP schema"
+# add_to_surface FILE LINE — add a line to one of the MCP surface files.
+add_to_surface() {
+	printf '%s\n' "$2" >>"$WORK/internal/daemon/$1"
+	git -C "$WORK" commit -qam "Change the MCP surface"
 	git -C "$WORK" push -q origin main
 }
 
-forgotten="the MCP schema (internal/daemon/wire.go) changed since"
-unreleased="names a dbn that is not out yet"
+requires_in_skill() {
+	sed -n 's/.*Requires dbn \(v[0-9.]*\) or later.*/\1/p' "$WORK/skills/dbn-review/SKILL.md"
+}
 
+# A new field the skill uses: the release raises the line to itself, in the
+# release commit, so the tagged binary embeds the raised line.
 new_repo
 with_skill v1.0.0
 cut_release v1.0.0
-change_schema
-cut_release PATCH
-
-case "$RELEASE_OUT" in
-*"$forgotten"*) pass "a schema change with the minimum version left alone is warned about" ;;
-*) fail "a schema change with the minimum version left alone is warned about" "$RELEASE_OUT" ;;
-esac
-check_equal "the warning does not stop the release" "0" "$RELEASE_STATUS"
-
-new_repo
-with_skill v1.0.0
-cut_release v1.0.0
-change_schema
-with_skill v1.1.0
+add_to_surface wire.go '	Questions []string `json:"questions,omitempty"`'
+with_skill v1.0.0 '`label` and `questions`'
 cut_release v1.1.0
 
+check_equal "a new field the skill uses raises its minimum dbn to this release" \
+	"v1.1.0" "$(requires_in_skill)"
+check_equal "the raised line is in the tagged commit" \
+	"Requires dbn v1.1.0" \
+	"$(git -C "$WORK" show v1.1.0:skills/dbn-review/SKILL.md | grep -o 'Requires dbn v[0-9.]*')"
+check_equal "the release still leaves the tree clean" "" "$(git -C "$WORK" status --porcelain)"
 case "$RELEASE_OUT" in
-*"$forgotten"* | *"$unreleased"*) fail "a schema change that raised the minimum version is not warned about" "$RELEASE_OUT" ;;
-*) pass "a schema change that raised the minimum version is not warned about" ;;
+*"questions"*) pass "the release says which new names raised it" ;;
+*) fail "the release says which new names raised it" "$RELEASE_OUT" ;;
 esac
 
+# A new tool counts the same as a new field.
 new_repo
 with_skill v1.0.0
 cut_release v1.0.0
-echo "docs" >>"$WORK/README.md"
-git -C "$WORK" commit -qam "Just docs"
-git -C "$WORK" push -q origin main
+add_to_surface daemon.go '	Name: "describe_changes",'
+with_skill v1.0.0 '`describe_changes`'
 cut_release PATCH
 
-case "$RELEASE_OUT" in
-*"$forgotten"*) fail "a release that leaves the schema alone is not warned about" "$RELEASE_OUT" ;;
-*) pass "a release that leaves the schema alone is not warned about" ;;
-esac
+check_equal "a new tool the skill uses raises its minimum dbn to this release" \
+	"v1.0.1" "$(requires_in_skill)"
 
+# A new field the skill does not use: an older daemon still does everything
+# the skill asks, so the line stays.
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+add_to_surface wire.go '	Internal bool `json:"internal,omitempty"`'
+cut_release PATCH
+
+check_equal "a new field the skill does not use leaves its minimum dbn alone" \
+	"v1.0.0" "$(requires_in_skill)"
+
+# Reworded descriptions, and skill prose, add no names.
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+with_skill v1.0.0 '`label`, told more clearly'
+cut_release PATCH
+
+check_equal "a prose-only change to the skill leaves its minimum dbn alone" \
+	"v1.0.0" "$(requires_in_skill)"
+
+# A line already raised by hand, above the release, would demand a dbn that
+# never ships; that is a person's call, so it is warned about, not rewritten.
 new_repo
 with_skill v1.0.0
 cut_release v1.0.0
@@ -303,9 +327,10 @@ with_skill v2.0.0
 cut_release PATCH
 
 case "$RELEASE_OUT" in
-*"v2.0.0"*"$unreleased"*) pass "a minimum version above the release is warned about" ;;
+*"v2.0.0"*"names a dbn that is not out yet"*) pass "a minimum version above the release is warned about" ;;
 *) fail "a minimum version above the release is warned about" "$RELEASE_OUT" ;;
 esac
+check_equal "and it is left as it was" "v2.0.0" "$(requires_in_skill)"
 
 # ---------------------------------------------------------------------------
 

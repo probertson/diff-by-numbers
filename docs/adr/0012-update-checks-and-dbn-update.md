@@ -88,5 +88,6 @@ update at all, and `dbn update` ends by re-execing the newly installed binary as
 skill-check`, which compares the skill it embeds against the copies in the two locations dbn
 installs to. The versions still move independently — nothing here makes a stale skill refuse to
 run — but drift is now reported instead of silent. The skill's "Requires dbn" line, the
-oldest release it works with, is still set by hand. A release warns when the MCP schema changed
-since the last one but the line did not, or when the line names a release that is not out yet.
+oldest release it works with, is raised by the release itself: to that release, whenever the
+skill mentions an MCP tool or field the previous release did not have. A line set by hand past
+the release being cut is warned about rather than rewritten.
