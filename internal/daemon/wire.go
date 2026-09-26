@@ -70,7 +70,7 @@ type wireRound struct {
 	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit in round 1"`
 	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
 	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments or Agent Questions, alongside the dispositions and question statuses accounting for them. Leave it out and this post starts a new Review"`
-	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
+	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id, and the Reviewer's Comments and answered Agent Questions carry over; unanswered questions are dropped, so ask again any that still matter. When replacing a Revision Round, supply its dispositions again"`
 	Questions    []wireQuestion    `json:"questions,omitempty" jsonschema:"Agent Questions about the approach rather than any one Step's code, shown with the Brief where the Reviewer judges the approach. A question about a Step's code belongs on that Step instead"`
 	// QuestionStatuses sits apart from Dispositions: a question is the agent's
 	// own, so its statuses are not a Comment's.
@@ -203,6 +203,8 @@ type questionWire struct {
 	// Unanswered is set rather than left to an empty answer, so the agent never
 	// reads silence as agreement.
 	Unanswered bool `json:"unanswered,omitempty" jsonschema:"Set when the Reviewer handed off without answering. It is not agreement: go ahead on your own judgment and say what you chose, or ask again"`
+	// CarriedOver is only ever set on an answered question.
+	CarriedOver bool `json:"carried_over,omitempty" jsonschema:"Set when the question was answered on a Round you since replaced in place. Its step is 0, since that Round's Steps are gone; account for it in the next Revision Round like any other"`
 }
 
 type stepReportWire struct {
@@ -343,6 +345,8 @@ func toFetchResult(r review.Results, message string) fetchResult {
 			Question:   question.Text,
 			Answer:     question.Answer,
 			Unanswered: !question.Answered(),
+
+			CarriedOver: question.CarriedOver,
 		})
 	}
 	for _, sr := range r.StepReports {

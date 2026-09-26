@@ -22,6 +22,10 @@ func answerServer(t *testing.T) (*answerRecorder, string) {
 	t.Helper()
 	rec := &answerRecorder{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/question/") {
+			rec.paths = append(rec.paths, r.Method+" "+r.URL.Path)
+			return
+		}
 		if !strings.Contains(r.URL.Path, "/answer/") {
 			return
 		}
@@ -416,5 +420,74 @@ func TestAnOverviewWithNoEarlierQuestionsSaysNothingOfThem(t *testing.T) {
 
 	if out := m.brief(); strings.Contains(out, "Agent Questions from") {
 		t.Errorf("a round that asked nothing before should not announce it, got:\n%s", out)
+	}
+}
+
+func carriedQuestion(id int, text, answer string) daemon.QuestionWire {
+	return daemon.QuestionWire{ID: id, Text: text, Answer: answer, CarriedOver: true}
+}
+
+func TestAReplacementIsAnnouncedWithTheAnswersItCarriedOver(t *testing.T) {
+	m := arrive(model{mode: modeReview}, 1, 2, oneLineStep("before"))
+
+	after, _ := m.Update(refreshMsg{view: &daemon.ViewWire{
+		Posted: true, Posting: 2, Replaced: true, StepCount: 2,
+		Comments:  carried(2),
+		Questions: []daemon.QuestionWire{carriedQuestion(1, "3 or 5?", "5")},
+	}})
+
+	want := "The agent replaced this Round — 2 Comments and 1 answered question carried over (l and a to review them)"
+	if got := after.(model).notice(); got != want {
+		t.Errorf("expected\n%q\ngot\n%q", want, got)
+	}
+}
+
+func TestTheOverviewShowsCarriedOverQuestionsWithTheirAnswers(t *testing.T) {
+	m, _ := overviewAsking(t)
+	m.view.Questions = []daemon.QuestionWire{carriedQuestion(1, "3 or 5 retries?", "5, the upstream is flaky")}
+
+	out := flatten(m.brief())
+
+	if !strings.Contains(out, "Carried over from the replaced Round") {
+		t.Fatalf("expected the carried-over questions in a section of their own, got:\n%s", out)
+	}
+	if !strings.Contains(out, "3 or 5 retries?") || !strings.Contains(out, "5, the upstream is flaky") {
+		t.Errorf("expected each with its Answer, got:\n%s", out)
+	}
+}
+
+func TestACarriedOverQuestionCanBeWithdrawnFromTheOverview(t *testing.T) {
+	m, rec := overviewAsking(t)
+	m.view.Questions = []daemon.QuestionWire{carriedQuestion(7, "3 or 5?", "5")}
+
+	picking := press(m, "a")
+	armed := press(picking, "d")
+	confirmed := press(armed, "y")
+
+	if picking.mode != modeQuestions {
+		t.Fatalf("expected a to offer the carried-over question, got mode %v", picking.mode)
+	}
+	if !armed.confirmingDelete {
+		t.Fatal("expected d to ask before withdrawing")
+	}
+	if len(rec.paths) != 1 || rec.paths[0] != "DELETE /reviews/a1/question/7" {
+		t.Errorf("expected question 7 withdrawn, got %v", rec.paths)
+	}
+	if confirmed.confirmingDelete {
+		t.Error("expected the confirm to disarm once answered")
+	}
+}
+
+func TestAQuestionAskedOnThisRoundCannotBeWithdrawn(t *testing.T) {
+	m, rec := overviewAsking(t, question(3, "right approach?", ""), question(4, "log it?", ""))
+
+	picking := press(m, "a")
+	after := press(picking, "d")
+
+	if after.confirmingDelete || len(rec.paths) != 0 {
+		t.Error("a question asked on this Round is the agent's, not the Reviewer's to withdraw")
+	}
+	if !strings.Contains(after.status, "carried over") {
+		t.Errorf("expected to be told only a carried-over question can be withdrawn, got %q", after.status)
 	}
 }

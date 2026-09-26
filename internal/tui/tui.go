@@ -516,6 +516,14 @@ func (c client) answerQuestion(id int, answer string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// withdrawQuestion withdraws a carried-over Agent Question.
+func (c client) withdrawQuestion(id int) {
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/question/%d", c.url(""), id), nil)
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+	}
+}
+
 func (c client) withdraw(id int) {
 	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/comment/%d", c.url(""), id), nil)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
@@ -839,7 +847,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case newRound && m.view.Replaced:
 			// The Round the Reviewer was in has gone, so whatever screen they
 			// were on belongs to it: they start again from the Overview.
-			m.replacedNotice = replacementNotice(m.view.Comments)
+			m.replacedNotice = replacementNotice(m.view.Comments, carriedQuestions(m.view.Questions))
 			m.mode = modeReview
 			m.resizeViewport()
 		case newRound || positionChanged:
@@ -1505,7 +1513,13 @@ func (m model) View() string {
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
 	case modeQuestions:
 		body = m.questionsView()
-		persistent = keybar("↑/↓ move", "enter answer", "<esc> back")
+		persistent = m.questionsKeys()
+		switch {
+		case m.confirmingDelete:
+			stateful = withdrawQuestionPrompt
+		case m.status != "":
+			stateful = m.status
+		}
 	case modeConclusion:
 		body = m.conclusionView()
 		persistent = keybar("← back", "g Overview", "l list", "h hand off", "i inbox", "q exit")
@@ -1628,7 +1642,7 @@ func (m model) modeKeys() string {
 	}
 	if m.view.Position == 0 {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
-		if len(m.view.RoundQuestions) > 0 {
+		if len(m.questionsHere()) > 0 {
 			tokens = append(tokens, "a answer")
 		}
 		// Offered only while something is still open: once every decline and
@@ -2240,14 +2254,24 @@ func steplessCounts(comments []daemon.CommentWire) map[string]int {
 }
 
 // replacementNotice says the agent replaced the Round, and how many of the
-// Reviewer's Comments carried over to it — each is still theirs to withdraw if
-// the replacement dealt with it.
-func replacementNotice(comments []daemon.CommentWire) string {
+// Reviewer's Comments and answered Agent Questions carried over to it — each
+// is still theirs to withdraw if the replacement dealt with it.
+func replacementNotice(comments []daemon.CommentWire, questions []daemon.QuestionWire) string {
 	carried := steplessCounts(comments)[daemon.CarriedOver]
-	if carried == 0 {
+	var kept []string
+	var where []string
+	if carried > 0 {
+		kept = append(kept, pluralize(carried, "Comment"))
+		where = append(where, "l")
+	}
+	if len(questions) > 0 {
+		kept = append(kept, pluralize(len(questions), "answered question"))
+		where = append(where, "a")
+	}
+	if len(kept) == 0 {
 		return "The agent replaced this Round"
 	}
-	return fmt.Sprintf("The agent replaced this Round — %s carried over (l to review them)", pluralize(carried, "Comment"))
+	return fmt.Sprintf("The agent replaced this Round — %s carried over (%s to review them)", andList(kept), andList(where))
 }
 
 // olderDaemon stands in for the version of a daemon too old to have a status
@@ -2572,6 +2596,9 @@ func (m model) brief() string {
 	// where the Reviewer judges the approach apart from the code (ADR-0017).
 	if len(m.view.RoundQuestions) > 0 {
 		b.WriteString(questionBlock(m.view.RoundQuestions, m.viewport.Width) + "\n\n")
+	}
+	if carried := carriedQuestions(m.view.Questions); len(carried) > 0 {
+		b.WriteString(m.carriedOverQuestions(carried, m.viewport.Width))
 	}
 
 	if len(m.view.Dispositions) > 0 {

@@ -92,6 +92,9 @@ type QuestionWire struct {
 	Step   int    `json:"step"`
 	Text   string `json:"text"`
 	Answer string `json:"answer,omitempty"`
+	// CarriedOver marks an answered question from a Round the agent has since
+	// replaced in place, which belongs to no Step of this one.
+	CarriedOver bool `json:"carried_over,omitempty"`
 }
 
 // Answered reports whether the Reviewer has answered the question.
@@ -107,7 +110,10 @@ type AccountedQuestionWire struct {
 }
 
 func toQuestionWire(question review.AgentQuestion) QuestionWire {
-	return QuestionWire{ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer}
+	return QuestionWire{
+		ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer,
+		CarriedOver: question.CarriedOver,
+	}
 }
 
 func toQuestionWires(questions []review.AgentQuestion) []QuestionWire {

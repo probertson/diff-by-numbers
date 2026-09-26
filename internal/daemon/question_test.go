@@ -227,3 +227,41 @@ func TestARevisionRoundAccountsForTheQuestionsOverTheWire(t *testing.T) {
 		t.Errorf("expected the question, its Answer and its status, got %+v", got)
 	}
 }
+
+func TestAnsweredQuestionsCarryOverAReplacementAndCanBeWithdrawn(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	posted := postRound(t, server.URL, askingOnStep1(root, "3 or 5?", "keep the name?", "log it?"))
+	review := reviewURL(server.URL, posted.ReviewID)
+	answer(t, review, 1, "5")
+	answer(t, review, 3, "no")
+	replacement := minimalRound(root)
+	replacement["replaces"] = posted.ReviewID
+	postRound(t, server.URL, replacement)
+
+	request, _ := http.NewRequest(http.MethodDelete, review+"/question/3", nil)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	httpPost(t, review+"/finish")
+	fetched := decodeResult[struct {
+		Questions []struct {
+			ID          int    `json:"id"`
+			Answer      string `json:"answer"`
+			CarriedOver bool   `json:"carried_over"`
+		} `json:"questions"`
+	}](t, callTool(t, server.URL, "fetch_results", map[string]any{"review_id": posted.ReviewID}))
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected the carried-over question withdrawn, got %s", response.Status)
+	}
+	if len(fetched.Questions) != 1 {
+		t.Fatalf("expected only the answered question still standing, got %+v", fetched.Questions)
+	}
+	if got := fetched.Questions[0]; got.ID != 1 || got.Answer != "5" || !got.CarriedOver {
+		t.Errorf("expected question 1 carried over with its Answer, got %+v", got)
+	}
+}

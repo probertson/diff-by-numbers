@@ -122,19 +122,33 @@ func (m model) unansweredSuffix() string {
 }
 
 // questionsHere are the Agent Questions the Reviewer can answer where they are:
-// a Step's own, or on the Overview the Round's.
+// a Step's own, or on the Overview the Round's and any carried over from a
+// replaced Round, which belong to no Step.
 func (m model) questionsHere() []daemon.QuestionWire {
 	switch {
 	case m.inStep():
 		return m.view.Step.Questions
 	case m.view != nil && m.view.Posted && m.view.Position == 0:
-		return m.view.RoundQuestions
+		return append(append([]daemon.QuestionWire{}, m.view.RoundQuestions...), carriedQuestions(m.view.Questions)...)
 	}
 	return nil
 }
 
+// carriedQuestions are the answered questions carried over from a Round the
+// agent replaced.
+func carriedQuestions(questions []daemon.QuestionWire) []daemon.QuestionWire {
+	var out []daemon.QuestionWire
+	for _, question := range questions {
+		if question.CarriedOver {
+			out = append(out, question)
+		}
+	}
+	return out
+}
+
 // answer is a: it answers the one question here, or offers the several to
-// choose from.
+// choose from. A carried-over question is always offered in the list, which is
+// where it can be withdrawn.
 func (m model) answer() (tea.Model, tea.Cmd) {
 	here := m.questionsHere()
 	switch {
@@ -144,7 +158,7 @@ func (m model) answer() (tea.Model, tea.Cmd) {
 	case m.view.Finished:
 		m.status = "review is handed off — press r to resume before answering"
 		return m, nil
-	case len(here) == 1:
+	case len(here) == 1 && !here[0].CarriedOver:
 		return m, m.openEditor(answerEditor(here[0]), here[0].Answer, modeReview)
 	}
 	m.status = ""
@@ -157,6 +171,21 @@ func (m model) answer() (tea.Model, tea.Cmd) {
 // Step, or on the Round.
 func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 	here := m.questionsHere()
+	if m.confirmingDelete {
+		switch readConfirm(key) {
+		case confirmProceed:
+			if m.questionCursor < len(here) {
+				m.client.withdrawQuestion(here[m.questionCursor].ID)
+			}
+			m.confirmingDelete = false
+			m.mode = modeReview
+			return m, m.refresh()
+		case confirmCancel:
+			m.confirmingDelete = false
+		}
+		return m, nil // confirmIgnore lands here — swallowed, still armed
+	}
+	m.status = ""
 	switch key {
 	case "esc", "q", "a":
 		m.mode = modeReview
@@ -176,8 +205,47 @@ func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 			chosen := here[m.questionCursor]
 			return m, m.openEditor(answerEditor(chosen), chosen.Answer, modeReview)
 		}
+	case "d", "x":
+		if m.questionCursor < len(here) && here[m.questionCursor].CarriedOver {
+			m.confirmingDelete = true
+			return m, nil
+		}
+		m.status = "only a question carried over from a replaced Round can be withdrawn"
 	}
 	return m, nil
+}
+
+// withdrawQuestionPrompt is the inline y/n guard on withdrawing a carried-over
+// question.
+const withdrawQuestionPrompt = "Withdraw this carried-over question and its Answer? (y/n)"
+
+// carriedOverQuestions draws the answered questions a replacement kept on the
+// Overview: they belong to no Step of this Round, and the Reviewer may withdraw
+// any the replacement made moot.
+func (m model) carriedOverQuestions(carried []daemon.QuestionWire, width int) string {
+	var b strings.Builder
+	b.WriteString(labelSt.Render("Carried over from the replaced Round") + "\n")
+	for _, question := range carried {
+		b.WriteString(strings.Repeat(" ", dispositionIndent) + dimSt.Render(fmt.Sprintf("#%d", question.ID)) + "\n")
+		for _, row := range hangingField("agent asked: ", question.Text, dimSt, width) {
+			b.WriteString(row + "\n")
+		}
+		for _, row := range hangingField("you answered: ", question.Answer, dimSt, width) {
+			b.WriteString(row + "\n")
+		}
+	}
+	b.WriteString(strings.Repeat(" ", dispositionIndent) + dimSt.Render("a to change an Answer or withdraw a question") + "\n\n")
+	return b.String()
+}
+
+// questionsKeys is the question list's keybar, offering withdrawal only when
+// there is something carried over to withdraw.
+func (m model) questionsKeys() string {
+	tokens := []string{"↑/↓ move", "enter answer"}
+	if len(carriedQuestions(m.questionsHere())) > 0 {
+		tokens = append(tokens, "d withdraw carried over")
+	}
+	return keybar(append(tokens, "<esc> back")...)
 }
 
 // questionsView lists the Agent Questions here to choose one to answer.
@@ -206,6 +274,9 @@ func (m model) questionItem(i int, question daemon.QuestionWire) []string {
 			continue
 		}
 		rows = append(rows, "  "+line)
+	}
+	if question.CarriedOver {
+		rows = append(rows, indent+dimSt.Render("carried over from the replaced Round"))
 	}
 	if question.Answered() {
 		rows = append(rows, indentedField(indent, "your answer: ", question.Answer, body)...)

@@ -48,6 +48,9 @@ type Session struct {
 	nextCommentID int
 	questions     []AgentQuestion // the Round's Agent Questions, with what the Reviewer answered
 	finished      bool
+	// nextQuestionID is the last Agent Question id minted this round, so a
+	// replacement's questions are numbered on past the ones it carries over.
+	nextQuestionID int
 	// latest is the accepted round on screen: its Round, which its code is read
 	// from, and the atoms it showed. It is what the next Revision Round is scoped
 	// against (ADR-0014).
@@ -386,7 +389,17 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 		s.comments = nil
 		s.nextCommentID = 0
 	}
-	s.questions = askedIn(w, 0)
+	// A replacement keeps the answered questions, as it keeps Comments; any
+	// other posting starts a round with only the questions it asks.
+	var carried []AgentQuestion
+	if replacing {
+		carried = carryQuestionsOver(s.questions)
+	} else {
+		s.nextQuestionID = 0
+	}
+	asked := askedIn(w, s.nextQuestionID)
+	s.nextQuestionID += len(asked)
+	s.questions = append(carried, asked...)
 
 	// The Session's first Round mints the Review's id, which then never changes,
 	// and takes the Round's label as given; a later posting only updates the

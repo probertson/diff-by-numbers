@@ -486,6 +486,21 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	}))
 
+	// Withdrawing a question is only for one carried over from a replaced
+	// Round; the core refuses any other.
+	mux.HandleFunc("DELETE /reviews/{review}/question/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "id must be a number", http.StatusBadRequest)
+			return
+		}
+		if err := d.locked(func() error { return session.WithdrawQuestion(id) }); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}))
+
 	mux.HandleFunc("DELETE /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {

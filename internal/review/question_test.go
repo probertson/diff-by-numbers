@@ -233,3 +233,73 @@ func TestARoundWhoseOnlyQuestionsAreRoundLevelIsNotConcludedAtHandOff(t *testing
 		t.Error("a Round-level question is still a question: the Hand Off is not a conclusion")
 	}
 }
+
+func TestAReplacementCarriesAnsweredQuestionsOverAndDropsTheRest(t *testing.T) {
+	session := postedAsking(t, "3 or 5?", "keep the name?")
+	mustAnswer(t, session, 1, "5")
+
+	if err := session.Replace(session.ReviewID(), askingOnStep1("a fresh question")); err != nil {
+		t.Fatalf("expected the replacement to be accepted, got %v", err)
+	}
+	questions := session.Questions()
+
+	if len(questions) != 2 {
+		t.Fatalf("expected the answered question and the fresh one, got %+v", questions)
+	}
+	carried, fresh := questions[0], questions[1]
+	if carried.Text != "3 or 5?" || carried.Answer != "5" || !carried.CarriedOver || carried.Step != 0 {
+		t.Errorf("expected the answered question carried over, off its Step, with its Answer, got %+v", carried)
+	}
+	if carried.OnRound() {
+		t.Error("a carried-over question was asked on a Step, not on the Round")
+	}
+	if fresh.Text != "a fresh question" || fresh.CarriedOver || fresh.ID == carried.ID {
+		t.Errorf("expected the replacement's own question, with an id of its own, got %+v", fresh)
+	}
+	if round := session.View().RoundQuestions; len(round) != 0 {
+		t.Errorf("a carried-over question is not one asked on the Round, got %+v", round)
+	}
+}
+
+func TestTheReviewerCanWithdrawACarriedOverQuestion(t *testing.T) {
+	session := postedAsking(t, "3 or 5?")
+	mustAnswer(t, session, 1, "5")
+	if err := session.Replace(session.ReviewID(), validRound()); err != nil {
+		t.Fatal(err)
+	}
+
+	err := session.WithdrawQuestion(1)
+
+	if err != nil {
+		t.Fatalf("expected to withdraw the carried-over question, got %v", err)
+	}
+	if questions := session.Questions(); len(questions) != 0 {
+		t.Errorf("expected it gone, got %+v", questions)
+	}
+}
+
+func TestOnlyACarriedOverQuestionCanBeWithdrawn(t *testing.T) {
+	session := postedAsking(t, "3 or 5?")
+
+	err := session.WithdrawQuestion(1)
+
+	assertRejected(t, err, review.RejectedNoSuchQuestion)
+}
+
+func TestCarriedOverAnswersReachTheAgentAtTheNextHandOff(t *testing.T) {
+	session := postedAsking(t, "3 or 5?")
+	mustAnswer(t, session, 1, "5")
+	if err := session.Replace(session.ReviewID(), validRound()); err != nil {
+		t.Fatal(err)
+	}
+	mustFinish(t, session)
+
+	results, _ := session.Results()
+
+	if len(results.Questions) != 1 || !results.Questions[0].CarriedOver || results.Questions[0].Answer != "5" {
+		t.Errorf("expected the carried-over Answer to go back to the agent, got %+v", results.Questions)
+	}
+	if session.Concluded() {
+		t.Error("a carried-over Answer is still an Answer for the agent to read")
+	}
+}
