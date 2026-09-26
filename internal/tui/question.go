@@ -321,3 +321,79 @@ func submitAnswer(m model, question daemon.QuestionWire, text string) string {
 	}
 	return "Answer saved"
 }
+
+// unansweredQuestions are the Round's Agent Questions the Reviewer has not
+// answered, in the order they meet them.
+func (m model) unansweredQuestions() []daemon.QuestionWire {
+	if m.view == nil {
+		return nil
+	}
+	var out []daemon.QuestionWire
+	for _, question := range m.view.Questions {
+		if !question.Answered() {
+			out = append(out, question)
+		}
+	}
+	return out
+}
+
+// updateHandOffCheck drives the list of unanswered questions shown before a
+// Hand Off: go to one, hand off anyway, or go back.
+func (m model) updateHandOffCheck(key string) (tea.Model, tea.Cmd) {
+	unanswered := m.unansweredQuestions()
+	switch key {
+	case "esc", "n":
+		m.mode = m.handOffReturn
+		return m, nil
+	case "up", "k":
+		if m.questionCursor > 0 {
+			m.questionCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.questionCursor < len(unanswered)-1 {
+			m.questionCursor++
+		}
+		return m, nil
+	case "enter":
+		if m.questionCursor < len(unanswered) {
+			// The Overview, for a question asked on the Round.
+			m.client.intent(fmt.Sprintf("/goto/%d", unanswered[m.questionCursor].Step))
+			m.mode = modeReview
+			return m, m.refresh()
+		}
+		return m, nil
+	case "h", "H":
+		return m.finish()
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// handOffCheckView lists the unanswered questions, each with where it was
+// asked, and says what handing off anyway means for them.
+func (m model) handOffCheckView() string {
+	unanswered := m.unansweredQuestions()
+	items := make([][]string, 0, len(unanswered))
+	for i, question := range unanswered {
+		cursor := "  "
+		if i == m.questionCursor {
+			cursor = accentSt.Render("▸ ")
+		}
+		where := fmt.Sprintf("Step %d", question.Step)
+		if question.Step == 0 {
+			where = "with the Brief"
+		}
+		rows := []string{cursor + dimSt.Render(where)}
+		for _, line := range strings.Split(wrapTo(question.Text, m.width-listItemIndent), "\n") {
+			rows = append(rows, strings.Repeat(" ", listItemIndent)+line)
+		}
+		items = append(items, append(rows, ""))
+	}
+	title := pluralize(len(unanswered), "Agent Question") + " unanswered"
+	lead := wrapTo("They go back to your agent marked unanswered, and it will go ahead on its own judgment or ask again. Answer them first, or hand off anyway.", m.width)
+	const leadRows = 2
+	return labelSt.Render(title) + "\n\n" + dimSt.Render(lead) + "\n\n" +
+		windowItems(items, m.questionCursor, m.bodyHeight()-leadRows-lipgloss.Height(lead)-1, m.width, "this question continues")
+}

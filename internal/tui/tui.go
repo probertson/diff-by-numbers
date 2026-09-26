@@ -289,8 +289,11 @@ type model struct {
 	reraiseReturn mode
 	reraiseCursor int // selected row among the resolutions still open to push-back
 	// questionCursor is the selected row among the Agent Questions offered to
-	// answer.
+	// answer, or listed unanswered before a Hand Off.
 	questionCursor int
+	// handOffReturn is where declining the Hand Off check goes: the screen the
+	// Reviewer handed off from.
+	handOffReturn mode
 	// expanded holds the code of each of this Step's Acknowledgements the Reviewer
 	// has expanded, by index. Expansion is viewing, not review state, so it lives
 	// here rather than in the daemon.
@@ -337,6 +340,7 @@ const (
 	modeReraise                // choosing a declined Comment to re-raise
 	modeConclusion             // reached by advancing past the last Step: the pre-hand-off on-ramp
 	modeQuestions              // choosing which of several Agent Questions to answer
+	modeUnanswered             // the unanswered Agent Questions listed before a Hand Off
 	// modeInbox is the window's home: every review the daemon holds, to pick
 	// from. It is last so the zero value stays modeReview, which several
 	// "where does leaving here go" fields rely on.
@@ -918,6 +922,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateReraise(key)
 		case modeQuestions:
 			return m.updateQuestions(key)
+		case modeUnanswered:
+			return m.updateHandOffCheck(key)
 		case modeConclusion:
 			return m.updateConclusion(key)
 		case modeDone:
@@ -1307,7 +1313,24 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 // screen. Every place the Reviewer can hand off from — a Step, the Overview,
 // the conclusion screen, the quit guard — comes through here, so what a Hand
 // Off does is decided once.
+//
+// With an Agent Question unanswered it lists them first and waits to be told
+// to go on. It is a check, not a gate: what #114 lost was a question nobody
+// noticed, and "not yet" or "your call" is an honest answer a gate would push
+// the Reviewer to dress up as a decision (ADR-0017).
 func (m model) handOff() (tea.Model, tea.Cmd) {
+	if len(m.unansweredQuestions()) > 0 {
+		m.handOffReturn = m.mode
+		m.questionCursor = 0
+		m.status = ""
+		m.mode = modeUnanswered
+		return m, nil
+	}
+	return m.finish()
+}
+
+// finish sends the Hand Off and shows the handed-off screen.
+func (m model) finish() (tea.Model, tea.Cmd) {
 	m.client.intent("/finish")
 	m.mode = modeDone
 	return m, m.refresh()
@@ -1511,6 +1534,9 @@ func (m model) View() string {
 	case modeReraise:
 		body = m.reraiseView()
 		persistent = keybar("↑/↓ move", "enter re-raise", "<esc> back")
+	case modeUnanswered:
+		body = m.handOffCheckView()
+		persistent = keybar("↑/↓ move", "enter go to it", "h hand off anyway", "<esc> back")
 	case modeQuestions:
 		body = m.questionsView()
 		persistent = m.questionsKeys()
@@ -2313,6 +2339,8 @@ func (m model) headerLine() string {
 		return headerSt.Render("dbn") + dimSt.Render(" — no Round posted")
 	case m.mode == modeDone:
 		return headerSt.Render("dbn — "+m.doneHeading()) + dimSt.Render(m.coverageSuffix())
+	case m.mode == modeUnanswered:
+		return headerSt.Render("dbn — Before you hand off") + dimSt.Render(m.coverageSuffix())
 	case m.pastTheLastStep():
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
