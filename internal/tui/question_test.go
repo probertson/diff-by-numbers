@@ -78,8 +78,8 @@ func TestAStepShowsItsQuestionsInTheirOwnBlockBeforeTheCode(t *testing.T) {
 	if block < 0 || asked < 0 {
 		t.Fatalf("expected a labelled question block, got:\n%s", out)
 	}
-	if !(strings.Index(out, "the explanation") < block && asked < code) {
-		t.Errorf("expected the question after the explanation and before the code, got:\n%s", out)
+	if !(strings.Index(out, "Add the retrier") < block && block < strings.Index(out, "the explanation") && asked < code) {
+		t.Errorf("expected the question at the top of the Step, under its name and before the explanation and the code, got:\n%s", out)
 	}
 	if !strings.Contains(out, "╭") {
 		t.Errorf("expected the question set off in a bordered block, got:\n%s", out)
@@ -529,5 +529,23 @@ func TestTheOverviewSaysWhereAQuestionWasAskedAgain(t *testing.T) {
 	}
 	if strings.Contains(out, "exactly 5, or 5 with jitter?") {
 		t.Errorf("the Overview says where, not what: the new question is read where it sits, got:\n%s", out)
+	}
+}
+
+func TestClearingACarriedOverAnswerSaysToWithdrawItInstead(t *testing.T) {
+	m, rec := overviewAsking(t)
+	m.view.Questions = []daemon.QuestionWire{carriedQuestion(7, "3 or 5?", "5")}
+	picking := press(m, "a")
+	answering, _ := picking.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	am := answering.(model)
+	am.note.SetValue("")
+
+	saved, _ := am.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(rec.answers) != 0 {
+		t.Errorf("expected nothing sent, got %v", rec.answers)
+	}
+	if status := saved.(model).status; !strings.Contains(status, "withdraw") {
+		t.Errorf("expected to be told to withdraw it instead, got %q", status)
 	}
 }

@@ -479,7 +479,7 @@ func TestTheSkillQuotesTheWaitLinesForAgentQuestions(t *testing.T) {
 	skill := strings.Join(strings.Fields(skills.DbnReview), " ")
 	for _, answer := range []daemon.WaitWire{
 		{Event: "handed_off", ReviewID: "ID", Comments: 1, Answers: 2, Unanswered: 1},
-		{Event: "handed_off", ReviewID: "ID", Answers: 2},
+		{Event: "handed_off", ReviewID: "ID", Answers: 2, MayConclude: true},
 	} {
 		line := waitLine(answer)
 

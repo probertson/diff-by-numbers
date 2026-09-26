@@ -86,6 +86,15 @@ func (m model) answerPhrases() []string {
 	return phrases
 }
 
+// askedWhere names where a question was asked: on a Step, or with the Brief
+// for one asked on the Round.
+func askedWhere(step int) string {
+	if step == 0 {
+		return "with the Brief"
+	}
+	return fmt.Sprintf("Step %d", step)
+}
+
 // andList reads a list as a phrase: "a", "a and b", "a, b and c".
 func andList(items []string) string {
 	if len(items) < 2 {
@@ -185,10 +194,13 @@ func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 	if m.confirmingDelete {
 		switch readConfirm(key) {
 		case confirmProceed:
-			if m.questionCursor < len(here) {
-				m.client.withdrawQuestion(here[m.questionCursor].ID)
-			}
 			m.confirmingDelete = false
+			if m.questionCursor < len(here) {
+				if refusal := m.client.withdrawQuestion(here[m.questionCursor].ID); refusal != "" {
+					m.status = refusal
+					return m, nil
+				}
+			}
 			m.mode = modeReview
 			return m, m.refresh()
 		case confirmCancel:
@@ -321,8 +333,12 @@ func answerEditor(question daemon.QuestionWire) noteEditor {
 // is no call at all when there was none.
 func submitAnswer(m model, question daemon.QuestionWire, text string) string {
 	cleared := strings.TrimSpace(text) == ""
-	if cleared && !question.Answered() {
+	switch {
+	case cleared && !question.Answered():
 		return ""
+	case cleared && question.CarriedOver:
+		// Only answered questions carry over, so dbn refuses to clear one.
+		return "a carried-over question keeps its Answer — withdraw it from the list (a, then d) instead"
 	}
 	if !m.client.answerQuestion(question.ID, text) {
 		return "could not save the Answer"
@@ -392,11 +408,7 @@ func (m model) handOffCheckView() string {
 		if i == m.questionCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		where := fmt.Sprintf("Step %d", question.Step)
-		if question.Step == 0 {
-			where = "with the Brief"
-		}
-		rows := []string{cursor + dimSt.Render(where)}
+		rows := []string{cursor + dimSt.Render(askedWhere(question.Step))}
 		for _, line := range strings.Split(wrapTo(question.Text, m.width-listItemIndent), "\n") {
 			rows = append(rows, strings.Repeat(" ", listItemIndent)+line)
 		}

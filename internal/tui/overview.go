@@ -139,11 +139,7 @@ func (m model) questionsFromTheLastRound(width int) string {
 // response, each hanging in its own block like a Comment's.
 func accountedQuestionItem(group dispositionGroup, accounted daemon.AccountedQuestionWire, width int) []string {
 	question := accounted.Question
-	where := fmt.Sprintf("Step %d", question.Step)
-	if question.Step == 0 {
-		where = "with the Brief"
-	}
-	tail := fmt.Sprintf(" #%d  %s", question.ID, where)
+	tail := fmt.Sprintf(" #%d  %s", question.ID, askedWhere(question.Step))
 	rows := []string{strings.Repeat(" ", dispositionIndent) +
 		fitRow(group.mark+tail, group.style.Render(group.mark)+dimSt.Render(tail), width-dispositionIndent)}
 	// Where it was asked again, and not what: the new question is read where

@@ -124,6 +124,19 @@ func (s *Session) Open() (OpenReview, bool) {
 	}, true
 }
 
+// MayConclude reports whether a Hand Off leaves the Authoring Agent free to end
+// the review itself: it asked Agent Questions, every one was answered, and no
+// Comment was raised. Only the agent can tell whether an Answer calls for a
+// change, so dbn never infers the conclusion; this is the one place that says
+// when the agent may draw it (ADR-0017).
+func (s *Session) MayConclude() bool {
+	if s.current == nil || !s.finished || len(s.comments) > 0 || len(s.questions) == 0 {
+		return false
+	}
+	_, unanswered := CountAnswers(s.questions)
+	return unanswered == 0
+}
+
 // RoundOutcome is what has become of the Round on screen that its Authoring
 // Agent can act on: the Reviewer handed it off, or dismissed the review.
 // Nothing else the Reviewer does — opening it, moving through it, raising a

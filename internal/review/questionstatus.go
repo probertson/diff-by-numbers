@@ -42,7 +42,7 @@ type AccountedQuestion struct {
 	Response string
 	// AskedAgainAs is the question of this Round that asks it again, when the
 	// status is asked again, so the Overview can say where it now sits.
-	AskedAgainAs AgentQuestion
+	AskedAgainAs *AgentQuestion
 }
 
 var questionAccounting = accounting{
@@ -205,8 +205,9 @@ func linkAskedAgain(accounted []AccountedQuestion, questions []AgentQuestion) []
 			if question.AsksAgain != accounted[i].Question.ID {
 				continue
 			}
-			if accounted[i].AskedAgainAs.ID == 0 || !question.CarriedOver {
-				accounted[i].AskedAgainAs = question
+			if accounted[i].AskedAgainAs == nil || !question.CarriedOver {
+				asking := question
+				accounted[i].AskedAgainAs = &asking
 			}
 		}
 	}

@@ -87,10 +87,9 @@ func waitLine(answer daemon.WaitWire) string {
 	if answer.Answers+answer.Unanswered > 0 {
 		work = append(work, "questions")
 	}
-	// Every question answered and nothing else raised is the one Hand Off the
-	// agent may end the review from: only it can tell whether an Answer calls
-	// for a change (ADR-0017).
-	if answer.Comments == 0 && answer.Unanswered == 0 {
+	// The one Hand Off the agent may end the review from: only it can tell
+	// whether an Answer calls for a change (ADR-0017).
+	if answer.MayConclude {
 		return fmt.Sprintf("%s was handed off with %s. Call fetch_results with review_id %s and read them: conclude if no Answer calls for a change, otherwise post a Revision Round.",
 			review, listed(raised), id)
 	}

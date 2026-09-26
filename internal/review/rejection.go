@@ -75,6 +75,11 @@ const (
 	// RejectedMalformedQuestionStatus means a Revision Round does not account for
 	// the previous round's Agent Questions correctly.
 	RejectedMalformedQuestionStatus RejectionReason = "malformed_question_status"
+	// RejectedQuestionCarriedOver means a carried-over Agent Question was to be
+	// left without its Answer or its link: cleared, when carrying over is only
+	// for answered questions, or withdrawn while it is what asks an earlier
+	// question again.
+	RejectedQuestionCarriedOver RejectionReason = "question_carried_over"
 	// RejectedNoSuchQuestion means an Answer names an Agent Question the Round on
 	// screen did not ask.
 	RejectedNoSuchQuestion RejectionReason = "no_such_question"

@@ -25,23 +25,23 @@ func handedOffAsking(t *testing.T, answers ...string) (*review.Session, *roundDe
 	return session, deriver
 }
 
-// accounting is a Revision Round re-showing app.ts:1-3, with statuses for the
+// revisionAccounting is a Revision Round re-showing app.ts:1-3, with statuses for the
 // previous round's questions.
-func accounting(statuses ...review.QuestionAccount) review.Round {
+func revisionAccounting(statuses ...review.QuestionAccount) review.Round {
 	round := appRound([]review.Step{appStep(1, 3)}, nil)
 	round.Label = ""
 	round.QuestionStatuses = statuses
 	return round
 }
 
-func status(id int, status review.QuestionStatus, response string) review.QuestionAccount {
+func questionStatus(id int, status review.QuestionStatus, response string) review.QuestionAccount {
 	return review.QuestionAccount{QuestionID: id, Status: status, Response: response}
 }
 
 func TestARevisionRoundMustGiveEveryEarlierQuestionAStatus(t *testing.T) {
 	session, _ := handedOffAsking(t, "3", "")
 
-	err := session.Revise(session.ReviewID(), accounting(status(1, review.QuestionNoChangeNeeded, "")))
+	err := session.Revise(session.ReviewID(), revisionAccounting(questionStatus(1, review.QuestionNoChangeNeeded, "")))
 
 	assertRejected(t, err, review.RejectedMalformedQuestionStatus)
 	assertDetailContains(t, err, "Agent Question 2")
@@ -52,7 +52,7 @@ func TestAMissingQuestionStatusIsReportedAlongsideOtherProblems(t *testing.T) {
 	deriver.lines = changedApp(1, 4)
 	deriver.touched = map[string]bool{"app.ts:4": true}
 
-	err := session.Revise(session.ReviewID(), accounting()) // leaves line 4 uncovered, too
+	err := session.Revise(session.ReviewID(), revisionAccounting()) // leaves line 4 uncovered, too
 
 	assertRejected(t, err, review.RejectedMalformedQuestionStatus)
 	assertRejected(t, err, review.RejectedUncoveredChanges)
@@ -78,7 +78,7 @@ func TestAQuestionStatusIsJudgedByWhetherTheQuestionWasAnswered(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			session, _ := handedOffAsking(t, tc.answer)
 
-			err := session.Revise(session.ReviewID(), accounting(status(1, tc.status, tc.response)))
+			err := session.Revise(session.ReviewID(), revisionAccounting(questionStatus(1, tc.status, tc.response)))
 
 			if tc.accepted && err != nil {
 				t.Errorf("expected the status to be accepted, got %v", err)
@@ -93,9 +93,9 @@ func TestAQuestionStatusIsJudgedByWhetherTheQuestionWasAnswered(t *testing.T) {
 func TestTheRevisionRoundShowsEachEarlierQuestionWithItsAnswerAndStatus(t *testing.T) {
 	session, _ := handedOffAsking(t, "5", "")
 
-	mustRevise(t, session, accounting(
-		status(1, review.QuestionAddressed, "raised the cap to 5"),
-		status(2, review.QuestionAgentsCall, "kept the old name"),
+	mustRevise(t, session, revisionAccounting(
+		questionStatus(1, review.QuestionAddressed, "raised the cap to 5"),
+		questionStatus(2, review.QuestionAgentsCall, "kept the old name"),
 	))
 	accounted := session.View().AccountedQuestions
 
@@ -115,7 +115,7 @@ func TestTheRevisionRoundShowsEachEarlierQuestionWithItsAnswerAndStatus(t *testi
 func TestAFirstRoundTakesNoQuestionStatuses(t *testing.T) {
 	session := review.NewSession(&textResolver{text: map[string]string{}}, &roundDeriver{lines: changedApp(1, 3)})
 	round := appRound([]review.Step{appStep(1, 3)}, nil)
-	round.QuestionStatuses = []review.QuestionAccount{status(1, review.QuestionAddressed, "")}
+	round.QuestionStatuses = []review.QuestionAccount{questionStatus(1, review.QuestionAddressed, "")}
 
 	err := session.Post(round)
 
@@ -134,10 +134,10 @@ func TestARevisionRoundAfterNoQuestionsNeedsNoStatuses(t *testing.T) {
 
 func TestReplacingARevisionRoundSuppliesItsQuestionStatusesAgain(t *testing.T) {
 	session, _ := handedOffAsking(t, "5")
-	mustRevise(t, session, accounting(status(1, review.QuestionAddressed, "")))
+	mustRevise(t, session, revisionAccounting(questionStatus(1, review.QuestionAddressed, "")))
 
-	without := session.Replace(session.ReviewID(), accounting())
-	with := session.Replace(session.ReviewID(), accounting(status(1, review.QuestionNoChangeNeeded, "")))
+	without := session.Replace(session.ReviewID(), revisionAccounting())
+	with := session.Replace(session.ReviewID(), revisionAccounting(questionStatus(1, review.QuestionNoChangeNeeded, "")))
 
 	assertRejected(t, without, review.RejectedMalformedQuestionStatus)
 	if with != nil {
@@ -151,7 +151,7 @@ func TestReplacingARevisionRoundSuppliesItsQuestionStatusesAgain(t *testing.T) {
 // askingAgain is a Revision Round asking question prior again on its Step,
 // with the status that says so.
 func askingAgain(prior int, wording, response string) review.Round {
-	round := accounting(status(prior, review.QuestionAskedAgain, response))
+	round := revisionAccounting(questionStatus(prior, review.QuestionAskedAgain, response))
 	round.Steps[0].Questions = []review.Question{{Text: wording, AsksAgain: prior}}
 	return round
 }
@@ -172,7 +172,7 @@ func TestAQuestionAskedAgainCarriesItsHistory(t *testing.T) {
 		t.Errorf("expected the earlier wording and Answer, got %+v", earlier)
 	}
 	accounted := session.View().AccountedQuestions[0]
-	if accounted.Status != review.QuestionAskedAgain || accounted.AskedAgainAs.ID != asked[0].ID {
+	if accounted.Status != review.QuestionAskedAgain || accounted.AskedAgainAs == nil || accounted.AskedAgainAs.ID != asked[0].ID {
 		t.Errorf("expected the status to name the question it was asked again as, got %+v", accounted)
 	}
 }
@@ -194,7 +194,7 @@ func TestAskedAgainIsRefusedWithoutAResponseOrALink(t *testing.T) {
 	}{
 		{"no response", func() review.Round { return askingAgain(1, "exactly 5?", "") }},
 		{"no question asking it again", func() review.Round {
-			return accounting(status(1, review.QuestionAskedAgain, "unclear"))
+			return revisionAccounting(questionStatus(1, review.QuestionAskedAgain, "unclear"))
 		}},
 		{"two questions asking it again", func() review.Round {
 			round := askingAgain(1, "exactly 5?", "unclear")
@@ -218,12 +218,12 @@ func TestAQuestionCannotAskAgainOneThatWasNotAskedAgain(t *testing.T) {
 		round func() review.Round
 	}{
 		{"a question the previous round never asked", func() review.Round {
-			round := accounting(status(1, review.QuestionAddressed, ""))
+			round := revisionAccounting(questionStatus(1, review.QuestionAddressed, ""))
 			round.Steps[0].Questions = []review.Question{{Text: "?", AsksAgain: 9}}
 			return round
 		}},
 		{"a question given another status", func() review.Round {
-			round := accounting(status(1, review.QuestionAddressed, ""))
+			round := revisionAccounting(questionStatus(1, review.QuestionAddressed, ""))
 			round.Steps[0].Questions = []review.Question{{Text: "?", AsksAgain: 1}}
 			return round
 		}},
@@ -262,5 +262,22 @@ func TestAQuestionAskedAgainTwiceShowsTheHistorySoFar(t *testing.T) {
 	}
 	if history[0].Text != "3 or 5?" || history[1].Text != "exactly 5?" || history[1].Answer != "whatever is standard" {
 		t.Errorf("expected the history oldest first, got %+v", history)
+	}
+}
+
+func TestACarriedOverQuestionThatIsTheOnlyLinkForAskingAgainCannotBeWithdrawn(t *testing.T) {
+	session, _ := handedOffAsking(t, "5 or so")
+	mustRevise(t, session, askingAgain(1, "exactly 5?", "cannot code '5 or so'"))
+	mustAnswer(t, session, 1, "exactly 5")
+	carriedOnly := revisionAccounting(questionStatus(1, review.QuestionAskedAgain, "cannot code '5 or so'"))
+	if err := session.Replace(session.ReviewID(), carriedOnly); err != nil {
+		t.Fatalf("expected the carried-over question to satisfy the link, got %v", err)
+	}
+
+	err := session.WithdrawQuestion(1)
+
+	assertRejected(t, err, review.RejectedQuestionCarriedOver)
+	if asked := session.View().AccountedQuestions[0].AskedAgainAs; asked == nil || asked.ID != 1 {
+		t.Errorf("expected the link to still name the carried-over question, got %+v", asked)
 	}
 }

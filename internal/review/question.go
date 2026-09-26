@@ -167,6 +167,15 @@ func (s *Session) WithdrawQuestion(id int) error {
 			return reject(RejectedNoSuchQuestion,
 				"Agent Question %d was asked on this Round; only a carried-over question can be withdrawn", id)
 		}
+		// dbn refuses an asked-again status that links to nothing (ADR-0017),
+		// and withdrawing the question it links to would leave exactly that.
+		for _, accounted := range s.accountedQuestions {
+			if accounted.AskedAgainAs != nil && accounted.AskedAgainAs.ID == id {
+				return reject(RejectedQuestionCarriedOver,
+					"Agent Question %d is what asks the previous round's question %d again; change its Answer instead",
+					id, accounted.Question.ID)
+			}
+		}
 		s.questions = append(s.questions[:i], s.questions[i+1:]...)
 		return nil
 	}
@@ -186,10 +195,17 @@ func (s *Session) AnswerQuestion(id int, answer string) error {
 		answer = ""
 	}
 	for i := range s.questions {
-		if s.questions[i].ID == id {
-			s.questions[i].Answer = answer
-			return nil
+		if s.questions[i].ID != id {
+			continue
 		}
+		// Only answered questions carry over a Replacement, so one left
+		// unanswered here would be a question the agent never asked this Round.
+		if s.questions[i].CarriedOver && answer == "" {
+			return reject(RejectedQuestionCarriedOver,
+				"Agent Question %d carried over with its Answer; change the Answer, or withdraw the question", id)
+		}
+		s.questions[i].Answer = answer
+		return nil
 	}
 	return reject(RejectedNoSuchQuestion, "there is no Agent Question %d", id)
 }

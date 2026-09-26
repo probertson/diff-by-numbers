@@ -520,12 +520,21 @@ func (c client) answerQuestion(id int, answer string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// withdrawQuestion withdraws a carried-over Agent Question.
-func (c client) withdrawQuestion(id int) {
+// withdrawQuestion withdraws a carried-over Agent Question, returning why dbn
+// refused, or "" when it did not. A refusal is worth showing: the question may
+// be what asks an earlier one again.
+func (c client) withdrawQuestion(id int) string {
 	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/question/%d", c.url(""), id), nil)
-	if resp, err := http.DefaultClient.Do(req); err == nil {
-		resp.Body.Close()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "could not withdraw the question"
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return ""
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return strings.TrimSpace(string(body))
 }
 
 func (c client) withdraw(id int) {
@@ -2671,12 +2680,12 @@ func (m model) step() string {
 	step := m.view.Step
 
 	b.WriteString(labelSt.Render(step.Name) + "\n\n")
+	if len(step.Questions) > 0 {
+		b.WriteString(questionBlock(step.Questions, m.width) + "\n\n")
+	}
 	b.WriteString(step.Explanation + "\n")
 	if step.OversizeJustification != "" {
 		b.WriteString("\n" + warnSt.Render("oversized: ") + step.OversizeJustification + "\n")
-	}
-	if len(step.Questions) > 0 {
-		b.WriteString("\n" + questionBlock(step.Questions, m.width) + "\n")
 	}
 
 	for _, excerpt := range step.Excerpts {

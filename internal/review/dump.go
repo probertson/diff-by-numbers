@@ -19,6 +19,9 @@ func (s *Session) Dump() string {
 
 	fmt.Fprintf(&out, "Goal:     %s\n", w.Brief.Goal)
 	fmt.Fprintf(&out, "Approach: %s\n", w.Brief.Approach)
+	for _, question := range w.Questions {
+		fmt.Fprintf(&out, "Asks:     %s\n", question.Text)
+	}
 	out.WriteString("\nChange Set:\n")
 	for _, repository := range w.ChangeSet.Repositories {
 		fmt.Fprintf(&out, "  %s @ %s\n", repository.Root, repository.Base)

@@ -29,6 +29,9 @@ type WaitWire struct {
 	Comments   int `json:"comments"`
 	Answers    int `json:"answers,omitempty"`
 	Unanswered int `json:"unanswered,omitempty"`
+	// MayConclude says the agent may end the review itself if no Answer calls
+	// for a change: every question answered, nothing else raised.
+	MayConclude bool `json:"may_conclude,omitempty"`
 }
 
 // The events that end a wait. A Hand Off with Comments is the one left over.
@@ -133,6 +136,8 @@ func (d *Daemon) waitAnswer(id string) WaitWire {
 		Comments:   len(session.Comments()),
 		Answers:    answered,
 		Unanswered: unanswered,
+
+		MayConclude: session.MayConclude(),
 	}
 }
 

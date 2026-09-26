@@ -363,8 +363,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Status:   string(accounted.Status),
 			Response: accounted.Response,
 		}
-		if accounted.AskedAgainAs.ID != 0 {
-			asked := toQuestionWire(accounted.AskedAgainAs)
+		if accounted.AskedAgainAs != nil {
+			asked := toQuestionWire(*accounted.AskedAgainAs)
 			entry.AskedAgainAs = &asked
 		}
 		wire.AccountedQuestions = append(wire.AccountedQuestions, entry)

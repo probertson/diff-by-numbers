@@ -983,7 +983,7 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 	case review.HandedOffNothingRaised:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
 	case review.HandedOffWithSomethingRaised:
-		message = handedOffMessage(results)
+		message = handedOffMessage(results, session.MayConclude())
 	default:
 		if results.Posted {
 			message = "the Reviewer has not handed off the Round yet"
@@ -995,12 +995,12 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 
 // handedOffMessage tells the agent what to do with a Hand Off that left it
 // something to read. A Round that asked nothing reads as it always has.
-func handedOffMessage(results review.Results) string {
+func handedOffMessage(results review.Results, mayConclude bool) string {
 	answered, unanswered := review.CountAnswers(results.Questions)
 	if len(results.Questions) == 0 {
 		return "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
 	}
-	if len(results.Comments) == 0 && unanswered == 0 {
+	if mayConclude {
 		return "the Reviewer has handed off and answered every Agent Question below. If no Answer calls for a change, conclude the review; otherwise make the changes and post a Revision Round"
 	}
 	var work []string

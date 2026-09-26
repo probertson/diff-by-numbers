@@ -303,3 +303,58 @@ func TestCarriedOverAnswersReachTheAgentAtTheNextHandOff(t *testing.T) {
 		t.Error("a carried-over Answer is still an Answer for the agent to read")
 	}
 }
+
+func TestACarriedOverAnswerCanBeChangedButNotCleared(t *testing.T) {
+	session := postedAsking(t, "3 or 5?")
+	mustAnswer(t, session, 1, "5")
+	if err := session.Replace(session.ReviewID(), validRound()); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := session.AnswerQuestion(1, "3, on reflection")
+	cleared := session.AnswerQuestion(1, "")
+
+	if changed != nil {
+		t.Errorf("expected a carried-over Answer to be changeable, got %v", changed)
+	}
+	assertRejected(t, cleared, review.RejectedQuestionCarriedOver)
+	assertDetailContains(t, cleared, "withdraw")
+	if answer := session.Questions()[0].Answer; answer != "3, on reflection" {
+		t.Errorf("expected the carried-over question to keep its Answer, got %q", answer)
+	}
+}
+
+func TestTheAgentMayConcludeOnlyWhenEveryQuestionWasAnsweredAndNothingElseRaised(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		answers []string
+		comment bool
+		may     bool
+	}{
+		{"every question answered", []string{"3", "yes"}, false, true},
+		{"a question unanswered", []string{"3", ""}, false, false},
+		{"a Comment raised as well", []string{"3"}, true, false},
+		{"nothing asked, which concludes on its own", nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked []string
+			for range tc.answers {
+				asked = append(asked, "?")
+			}
+			session := postedAsking(t, asked...)
+			for i, answer := range tc.answers {
+				mustAnswer(t, session, i+1, answer)
+			}
+			if tc.comment {
+				mustAdvance(t, session)
+				raise(t, session, 20, 20, "rename")
+			}
+
+			mustFinish(t, session)
+
+			if got := session.MayConclude(); got != tc.may {
+				t.Errorf("expected MayConclude %v, got %v", tc.may, got)
+			}
+		})
+	}
+}
