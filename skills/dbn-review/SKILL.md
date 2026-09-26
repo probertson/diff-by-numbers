@@ -21,7 +21,7 @@ to start anything
 first: registering the shim is enough. It starts the daemon on demand the moment
 your session connects.)
 
-**Requires dbn v0.2.2 or later.** This skill ships separately from the binary,
+**Requires dbn v0.5.0 or later.** This skill ships separately from the binary,
 so the two can drift apart. If a dbn tool call fails because the tool is unknown
 or because it rejects a field this skill told you to send, do not work around it
 and do not fall back to a raw diff: tell the Reviewer to run `dbn update`, which

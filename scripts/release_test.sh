@@ -234,6 +234,79 @@ fi
 check_equal "and it is still tagged" \
 	"$(git -C "$WORK" rev-parse HEAD)" "$(git -C "$WORK" rev-list -n 1 v2.0.0)"
 
+# The skill's "Requires dbn vX.Y.Z or later" line is kept by hand, so the
+# release warns when it looks forgotten: the MCP schema changed since the last
+# release and the line did not, or the line names a release that is not out.
+
+# with_skill REQUIRES — seed the skill's minimum-version line and the MCP schema
+# file, and commit them.
+with_skill() {
+	mkdir -p "$WORK/skills/dbn-review" "$WORK/internal/daemon"
+	printf '# dbn-review\n\n**Requires dbn %s or later.**\n' "$1" >"$WORK/skills/dbn-review/SKILL.md"
+	[ -f "$WORK/internal/daemon/wire.go" ] || echo "package daemon" >"$WORK/internal/daemon/wire.go"
+	git -C "$WORK" add -A
+	git -C "$WORK" commit -qm "Require dbn $1"
+	git -C "$WORK" push -q origin main
+}
+
+# change_schema — edit the MCP schema file and commit it.
+change_schema() {
+	echo "// a new field" >>"$WORK/internal/daemon/wire.go"
+	git -C "$WORK" commit -qam "Change the MCP schema"
+	git -C "$WORK" push -q origin main
+}
+
+forgotten="the MCP schema (internal/daemon/wire.go) changed since"
+unreleased="names a dbn that is not out yet"
+
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+change_schema
+cut_release PATCH
+
+case "$RELEASE_OUT" in
+*"$forgotten"*) pass "a schema change with the minimum version left alone is warned about" ;;
+*) fail "a schema change with the minimum version left alone is warned about" "$RELEASE_OUT" ;;
+esac
+check_equal "the warning does not stop the release" "0" "$RELEASE_STATUS"
+
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+change_schema
+with_skill v1.1.0
+cut_release v1.1.0
+
+case "$RELEASE_OUT" in
+*"$forgotten"* | *"$unreleased"*) fail "a schema change that raised the minimum version is not warned about" "$RELEASE_OUT" ;;
+*) pass "a schema change that raised the minimum version is not warned about" ;;
+esac
+
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+echo "docs" >>"$WORK/README.md"
+git -C "$WORK" commit -qam "Just docs"
+git -C "$WORK" push -q origin main
+cut_release PATCH
+
+case "$RELEASE_OUT" in
+*"$forgotten"*) fail "a release that leaves the schema alone is not warned about" "$RELEASE_OUT" ;;
+*) pass "a release that leaves the schema alone is not warned about" ;;
+esac
+
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+with_skill v2.0.0
+cut_release PATCH
+
+case "$RELEASE_OUT" in
+*"v2.0.0"*"$unreleased"*) pass "a minimum version above the release is warned about" ;;
+*) fail "a minimum version above the release is warned about" "$RELEASE_OUT" ;;
+esac
+
 # ---------------------------------------------------------------------------
 
 if [ "$fails" -ne 0 ]; then

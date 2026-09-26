@@ -108,6 +108,46 @@ fi
 	printf '# Leave the notes empty to abort the release.\n'
 } >"$tmp_notes"
 
+# The dbn-review skill names the oldest dbn it works with ("Requires dbn vX.Y.Z
+# or later"). That line is kept by hand, and only a person can tell whether a
+# change to the MCP tools is one the skill relies on — so this warns rather than
+# bumps, and never stops the release. It has been forgotten before: the line
+# still named v0.2.2, a release that never shipped, two releases after the MCP
+# tools it describes were renamed.
+skill="skills/dbn-review/SKILL.md"
+schema="internal/daemon/wire.go"
+requires_in() { sed -n 's/.*Requires dbn \(v[0-9][0-9.]*\) or later.*/\1/p' | head -n 1; }
+# newer A B — whether version A is later than version B.
+newer() {
+	awk -v a="${1#v}" -v b="${2#v}" 'BEGIN {
+		split(a, x, "."); split(b, y, ".")
+		for (i = 1; i <= 3; i++) {
+			if (x[i] + 0 > y[i] + 0) exit 0
+			if (x[i] + 0 < y[i] + 0) exit 1
+		}
+		exit 1
+	}'
+}
+skill_warnings=""
+if [ -f "$skill" ]; then
+	requires=$(requires_in <"$skill")
+	if [ -n "$previous" ] && [ -f "$schema" ] && ! git diff --quiet "$previous" HEAD -- "$schema"; then
+		was=$(git show "${previous}:${skill}" 2>/dev/null | requires_in)
+		if [ "$requires" = "$was" ]; then
+			skill_warnings="${skill_warnings}warning: the MCP schema (${schema}) changed since ${previous}, but ${skill}
+  still says \"Requires dbn ${requires} or later\". If the skill relies on the change,
+  answer n and raise that line to ${version}.
+"
+		fi
+	fi
+	if [ -n "$requires" ] && newer "$requires" "$version"; then
+		skill_warnings="${skill_warnings}warning: ${skill} says \"Requires dbn ${requires} or later\", which
+  names a dbn that is not out yet: this release is ${version}. Answer n and lower
+  the line to ${version}, or release ${requires} instead.
+"
+	fi
+fi
+
 # git var resolves the editor exactly as git commit would: GIT_EDITOR,
 # core.editor, VISUAL, EDITOR, then vi. It is run through sh -c, as git runs it,
 # so an editor configured with arguments ("code --wait") works.
@@ -121,6 +161,8 @@ printf 'Release notes for %s:\n\n%s\n\n' "$version" "$notes"
 printf 'About to set the plugin version to %s, commit it as "Release %s", push main,\n' "$plugin_version" "$version"
 printf 'then tag %s at that commit with the notes above and push the tag,\n' "$version"
 printf 'triggering the release build.\n'
+# Last, so it is what the release is decided on rather than scrolled past.
+[ -z "$skill_warnings" ] || printf '\n%s\n' "$skill_warnings"
 printf 'Continue? [y/N] '
 read -r reply
 case "$reply" in
