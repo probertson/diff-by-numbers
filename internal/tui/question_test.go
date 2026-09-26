@@ -78,8 +78,8 @@ func TestAStepShowsItsQuestionsInTheirOwnBlockBeforeTheCode(t *testing.T) {
 	if block < 0 || asked < 0 {
 		t.Fatalf("expected a labelled question block, got:\n%s", out)
 	}
-	if !(strings.Index(out, "Add the retrier") < block && block < strings.Index(out, "the explanation") && asked < code) {
-		t.Errorf("expected the question at the top of the Step, under its name and before the explanation and the code, got:\n%s", out)
+	if !(strings.Index(out, "the explanation") < block && asked < code) {
+		t.Errorf("expected the question after the explanation and before the code, got:\n%s", out)
 	}
 	if !strings.Contains(out, "╭") {
 		t.Errorf("expected the question set off in a bordered block, got:\n%s", out)

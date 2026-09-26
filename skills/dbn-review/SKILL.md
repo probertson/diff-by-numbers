@@ -136,9 +136,9 @@ without answering.
   whole review asks that. Never for something you should simply state in the
   Brief.
 - **Attach it where it belongs.** A question about a Step's code goes in that
-  Step's `questions`; it is shown at the top of the Step, and only there. A
-  question about the approach goes in the Round's own `questions`, shown with the
-  Brief.
+  Step's `questions`; it is shown after the Step's explanation and before its
+  code, and only there. A question about the approach goes in the Round's own
+  `questions`, shown with the Brief.
 - **Write it so it can be answered from its Step and the Steps before it.** The
   reviewer reads a Step's question after the Steps leading up to it, never on the
   Overview, so it can lean on them — but not on anything later, or on

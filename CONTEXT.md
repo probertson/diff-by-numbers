@@ -192,8 +192,8 @@ _Avoid_: change request, note, feedback, todo
 **Agent Question**:
 A question the Authoring Agent puts to the Reviewer, which dbn knows about and shows
 apart from the narration: the reverse of a Comment (ADR-0017). It attaches to the Round,
-shown with the Brief, when it is about the approach, or to a Step, shown at the top of
-that Step, when it is about its code. A Step's question is never shown on the Overview,
+shown with the Brief, when it is about the approach, or to a Step, shown after that
+Step's Explanation and before its code, when it is about its code. A Step's question is never shown on the Overview,
 since it needs the Steps before it for its context; the Overview only marks which Steps
 carry one. A Round that carried any is never concluded by its Hand Off: the agent reads
 the Answers and posts a Revision Round unless nothing needs changing. That Round gives

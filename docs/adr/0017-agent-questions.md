@@ -24,9 +24,10 @@ An Agent Question attaches either to the Round or to a Step, as the agent choose
 
 - **To the Round**, when it is about the approach. It is shown with the Brief on the
   Overview, which exists so the Reviewer can judge the approach apart from the code.
-- **To a Step**, when it is about that Step's code. Its text is shown only on that Step, at the
-  top, before the Excerpts, in its own labelled block distinct from the Explanation. The
-  Step's status line counts it while it is unanswered.
+- **To a Step**, when it is about that Step's code. Its text is shown only on that Step,
+  after the Explanation and before the Excerpts, in its own labelled block distinct from
+  the Explanation, so the Reviewer reads the Step's background, then the question, then the
+  code. The Step's status line counts it while it is unanswered.
 
 A Step-level question's text never appears on the Overview. It depends on the Steps before it
 and on its own Step for its context, and read cold on the Overview it only distracts. The

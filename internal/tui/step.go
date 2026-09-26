@@ -477,20 +477,19 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		return text
 	}
 	var b bytes.Buffer
-	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n")
-	// Agent Questions sit at the top of the Step, under its name (ADR-0017).
-	// Below the Explanation, a long one could push them out of the terminal,
-	// which is the question going unnoticed all over again (#114). The pane
-	// below is sized from what this header leaves.
-	if len(step.Questions) > 0 {
-		fmt.Fprint(&b, questionBlock(step.Questions, width)+"\n\n")
-	}
-	fmt.Fprint(&b, wrap(step.Explanation)+"\n")
+	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrap(step.Explanation)+"\n")
 	if step.OversizeJustification != "" {
 		// The label goes on its own line above the wrapped justification. Inlining it
 		// before the block pushed the first wrapped line past the width, and the text
 		// was dropped when the terminal reflowed it.
 		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrap(step.OversizeJustification)+"\n")
+	}
+	// Agent Questions come after the Explanation, which gives them their
+	// context, and before the code, which the Reviewer would otherwise read the
+	// question past (ADR-0017). The pane below is sized from what this header
+	// leaves.
+	if len(step.Questions) > 0 {
+		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, width)+"\n")
 	}
 
 	// A file edited since the round was posted is still shown as posted, which is

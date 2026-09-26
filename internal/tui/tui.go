@@ -2680,12 +2680,12 @@ func (m model) step() string {
 	step := m.view.Step
 
 	b.WriteString(labelSt.Render(step.Name) + "\n\n")
-	if len(step.Questions) > 0 {
-		b.WriteString(questionBlock(step.Questions, m.width) + "\n\n")
-	}
 	b.WriteString(step.Explanation + "\n")
 	if step.OversizeJustification != "" {
 		b.WriteString("\n" + warnSt.Render("oversized: ") + step.OversizeJustification + "\n")
+	}
+	if len(step.Questions) > 0 {
+		b.WriteString("\n" + questionBlock(step.Questions, m.width) + "\n")
 	}
 
 	for _, excerpt := range step.Excerpts {
