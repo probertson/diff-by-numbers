@@ -31,6 +31,97 @@ here.
 
 ## Planning a Round
 
+A Round is a **Brief** followed by ordered **Steps**. Plan it as a story told to
+someone who was not there: decide first what the reviewer needs to understand,
+and in what order, and only then fit Excerpts to that plan.
+
+### Telling the story
+
+**Write for a reviewer who was not there.** The work may have been planned days
+or weeks before they read it, and they may be moving between several other
+tasks. Names you coined while working — for a helper, a phase, an approach you
+tried — mean nothing to them until you explain them. Do not assume they remember
+decisions made while planning: when one matters to a Step, say what was decided
+and why.
+
+**The Brief is the birds-eye view.** It sets context before any code:
+- `goal` — what the work set out to achieve, as the reviewer asked for it, in
+  their words. Give it in round 1. The Goal belongs to the Review, so dbn
+  carries it forward: leave it out of a Revision Round or a replacement, and
+  give it again only if what the reviewer wants has changed.
+- `approach` — the overall architecture and direction of the change, and the
+  order the Steps will take the reviewer through it, so they can judge the
+  approach apart from the code. It does not explain every change; that is what
+  the Steps are for. When the work came from a spec — an issue, an ADR, a plan
+  — name it, so the reviewer can go back to it.
+
+Only the agent that wrote the changes posts their Review; the point is to hear
+the story from the one who knows it. If you are working from a summary of that
+work — after compaction, say — say so in `approach`.
+
+**Order the Steps to communicate.** There is no fixed direction, top-down or
+bottom-up. Choose the sequence that best conveys what the change is about, as
+you would organise a document for a reader. Strategies that often work, for the
+whole Round or within one part of it:
+- **By layer:** the change's overall shape, then each subsystem from its outline
+  down to its parts, then the next subsystem.
+- **By data flow:** input, then processing, then output.
+- **Principles first, then mechanics:** the rule or model the change introduces,
+  then the code that applies it.
+
+A new function and its callers may share a Step, or sit back to back in
+whichever order reads better.
+
+**The one firm rule: each Step is comprehensible given only the Steps before
+it.** A Step may rely on something a later Step shows, provided its explanation
+says what that thing does. Understanding a caller takes knowing what its callee
+does, not how.
+
+**One idea per Step, even a small one.** A Step carries one self-contained idea
+— "add retry with backoff to the fetch layer", "thread the tenant id through the
+callers" — not one file, and not one git hunk. A change about something else
+gets its own Step, even a one-line deletion in the same file. An explanation
+that says "and also changes an unrelated…" or "included because it is in the
+same file" is describing two Steps. Changes in contiguous code that are about
+different things belong in different Steps too, even inside one function (see
+*Splitting one edit across Steps*, below).
+
+**Every explanation says what and why:** what the change is, and how it fits
+into the overall work.
+
+**Describe the diff the reviewer will see.** git decides how an edit aligns, and
+`describe_changes` reports what it decided: a modification pairs removed lines
+with their replacement, and dbn draws the pair before → after. If git aligned
+your edit as pure additions, there is no before-side to draw, so do not call it
+"modified" and leave the reviewer looking for the old version. Describe what
+they will see, or give the before-side yourself with an `old`-side Excerpt.
+
+**Keep Steps small; oversize is a last resort.** Keep a Step to roughly 30
+changed lines, and prefer more, smaller Steps: each comprehensible at a glance,
+never two functions to hold in your head at once. An edit shows both its before
+and after, and the budget counts both sides, so a rewrite fills it faster than
+an addition. That pressure is intentional. Split by idea first;
+`oversize_justification` is only for a Step whose idea genuinely does not divide,
+never a routine alternative to splitting. dbn never refuses a justified Step. An
+unjustified one is refused as `oversized_step`, naming each such Step and the
+changed lines it counts toward the budget. That count leaves out whitespace-only
+lines and lines already shown last round, so it can be lower than the lines
+your Excerpts span. In a Revision Round, re-showing already-read context around
+a fix costs you nothing.
+
+**A new file is split by meaning.** git reports a new file as one hunk; that is
+no reason to show it in one Step. Give each part of it its own place in the
+story, across as many Steps as that takes. An Acknowledgement covers a file's
+whole change, so acknowledge a new file only when all of it is mechanical — a
+generated file, a fixture — never to skip the parts of real code you did not
+excerpt.
+
+**Keep Excerpts tight.** Give each group of related changes its own Excerpt,
+rather than one wide range across unrelated ones. Unchanged lines are there to
+give a change context, not to bridge from one change to the next.
+
+### The mechanics
+
 **Start with `describe_changes`**, giving it the same `repositories` you will
 post, and — when you are planning a Revision Round — the `review_id` of the
 review you are revising, so it pre-marks what that review has already shown. It
@@ -48,29 +139,6 @@ planning, and again before a Revision Round, when it also gives the
 `pre_marked_new`/`pre_marked_old` ranges you need not cover and how many lines
 are `still_to_cover`.
 
-A Round is a **Brief** followed by ordered **Steps**.
-
-**The Brief** sets context before any code:
-- `goal` — what the work set out to achieve, as the reviewer asked for it, in
-  their words. Give it in round 1. The Goal belongs to the Review, so dbn
-  carries it forward: leave it out of a Revision Round or a replacement, and
-  give it again only if what the reviewer wants has changed.
-- `approach` — the approach you took, so they can judge it apart from the code.
-
-Only the agent that wrote the changes posts their Review; the point is to hear
-the story from the one who knows it. If you are working from a summary of that
-work — after compaction, say — say so in `approach`.
-
-**Steps** each carry one self-contained idea — "add retry with backoff to the
-fetch layer", "thread the tenant id through the callers" — not one file, and not
-one git hunk. Plan them so:
-
-- **Ordering is narrative.** Each Step must be comprehensible given only the
-  Steps before it. Show a function before its callers; a type before its uses.
-- **Sizing is for comprehension.** Keep a Step to roughly 30 changed lines. A
-  large new file becomes several Steps by meaning, not one wall of code. If a
-  Step genuinely must be bigger, say why in `oversize_justification` — dbn never
-  forbids a large Step, it only asks for a reason.
 - **Excerpts are ranges you choose**, `{repository, file, side, first_line,
   last_line}`. Send ranges, never code — dbn reads the bytes itself. An Excerpt
   may include unchanged lines for context. Reviewing a single repository, omit
@@ -92,21 +160,13 @@ one git hunk. Plan them so:
   the path it came from — listing both is fine too. The Reviewer sees the new
   path either way. The exception is a path the same branch reused for a new
   file: that name now means the new file, so cover the two separately.
-- **Splitting one edit across Steps: say which old lines went where.** Changes in
-  contiguous code that are about different things belong in different Steps, even
-  inside one function. When that splits a single edit's after-side across Steps,
-  give each Step an `old`-side Excerpt over the lines its new lines replaced, and
-  dbn draws each before → after pair in its own Step. Say nothing and the whole
-  before-side stays with the Step showing the edit's first new line, and the other
-  Steps get a signpost saying where to find it.
+- **Splitting one edit across Steps: say which old lines went where.** When
+  Steps divided by idea split a single edit's after-side between them, give each
+  Step an `old`-side Excerpt over the lines its new lines replaced, and dbn draws
+  each before → after pair in its own Step. Say nothing and the whole before-side
+  stays with the Step showing the edit's first new line, and the other Steps get
+  a signpost saying where to find it.
 - **One Step may span several files** if one idea touches several.
-- **Prefer more, smaller Steps.** A Step should be comprehensible at a glance —
-  don't make the reviewer hold two functions in their head at once. Because an
-  edit shows both its before and after, the ~30-line budget counts both sides, so
-  a rewrite fills it faster than an addition. That pressure is intentional: split
-  it into more Steps rather than justify a wall of diff. In a Revision Round,
-  lines the reviewer has already seen are free, so re-showing context around a fix
-  costs you nothing — the budget counts new reading, not everything on screen.
 
 **Acknowledgements** cover mechanical changes you should not make the reviewer
 read line by line: a regenerated lockfile, a deleted dead module, a re-exported
@@ -249,6 +309,15 @@ lone closing braces are scoped out like anything else, and a file you did not
 touch at all needs nothing. That includes Opaque Changes: a binary, a mode change
 or a rename you have not re-touched since the last round needs **no second
 Acknowledgement**. Only what actually moved comes back.
+
+**When nothing moved.** If you changed no code since the last round — every
+Comment `answered` or `declined` — you still post the Revision Round, because it
+is what carries your dispositions to the reviewer; do not `conclude` instead.
+dbn still needs at least one Step, and a Step must show something, so give it an
+Excerpt re-showing code the reviewer has already read: the code the dispositions
+are about is the natural choice. Already-read lines cost nothing against the
+budget, and dbn marks the Step as unchanged since the last round, so the
+reviewer knows there is nothing new in it.
 
 A Comment whose anchor says the code was `acknowledged in Step "…"`
 disputes that Acknowledgement as well as the line: the reviewer read code you

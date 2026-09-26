@@ -391,6 +391,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 		for _, step := range over {
 			fmt.Fprintf(&listed, "\n  %s", step.entry())
 		}
+		fmt.Fprintf(&listed, "\n%s", splitFirst)
 		return reject(RejectedOversizedStep, "%s", listed.String())
 	}
 }
@@ -410,16 +411,24 @@ func (o oversizedStep) String() string {
 	return fmt.Sprintf("Step %d (%q)", o.position, o.name)
 }
 
-// sentence is how one offender reads on its own.
+// splitFirst closes every oversized refusal. The refusal is where the agent
+// chooses between splitting and justifying, so it says which comes first; and it
+// says why the count can be lower than the lines a Step shows, so an agent
+// tallying its own Excerpts is not left with a number it cannot reproduce.
+const splitFirst = "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
+	"whitespace-only lines and lines already shown last round are not counted"
+
+// sentence is how one offender reads on its own. It says "counts", not "shows":
+// the number is what the Step costs against the budget (see budgetedLines).
 func (o oversizedStep) sentence() string {
-	return fmt.Sprintf("%s shows %d changed lines, over the budget of %d, and gives no justification",
-		o, o.count, StepBudget)
+	return fmt.Sprintf("%s counts %d changed lines toward the budget of %d, and gives no justification. %s",
+		o, o.count, StepBudget, splitFirst)
 }
 
 // entry is how one offender reads in a list, where the header has already said
 // what the budget is and what is wrong with them.
 func (o oversizedStep) entry() string {
-	return fmt.Sprintf("%s shows %d", o, o.count)
+	return fmt.Sprintf("%s counts %d", o, o.count)
 }
 
 // changedLinesIn counts the distinct Changed Lines a Step asks the Reviewer to

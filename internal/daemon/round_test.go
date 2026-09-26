@@ -294,3 +294,62 @@ func TestFetchResultsSpeaksOfRoundsNotWalkthroughs(t *testing.T) {
 		t.Errorf("the advisory should speak of a Round, got %q", message)
 	}
 }
+
+// The schema is what the agent reads at the moment it chooses between splitting
+// an oversized Step and justifying it, so it must not present justifying as the
+// routine alternative: splitting by idea comes first.
+func TestOversizeJustificationIsDescribedAsALastResort(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("could not connect to the daemon: %v", err)
+	}
+	defer session.Close()
+
+	tools, err := session.ListTools(ctx, nil)
+
+	if err != nil {
+		t.Fatalf("could not list tools: %v", err)
+	}
+	description := oversizeJustificationDescription(t, tools.Tools)
+	for _, want := range []string{"last resort", "by idea into smaller Steps"} {
+		if !strings.Contains(description, want) {
+			t.Errorf("oversize_justification's description should say %q, got %q", want, description)
+		}
+	}
+}
+
+func oversizeJustificationDescription(t *testing.T, tools []*mcp.Tool) string {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name != "post_round" {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("could not encode post_round's schema: %v", err)
+		}
+		var schema struct {
+			Properties struct {
+				Steps struct {
+					Items struct {
+						Properties struct {
+							OversizeJustification struct {
+								Description string `json:"description"`
+							} `json:"oversize_justification"`
+						} `json:"properties"`
+					} `json:"items"`
+				} `json:"steps"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatalf("could not decode post_round's schema: %v", err)
+		}
+		return schema.Properties.Steps.Items.Properties.OversizeJustification.Description
+	}
+	t.Fatal("post_round is not among the tools")
+	return ""
+}

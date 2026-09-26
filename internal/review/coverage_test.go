@@ -269,9 +269,49 @@ func TestEveryOversizedStepIsReportedInOneRejection(t *testing.T) {
 	// have to be listed in Step order and each has to carry its own name and
 	// count — an order-blind check would pass on a reversed list.
 	assertDetailContains(t, err, `3 Steps are over the budget of 30 changed lines and give no justification:
-  Step 1 ("Wire the flag through") shows 31
-  Step 2 ("New state on the model, and a new mode") shows 51
-  Step 3 ("Tests for the new mode") shows 44`)
+  Step 1 ("Wire the flag through") counts 31
+  Step 2 ("New state on the model, and a new mode") counts 51
+  Step 3 ("Tests for the new mode") counts 44`)
+}
+
+// The number is what a Step counts against the budget, not what it shows:
+// absorbed blank lines and lines a Revision Round already showed are free. An
+// agent tallying its own Excerpts would otherwise get a different number and
+// nothing to tell it why, and might re-split a Step that was never near the
+// budget (#103).
+func TestAnOversizedStepIsReportedByWhatItCounts(t *testing.T) {
+	walkthrough, lines := oversizedRound(bigStep{"Only me", 51})
+	session := sessionDeriving(lines)
+
+	err := session.Post(walkthrough)
+
+	assertRejected(t, err, review.RejectedOversizedStep)
+	assertDetailContains(t, err, `Step 1 ("Only me") counts 51 changed lines toward the budget of 30`)
+	assertDetailContains(t, err, "whitespace-only lines and lines already shown last round are not counted")
+	assertDetailOmits(t, err, "shows")
+}
+
+// The refusal is where the agent chooses between splitting and justifying, so
+// it says which comes first: justification is for a Step that cannot be split.
+func TestTheOversizedRefusalSaysToSplitBeforeJustifying(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		steps []bigStep
+	}{
+		{"one Step", []bigStep{{"Only me", 51}}},
+		{"several Steps", []bigStep{{"First", 31}, {"Second", 44}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walkthrough, lines := oversizedRound(tc.steps...)
+			session := sessionDeriving(lines)
+
+			err := session.Post(walkthrough)
+
+			assertRejected(t, err, review.RejectedOversizedStep)
+			assertDetailContains(t, err, "by idea into smaller Steps")
+			assertDetailContains(t, err, "justify a Step only if it cannot be split")
+		})
+	}
 }
 
 // Twenty Steps in, "Step 6" alone means counting positions in a JSON array to
@@ -310,7 +350,7 @@ func TestASingleOversizedStepUsesTheOneLineForm(t *testing.T) {
 	err := session.Post(walkthrough)
 
 	assertRejected(t, err, review.RejectedOversizedStep)
-	assertDetailContains(t, err, "over the budget of 30, and gives no justification")
+	assertDetailContains(t, err, "toward the budget of 30, and gives no justification")
 	assertDetailOmits(t, err, "\n")
 }
 

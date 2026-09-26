@@ -38,7 +38,7 @@ type wireStep struct {
 	Explanation           string                `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
 	Excerpts              []wireExcerpt         `json:"excerpts,omitempty" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself. A Step needs at least one Excerpt or one Acknowledgement"`
 	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes are mechanical and covered without reading, in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
-	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"Why this Step exceeds the size budget, if it does. dbn never refuses a large Step, it only asks for a reason"`
+	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"A last resort: why this Step cannot be split below the size budget. Before giving one, split an oversized Step by idea into smaller Steps; justify only a Step whose idea genuinely does not divide. dbn never refuses a justified Step"`
 }
 
 type wireRepository struct {
