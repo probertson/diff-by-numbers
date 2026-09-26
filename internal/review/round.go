@@ -128,6 +128,9 @@ type Round struct {
 	// Dispositions accounts for the previous round's Comments when this
 	// Round is a Revision Round. It is empty for a first Round.
 	Dispositions []Disposition
+	// Questions are the Agent Questions about the approach rather than any
+	// Step's code, shown with the Brief (ADR-0017).
+	Questions []Question
 	// Label is an optional human-readable name the Authoring Agent may attach so a
 	// Reviewer juggling several reviews can tell them apart. It is not the review's
 	// identity — that is minted by dbn — only a display aid. It survives a Revision

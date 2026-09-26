@@ -158,6 +158,9 @@ type ViewWire struct {
 	AgentTold bool `json:"agent_told,omitempty"`
 	// Replaced says the Round on screen replaced another in place.
 	Replaced bool `json:"replaced,omitempty"`
+	// RoundQuestions are the Agent Questions asked on the Round, which the
+	// Overview shows with the Brief.
+	RoundQuestions []QuestionWire `json:"round_questions,omitempty"`
 	// Round is which round this is; PreviousRound the one it is compared with,
 	// 0 in a first round. SincePreviousRound says the code is shaded by what
 	// changed since then rather than since the merge-base.
@@ -277,7 +280,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Dismissed: v.Dismissed,
 		Replaced:  v.Replaced,
 
-		Questions: toQuestionWires(v.Questions),
+		Questions:      toQuestionWires(v.Questions),
+		RoundQuestions: toQuestionWires(v.RoundQuestions),
 
 		Round:                  v.Round,
 		PreviousRound:          v.PreviousRound,

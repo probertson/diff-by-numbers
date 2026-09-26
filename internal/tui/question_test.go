@@ -256,3 +256,65 @@ func TestTheHandedOffScreenCountsAnswersWhenNoCommentWasRaised(t *testing.T) {
 		t.Errorf("expected the unanswered question counted, got:\n%s", out)
 	}
 }
+
+// overviewAsking is the Overview of a Round with Agent Questions on it.
+func overviewAsking(t *testing.T, questions ...daemon.QuestionWire) (model, *answerRecorder) {
+	t.Helper()
+	rec, base := answerServer(t)
+	m := roundModel(80)
+	m.client = client{base: base, review: "a1"}
+	m.note = newNote(80)
+	m.width, m.height, m.ready = 80, 40, true
+	for i := range questions {
+		questions[i].Step = 0
+	}
+	m.view.RoundQuestions = questions
+	m.view.Questions = questions
+	return m, rec
+}
+
+func TestTheOverviewShowsRoundLevelQuestionsWithTheBrief(t *testing.T) {
+	m, _ := overviewAsking(t, question(1, "is threading the id the right approach?", ""))
+
+	out := m.brief()
+
+	approach := strings.Index(out, "Approach")
+	asked := strings.Index(out, "is threading the id the right approach?")
+	steps := strings.Index(out, "Steps")
+	if asked < 0 || !strings.Contains(out, "Agent Question") {
+		t.Fatalf("expected the Round-level question in its block, got:\n%s", out)
+	}
+	if !(approach < asked && asked < steps) {
+		t.Errorf("expected the question with the Brief, after the approach and before the Steps, got:\n%s", out)
+	}
+}
+
+func TestAOnTheOverviewAnswersARoundLevelQuestion(t *testing.T) {
+	m, rec := overviewAsking(t, question(3, "right approach?", ""))
+
+	answering := press(m, "a")
+	answering.note.SetValue("yes")
+	saved, _ := answering.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if answering.mode != modeNote || !strings.Contains(answering.noteView(), "right approach?") {
+		t.Fatalf("expected a on the Overview to answer the Round's question, got mode %v", answering.mode)
+	}
+	if len(rec.paths) != 1 || rec.paths[0] != "PUT /reviews/a1/answer/3" || rec.answers[0] != "yes" {
+		t.Errorf("expected the Answer put to question 3, got %v %v", rec.paths, rec.answers)
+	}
+	if saved.(model).mode != modeReview {
+		t.Errorf("expected to return to the Overview, got mode %v", saved.(model).mode)
+	}
+}
+
+func TestTheOverviewKeybarOffersAnsweringOnlyWhenTheRoundAsks(t *testing.T) {
+	asking, _ := overviewAsking(t, question(3, "right approach?", ""))
+	quiet := roundModel(80)
+
+	if !strings.Contains(asking.modeKeys(), "a"+nbsp+"answer") {
+		t.Errorf("expected the Overview to offer a answer, got %q", asking.modeKeys())
+	}
+	if strings.Contains(quiet.modeKeys(), "answer") {
+		t.Errorf("a Round that asks nothing has nothing to answer, got %q", quiet.modeKeys())
+	}
+}

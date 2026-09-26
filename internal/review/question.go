@@ -14,7 +14,8 @@ type Question struct {
 // Reviewer answers.
 type AgentQuestion struct {
 	ID int
-	// Step is the Step the question was asked on.
+	// Step is the Step the question was asked on, or 0 for one asked on the
+	// Round, about the approach.
 	Step int
 	Text string
 	// Answer is what the Reviewer said, in free text; empty while unanswered.
@@ -25,6 +26,10 @@ type AgentQuestion struct {
 // off unanswered reaches the agent marked so, so it never reads silence as
 // agreement.
 func (q AgentQuestion) Answered() bool { return q.Answer != "" }
+
+// OnRound reports whether the question was asked on the Round, about the
+// approach, rather than about one Step's code.
+func (q AgentQuestion) OnRound() bool { return q.Step == 0 }
 
 // CountAnswers tallies Agent Questions the Reviewer answered and did not.
 func CountAnswers(questions []AgentQuestion) (answered, unanswered int) {
@@ -39,10 +44,15 @@ func CountAnswers(questions []AgentQuestion) (answered, unanswered int) {
 }
 
 // askedIn mints the Agent Questions a Round asks, numbered from next, in the
-// order the Reviewer meets them.
-func askedIn(steps []Step, next int) []AgentQuestion {
+// order the Reviewer meets them: the Round's own with the Brief, then each
+// Step's.
+func askedIn(round Round, next int) []AgentQuestion {
 	var out []AgentQuestion
-	for i, step := range steps {
+	for _, question := range round.Questions {
+		next++
+		out = append(out, AgentQuestion{ID: next, Text: question.Text})
+	}
+	for i, step := range round.Steps {
 		for _, question := range step.Questions {
 			next++
 			out = append(out, AgentQuestion{ID: next, Step: i + 1, Text: question.Text})
@@ -70,7 +80,8 @@ func (s *Session) Questions() []AgentQuestion {
 	return out
 }
 
-// questionsOnStep lists the Agent Questions asked on one Step.
+// questionsOnStep lists the Agent Questions asked on one Step, or on the Round
+// for step 0.
 func (s *Session) questionsOnStep(step int) []AgentQuestion {
 	var out []AgentQuestion
 	for _, question := range s.questions {

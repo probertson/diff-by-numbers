@@ -83,10 +83,14 @@ func andList(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
-// questionsHere are the Agent Questions the Reviewer can answer where they are.
+// questionsHere are the Agent Questions the Reviewer can answer where they are:
+// a Step's own, or on the Overview the Round's.
 func (m model) questionsHere() []daemon.QuestionWire {
-	if m.inStep() {
+	switch {
+	case m.inStep():
 		return m.view.Step.Questions
+	case m.view != nil && m.view.Posted && m.view.Position == 0:
+		return m.view.RoundQuestions
 	}
 	return nil
 }
@@ -112,7 +116,7 @@ func (m model) answer() (tea.Model, tea.Cmd) {
 }
 
 // updateQuestions drives the choice between several Agent Questions on one
-// Step.
+// Step, or on the Round.
 func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 	here := m.questionsHere()
 	switch key {
@@ -138,7 +142,7 @@ func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// questionsView lists the Step's Agent Questions to choose one to answer.
+// questionsView lists the Agent Questions here to choose one to answer.
 func (m model) questionsView() string {
 	here := m.questionsHere()
 	items := make([][]string, 0, len(here))

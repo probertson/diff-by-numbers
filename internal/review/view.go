@@ -169,6 +169,9 @@ type ViewModel struct {
 	// Replaced reports that the Round on screen replaced another in place,
 	// so a surface can say why the review changed under the Reviewer.
 	Replaced bool
+	// RoundQuestions are the Agent Questions asked on the Round, about the
+	// approach, which the Overview shows with the Brief.
+	RoundQuestions []AgentQuestion
 	// Round is which round of the review this is. PreviousRound is the round it
 	// is compared with, 0 for a first round; SincePreviousRound says the code is
 	// shaded by what changed since then rather than since the merge-base.
@@ -224,6 +227,8 @@ func (s *Session) View() ViewModel {
 
 		Withdrawn:              s.previousWithdrawn(),
 		UnchangedSincePrevious: s.previousUnchanged(),
+
+		RoundQuestions: s.questionsOnStep(0),
 	}
 	if s.position > 0 {
 		view.Step = s.stepView(s.position)

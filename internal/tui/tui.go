@@ -1628,6 +1628,9 @@ func (m model) modeKeys() string {
 	}
 	if m.view.Position == 0 {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
+		if len(m.view.RoundQuestions) > 0 {
+			tokens = append(tokens, "a answer")
+		}
 		// Offered only while something is still open: once every decline and
 		// answer has been pushed back on, R has nothing left to do (#80).
 		if len(m.reRaisableDispositions()) > 0 {
@@ -2564,6 +2567,11 @@ func (m model) brief() string {
 
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Goal) + "\n\n")
 	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
+	// The Round's own questions are about the approach, so they sit with it,
+	// where the Reviewer judges the approach apart from the code (ADR-0017).
+	if len(m.view.RoundQuestions) > 0 {
+		b.WriteString(questionBlock(m.view.RoundQuestions, m.viewport.Width) + "\n\n")
+	}
 
 	if len(m.view.Dispositions) > 0 {
 		b.WriteString(m.sinceTheLastRound(m.viewport.Width))

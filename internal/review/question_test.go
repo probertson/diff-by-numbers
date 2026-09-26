@@ -188,3 +188,48 @@ func TestResultsCarryEveryQuestionWithItsAnswerOrAsUnanswered(t *testing.T) {
 		t.Errorf("expected the second to come back unanswered, got %+v", results.Questions[1])
 	}
 }
+
+func TestARoundLevelQuestionIsAskedBeforeAnyStepAndBelongsToNone(t *testing.T) {
+	round := askingOnStep1("on the Step")
+	round.Questions = []review.Question{{Text: "is threading the id the right approach?"}}
+
+	session := newSession()
+	mustPost(t, session, round)
+	questions := session.Questions()
+
+	if len(questions) != 2 {
+		t.Fatalf("expected the Round's and the Step's questions, got %+v", questions)
+	}
+	if questions[0].Text != "is threading the id the right approach?" || questions[0].Step != 0 {
+		t.Errorf("expected the Round-level question first, on no Step, got %+v", questions[0])
+	}
+	if !questions[0].OnRound() || questions[1].OnRound() {
+		t.Errorf("expected only the first to read as asked on the Round, got %+v", questions)
+	}
+	if view := session.View(); len(view.RoundQuestions) != 1 || view.RoundQuestions[0].ID != questions[0].ID {
+		t.Errorf("expected the Overview to carry the Round-level question, got %+v", view.RoundQuestions)
+	}
+}
+
+func TestAnEmptyRoundLevelQuestionIsRefused(t *testing.T) {
+	round := validRound()
+	round.Questions = []review.Question{{Text: ""}}
+
+	err := newSession().Post(round)
+
+	assertRejected(t, err, review.RejectedMalformedQuestion)
+	assertDetailContains(t, err, "the Round")
+}
+
+func TestARoundWhoseOnlyQuestionsAreRoundLevelIsNotConcludedAtHandOff(t *testing.T) {
+	round := validRound()
+	round.Questions = []review.Question{{Text: "right approach?"}}
+	session := newSession()
+	mustPost(t, session, round)
+
+	mustFinish(t, session)
+
+	if session.Concluded() {
+		t.Error("a Round-level question is still a question: the Hand Off is not a conclusion")
+	}
+}

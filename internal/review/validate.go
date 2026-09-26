@@ -17,6 +17,9 @@ func validate(w Round) *Rejection {
 	if rejection := validateBrief(w.Brief); rejection != nil {
 		return rejection
 	}
+	if rejection := validateQuestions(w.Questions, "the Round"); rejection != nil {
+		return rejection
+	}
 	if rejection := validateSteps(w.Steps, w.ChangeSet); rejection != nil {
 		return rejection
 	}

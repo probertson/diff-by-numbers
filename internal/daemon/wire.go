@@ -65,6 +65,7 @@ type wireRound struct {
 	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
 	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments, alongside the dispositions accounting for them. Leave it out and this post starts a new Review"`
 	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id and the Reviewer's Comments carry over. When replacing a Revision Round, supply its dispositions again"`
+	Questions    []wireQuestion    `json:"questions,omitempty" jsonschema:"Agent Questions about the approach rather than any one Step's code, shown with the Brief where the Reviewer judges the approach. A question about a Step's code belongs on that Step instead"`
 }
 
 // InboxWire is the Reviewer's Inbox: every review the daemon holds that is not
@@ -187,7 +188,7 @@ type commentWire struct {
 // and what the Reviewer answered, or that they did not.
 type questionWire struct {
 	ID       int    `json:"id"`
-	Step     int    `json:"step" jsonschema:"The Step number the question was asked on"`
+	Step     int    `json:"step" jsonschema:"The Step number the question was asked on, or 0 for one asked on the Round, about the approach"`
 	Question string `json:"question"`
 	Answer   string `json:"answer,omitempty" jsonschema:"What the Reviewer answered, in free text"`
 	// Unanswered is set rather than left to an empty answer, so the agent never
@@ -282,6 +283,7 @@ func (w wireRound) toDomain() review.Round {
 		Steps:        steps,
 		Dispositions: dispositions,
 		Label:        w.Label,
+		Questions:    toQuestions(w.Questions),
 	}
 }
 

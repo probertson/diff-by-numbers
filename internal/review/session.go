@@ -370,7 +370,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 		s.comments = nil
 		s.nextCommentID = 0
 	}
-	s.questions = askedIn(w.Steps, 0)
+	s.questions = askedIn(w, 0)
 
 	// The Session's first Round mints the Review's id, which then never changes,
 	// and takes the Round's label as given; a later posting only updates the

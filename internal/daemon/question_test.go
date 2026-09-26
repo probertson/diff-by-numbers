@@ -151,3 +151,38 @@ func TestTheWaitAnswerCountsAnswersAndUnansweredQuestions(t *testing.T) {
 		t.Errorf("expected 1 Answer and 1 unanswered question, got %+v", waited)
 	}
 }
+
+func TestARoundLevelQuestionIsShownWithTheBriefAndReturnedOnNoStep(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	round := askingOnStep1(featureRepo(t), "3 or 5?")
+	round["questions"] = []any{map[string]any{"text": "is threading the id the right approach?"}}
+	posted := postRound(t, server.URL, round)
+	review := reviewURL(server.URL, posted.ReviewID)
+
+	var overview struct {
+		RoundQuestions []struct {
+			ID   int    `json:"id"`
+			Text string `json:"text"`
+		} `json:"round_questions"`
+	}
+	if err := json.Unmarshal([]byte(get(t, review+"/view")), &overview); err != nil {
+		t.Fatal(err)
+	}
+	answer(t, review, overview.RoundQuestions[0].ID, "yes")
+	httpPost(t, review+"/finish")
+	fetched := decodeResult[fetchedQuestions](t, callTool(t, server.URL, "fetch_results", map[string]any{"review_id": posted.ReviewID}))
+
+	if len(overview.RoundQuestions) != 1 || overview.RoundQuestions[0].Text != "is threading the id the right approach?" {
+		t.Fatalf("expected the Overview to carry the Round-level question, got %+v", overview.RoundQuestions)
+	}
+	if len(fetched.Questions) != 2 {
+		t.Fatalf("expected both questions back, got %+v", fetched.Questions)
+	}
+	if onRound := fetched.Questions[0]; onRound.Step != 0 || onRound.Answer != "yes" {
+		t.Errorf("expected the Round-level question on no Step, with its Answer, got %+v", onRound)
+	}
+	if onStep := fetched.Questions[1]; onStep.Step != 1 {
+		t.Errorf("expected the Step's question on Step 1, got %+v", onStep)
+	}
+}
