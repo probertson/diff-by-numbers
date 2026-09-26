@@ -75,8 +75,8 @@ func (m model) answerCounts() (answered, unanswered int) {
 // answerPhrases names what the Round's Agent Questions send the agent, by what
 // the Reviewer did with them: "2 agent questions answered and 1 unanswered",
 // "2 agent questions answered", or "2 agent questions left unanswered". It is
-// a list of one, or none when the Round asked nothing, so a caller can join it
-// with the Comments. It is lower case: the Reviewer reads it, and "Agent
+// a list of one, or none when the Round asked nothing, so a caller can set it
+// beside the Comments. It is lower case: the Reviewer reads it, and "Agent
 // Question" capitalised is the glossary's term, not theirs.
 func (m model) answerPhrases() []string {
 	answered, unanswered := m.answerCounts()

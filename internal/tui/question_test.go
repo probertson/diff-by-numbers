@@ -234,7 +234,7 @@ func TestTheConclusionScreenDoesNotPromiseTheEndWhenQuestionsWereAsked(t *testin
 	if strings.Contains(out, "completes the review") {
 		t.Errorf("a Round with questions is not concluded at Hand Off, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 agent question answered and 1 unanswered for your agent") {
+	if !strings.Contains(out, "1 agent question answered and 1 unanswered") || strings.Contains(out, "for your agent") {
 		t.Errorf("expected the Answers counted for the agent, got:\n%s", out)
 	}
 }
@@ -568,7 +568,7 @@ func TestTheAgentQuestionCountReadsByWhatWasAnswered(t *testing.T) {
 
 			out := flatten(m.conclusionView())
 
-			if !strings.Contains(out, tc.want+" for your agent") {
+			if !strings.Contains(out, tc.want) || strings.Contains(out, tc.want+" for your agent") {
 				t.Errorf("expected %q, got:\n%s", tc.want, out)
 			}
 		})
@@ -597,5 +597,22 @@ func TestTheHandedOffScreenPluralisesAnswersAndUnansweredQuestions(t *testing.T)
 
 	if !strings.Contains(out, "2 answers for your agent. 2 unanswered agent questions.") {
 		t.Errorf("expected plurals, got:\n%s", out)
+	}
+}
+
+func TestTheConclusionScreenPutsCommentsAndQuestionsOnLinesOfTheirOwn(t *testing.T) {
+	m := concludingModel(daemon.CommentWire{ID: 1, Step: 1})
+	m.view.Questions = []daemon.QuestionWire{question(1, "3 or 5?", "3")}
+
+	out := m.conclusionView()
+
+	if !strings.Contains(out, "1 Comment for your agent\n") {
+		t.Errorf("expected the Comments on a line of their own, got:\n%s", out)
+	}
+	if !strings.Contains(out, "\n1 agent question answered\n") && !strings.Contains(out, "1 agent question answered\n") {
+		t.Errorf("expected the agent questions on the next line, got:\n%s", out)
+	}
+	if strings.Contains(out, "answered for your agent") {
+		t.Errorf("the questions' line should not say agent twice, got:\n%s", out)
 	}
 }

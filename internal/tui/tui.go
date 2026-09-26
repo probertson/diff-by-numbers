@@ -2088,14 +2088,19 @@ func (m model) conclusionView() string {
 		// invitation to look over what you raised goes with the count.
 		// Agent Questions go back whether answered or not, so a Round that asked
 		// any is never the end of the review at Hand Off (ADR-0017).
+		// The Comments and the agent questions each get a line. Only the
+		// Comments' says "for your agent": on the questions' line it would say
+		// "agent" twice.
 		raised := len(m.view.Comments)
-		var forAgent []string
+		answers := m.answerPhrases()
 		if raised > 0 {
-			forAgent = append(forAgent, pluralize(raised, "Comment"))
+			b.WriteString(accentSt.Render(pluralize(raised, "Comment")+" for your agent") + "\n")
 		}
-		forAgent = append(forAgent, m.answerPhrases()...)
-		if len(forAgent) > 0 {
-			b.WriteString(accentSt.Render(andList(forAgent)+" for your agent") + "\n\n")
+		for _, phrase := range answers {
+			b.WriteString(accentSt.Render(phrase) + "\n")
+		}
+		if raised > 0 || len(answers) > 0 {
+			b.WriteString("\n")
 		} else {
 			b.WriteString(dimSt.Render("No Comments — handing off completes the review.") + "\n\n")
 		}
