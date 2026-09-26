@@ -1985,8 +1985,8 @@ func (m model) stepsSeenLine() string {
 	return fmt.Sprintf("%d of %s seen (%d unseen).", viewed, pluralize(total, "Step"), total-viewed)
 }
 
-// commentsWaitingCallOut is the sentence in the handed-off screen's box: how
-// much is waiting for the agent, and what to do about it. "Across N Steps"
+// commentsWaitingCallOut is what the handed-off screen's box says: how much is
+// waiting for the agent, and what to do about it. "Across N Steps"
 // counts flagged Steps, so re-raised and carried-over Comments — which belong to
 // no current Step — are named separately; with only those there is no Step span
 // to give.
@@ -2007,18 +2007,26 @@ func (m model) commentsWaitingCallOut() string {
 	if flagged > 0 {
 		count += " across " + pluralize(flagged, "Step")
 	}
-	var waiting []string
-	answers := m.answerPhrases()
-	if raised > 0 || len(answers) == 0 {
-		waiting = append(waiting, count)
-	}
-	waiting = append(waiting, answers...)
+	// Each thing going back gets its own short sentence, in the Reviewer's
+	// words: the Comments, then the answers, then the questions left
+	// unanswered. The Comments' sentence is left out when there are none but
+	// something else is going back.
+	var sentences []string
 	answered, unanswered := m.answerCounts()
-	verb := "are"
-	if raised+answered+unanswered == 1 {
-		verb = "is"
+	if raised > 0 || answered+unanswered == 0 {
+		verb := "are"
+		if raised == 1 {
+			verb = "is"
+		}
+		sentences = append(sentences, fmt.Sprintf("%s %s waiting for your agent.", count, verb))
 	}
-	return fmt.Sprintf("%s %s waiting for your agent. %s", andList(waiting), verb, m.agentTellLine())
+	if answered > 0 {
+		sentences = append(sentences, pluralize(answered, "answer")+" for your agent.")
+	}
+	if unanswered > 0 {
+		sentences = append(sentences, pluralize(unanswered, "unanswered agent question")+".")
+	}
+	return strings.Join(append(sentences, m.agentTellLine()), " ")
 }
 
 // agentTellLine says whether the Reviewer still has to tell their agent they

@@ -245,7 +245,7 @@ func TestTheHandedOffScreenCountsAnswersAlongsideComments(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 Comment across 1 Step and 1 agent question answered are waiting for your agent") {
+	if !strings.Contains(out, "1 Comment across 1 Step is waiting for your agent. 1 answer for your agent.") {
 		t.Errorf("expected the Answer counted with the Comment, got:\n%s", out)
 	}
 }
@@ -256,7 +256,7 @@ func TestTheHandedOffScreenCountsAnswersWhenNoCommentWasRaised(t *testing.T) {
 
 	out := flatten(m.doneView())
 
-	if !strings.Contains(out, "1 agent question left unanswered is waiting for your agent") {
+	if !strings.Contains(out, "1 unanswered agent question. Tell your agent") {
 		t.Errorf("expected the unanswered question counted, got:\n%s", out)
 	}
 }
@@ -572,5 +572,30 @@ func TestTheAgentQuestionCountReadsByWhatWasAnswered(t *testing.T) {
 				t.Errorf("expected %q, got:\n%s", tc.want, out)
 			}
 		})
+	}
+}
+
+func TestTheHandedOffScreenListsAnswersAndUnansweredQuestionsInTheirOwnSentences(t *testing.T) {
+	m := handedOffModel([]string{"seen"})
+	m.view.AgentTold = true
+	m.view.Questions = []daemon.QuestionWire{question(1, "3 or 5?", "3"), question(2, "keep the name?", "")}
+
+	out := flatten(m.doneView())
+
+	if !strings.Contains(out, "1 answer for your agent. 1 unanswered agent question. Your agent has been told.") {
+		t.Errorf("expected the answers and the unanswered questions each in a sentence, got:\n%s", out)
+	}
+}
+
+func TestTheHandedOffScreenPluralisesAnswersAndUnansweredQuestions(t *testing.T) {
+	m := handedOffModel([]string{"seen"})
+	m.view.Questions = []daemon.QuestionWire{
+		question(1, "?", "3"), question(2, "?", "yes"), question(3, "?", ""), question(4, "?", ""),
+	}
+
+	out := flatten(m.doneView())
+
+	if !strings.Contains(out, "2 answers for your agent. 2 unanswered agent questions.") {
+		t.Errorf("expected plurals, got:\n%s", out)
 	}
 }
