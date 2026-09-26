@@ -940,16 +940,17 @@ func (d *Daemon) fetchResults(_ context.Context, _ *mcp.CallToolRequest, in fetc
 	}
 
 	message := "no Round is posted; post one before asking how the review went"
-	switch {
-	case results.Dismissed:
+	switch session.Outcome() {
+	case review.Dismissed:
 		message = "the Reviewer dismissed this review — it is over, and a Revision Round of it will be refused. Anything they raised before dismissing it is below; post new work as a new review"
-
-	case results.Posted && results.Finished && len(results.Comments) == 0:
+	case review.HandedOffNothingRaised:
 		message = "the Reviewer handed off having raised nothing — the review is complete; there is no Revision Round to post"
-	case results.Posted && results.Finished:
+	case review.HandedOffWithComments:
 		message = "the Reviewer has handed off; respond to each Comment below (make the change, answer the question, or decline), then post a Revision Round"
-	case results.Posted:
-		message = "the Reviewer has not handed off the Round yet"
+	default:
+		if results.Posted {
+			message = "the Reviewer has not handed off the Round yet"
+		}
 	}
 
 	return nil, toFetchResult(results, message), nil

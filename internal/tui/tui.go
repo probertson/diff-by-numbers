@@ -275,6 +275,10 @@ type model struct {
 	// is modeReview, which is where every exit went before the List could be an
 	// origin.
 	noteReturn mode
+	// writing is what the note editor is open for, supplied by whoever opened
+	// it. Its zero value is a Comment, which is what it was always open for
+	// before anything else could be written.
+	writing noteEditor
 	// listReturn is where leaving the Comment list goes: modeReview when it was
 	// opened from a Step, modeConclusion when it was opened from the conclusion
 	// screen. Zero value modeReview, as above.
@@ -695,7 +699,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport = viewport.New(msg.Width, m.viewportHeight())
 		if m.note.Value() == "" && !m.note.Focused() {
 			ta := textarea.New()
-			ta.Placeholder = "what should change here?"
+			ta.Placeholder = commentPlaceholder
 			ta.CharLimit = 1000
 			ta.ShowLineNumbers = false
 			m.note = ta
@@ -872,9 +876,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "h", "H":
 				m.confirmingQuit = false
-				m.client.intent("/finish")
-				m.mode = modeDone
-				return m, m.refresh()
+				return m.handOff()
 			default:
 				m.confirmingQuit = false
 			}
@@ -955,9 +957,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeReraise
 			return m, nil
 		case "h", "H":
-			m.client.intent("/finish")
-			m.mode = modeDone
-			return m, m.refresh()
+			return m.handOff()
 		}
 
 		if m.inStep() {
@@ -1033,14 +1033,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 0:
 					m.status = "no Comment on this line to edit"
 				case 1:
-					m.noteReturn = modeReview
 					m.editingID = here[0].ID
 					m.pendingCode = here[0].Anchor
-					m.note.SetValue(here[0].Note)
-					m.note.Focus()
-					m.setNoteHeight()
-					m.mode = modeNote
-					return m, textarea.Blink
+					return m, m.openEditor(m.commentEditor(), here[0].Note, modeReview)
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
 					m.openList(modeReview)
@@ -1062,18 +1057,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.editingID = 0 // c always adds a fresh comment, never edits
-				m.noteReturn = modeReview
-				m.mode = modeNote
-				m.note.SetValue("")
-				m.note.Focus()
 				m.pendingSel = run
 				if code, ok := m.client.composeAnchor(run); ok {
 					m.pendingCode = code
 				} else {
 					m.pendingCode = ""
 				}
-				m.setNoteHeight()
-				return m, textarea.Blink
+				return m, m.openEditor(m.commentEditor(), "", modeReview)
 			}
 			return m, nil
 		}
@@ -1098,6 +1088,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 				id := m.editingID
 				m.confirmingDelete = false
 				m.editingID = 0
+				m.writing = noteEditor{}
 				m.mode = m.noteReturn // matches esc: back to wherever the edit began
 				m.note.Blur()
 				m.client.withdraw(id)
@@ -1120,6 +1111,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.editingID = 0
 			m.reraisingID = 0
+			m.writing = noteEditor{}
 			m.mode = m.noteReturn
 			m.note.Blur()
 			return m, nil
@@ -1131,31 +1123,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
-			note := m.note.Value()
-			status := ""
-			switch {
-			// A re-raise sends whatever is in the box, empty included: the Reviewer
-			// picked a resolution to push back on, and clearing the pre-filled text
-			// means "as it stood", not "never mind" — esc is how you take it back.
-			case m.reraisingID > 0:
-				if m.client.reraise(m.reraisingID, note) {
-					status = fmt.Sprintf("re-raised Comment #%d — it stands again this round", m.reraisingID)
-				} else {
-					status = "could not re-raise the Comment"
-				}
-			case note != "":
-				if m.editingID > 0 {
-					if m.client.editComment(m.editingID, note) {
-						status = "Comment updated"
-					} else {
-						status = "could not update the Comment"
-					}
-				} else if m.client.raiseComment(m.pendingSel, note) {
-					status = "Comment added"
-				} else {
-					status = "could not add the Comment"
-				}
-			}
+			status := m.editor().submit(m, m.note.Value())
 			if m.noteReturn == modeList {
 				// The List has no status row, so the message would go unseen and
 				// then surface on the next Step. Clearing rather than skipping the
@@ -1165,6 +1133,7 @@ func (m model) updateNote(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = status
 			m.editingID = 0
 			m.reraisingID = 0
+			m.writing = noteEditor{}
 			m.cursor.sel = -1
 			m.mode = m.noteReturn
 			m.note.Blur()
@@ -1222,14 +1191,9 @@ func (m model) updateList(key string) (tea.Model, tea.Cmd) {
 	case "e", "enter":
 		if m.commentCursor < len(list) {
 			comment := list[m.commentCursor]
-			m.noteReturn = modeList
 			m.editingID = comment.ID
 			m.pendingCode = comment.Anchor
-			m.note.SetValue(comment.Note)
-			m.note.Focus()
-			m.setNoteHeight()
-			m.mode = modeNote
-			return m, textarea.Blink
+			return m, m.openEditor(m.commentEditor(), comment.Note, modeList)
 		}
 		return m, nil
 	}
@@ -1259,16 +1223,11 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 			// that answers it lands better than the same sentence repeated (#80).
 			disposition := offered[m.reraiseCursor]
 			m.reraisingID = disposition.CommentID
-			// Back to wherever R was pressed, not to a Step: the Reviewer who pushed
-			// back from the conclusion screen was on their way out, not in.
-			m.noteReturn = m.reraiseReturn
 			m.editingID = 0
 			m.pendingCode = disposition.Anchor
-			m.note.SetValue(disposition.Note)
-			m.note.Focus()
-			m.setNoteHeight()
-			m.mode = modeNote
-			return m, textarea.Blink
+			// Back to wherever R was pressed, not to a Step: the Reviewer who pushed
+			// back from the conclusion screen was on their way out, not in.
+			return m, m.openEditor(reraiseEditor(), disposition.Note, m.reraiseReturn)
 		}
 		return m, nil
 	}
@@ -1305,15 +1264,23 @@ func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 		m.mode = modeReraise
 		return m, nil
 	case "h", "H":
-		m.client.intent("/finish")
-		m.mode = modeDone
-		return m, m.refresh()
+		return m.handOff()
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q":
 		return m.quit()
 	}
 	return m, nil
+}
+
+// handOff hands the Round to the Authoring Agent and shows the handed-off
+// screen. Every place the Reviewer can hand off from — a Step, the Overview,
+// the conclusion screen, the quit guard — comes through here, so what a Hand
+// Off does is decided once.
+func (m model) handOff() (tea.Model, tea.Cmd) {
+	m.client.intent("/finish")
+	m.mode = modeDone
+	return m, m.refresh()
 }
 
 // openList shows the Comment list unfiltered and from the top, remembering the
@@ -1718,7 +1685,7 @@ func (m model) noteKeys() string {
 	if m.editingID > 0 {
 		return keybar("enter save", "ctrl+d delete", "<esc> cancel")
 	}
-	return keybar("enter add", "<esc> cancel")
+	return keybar("enter "+m.editor().action, "<esc> cancel")
 }
 
 // listKeys is the List's keybar.
@@ -1747,10 +1714,7 @@ const noteMaxHeight = 10
 // title, the code being commented on, and the counter each take rows the input
 // cannot, so a short terminal shrinks the input rather than overflowing.
 func (m *model) setNoteHeight() {
-	codeLines := 1 // the "lines %d-%d" placeholder shown when there is no anchor
-	if m.pendingCode != "" {
-		codeLines = len(renderAnchorRows(m.pendingCode, m.width))
-	}
+	codeLines := len(m.editor().context(*m, m.width))
 	// The fixed single-line rows around the input: the header and its blank line,
 	// the title and its blank line, the counter, and the keybar — six in all — plus
 	// one row for frame()'s minimum gap. The code block takes codeLines on top.
@@ -1764,16 +1728,9 @@ func (m *model) setNoteHeight() {
 }
 
 func (m model) noteView() string {
-	code := m.pendingCode
-	if code == "" {
-		code = dimSt.Render(pluralize(m.pendingSel.rows, "line"))
-	} else {
-		code = strings.Join(renderAnchorRows(code, m.width), "\n")
-	}
-	title := "New Comment"
-	if m.editingID > 0 {
-		title = "Edit Comment"
-	}
+	editor := m.editor()
+	code := strings.Join(editor.context(m, m.width), "\n")
+	title := editor.title
 	// The counter sits just below the input, right-aligned under its edge, so the
 	// invisible 1000-char cap is visible before it is hit.
 	counter := lipgloss.NewStyle().Width(m.note.Width()).Align(lipgloss.Right).

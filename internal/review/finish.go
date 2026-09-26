@@ -87,10 +87,18 @@ func (s *Session) Conclude(id string) error {
 }
 
 // isConcluded reports whether the review has reached a terminal disposition:
-// declared so explicitly, or inferred from a round finished with no Comment
+// declared so explicitly, or inferred from a round finished with nothing
 // raised — the natural end of the review loop.
 func (s *Session) isConcluded() bool {
-	return s.concluded || (s.finished && len(s.comments) == 0)
+	return s.concluded || (s.finished && s.raisedNothing())
+}
+
+// raisedNothing reports whether the Round on screen leaves the Authoring Agent
+// nothing to read: no Comment raised. It is the one place that is decided, so
+// the inferred conclusion, the Round's outcome and what the agent is told all
+// agree on it.
+func (s *Session) raisedNothing() bool {
+	return len(s.comments) == 0
 }
 
 // Open describes the review this Session holds, for a surface listing what the
@@ -143,7 +151,7 @@ func (s *Session) Outcome() RoundOutcome {
 		return Dismissed
 	case !s.finished:
 		return NoOutcomeYet
-	case len(s.comments) == 0:
+	case s.raisedNothing():
 		return HandedOffNothingRaised
 	}
 	return HandedOffWithComments

@@ -212,55 +212,107 @@ func (u unmovedSince) Edits(string) []RoundEdit { return nil }
 
 func (u unmovedSince) Files() []string { return nil }
 
+// accounting is one kind of thing a Revision Round must account for, item by
+// item: what the previous round left, and what each entry accounting for one is
+// called. It is what lets a second kind join Comments without repeating the
+// rule that every one is accounted for exactly once.
+type accounting struct {
+	reason RejectionReason
+	// item names what is accounted for, and entry what accounts for one.
+	item  string
+	entry string
+	// origin is what the previous round did to leave an item: raised a Comment.
+	origin string
+}
+
+var commentAccounting = accounting{
+	reason: RejectedMalformedDisposition,
+	item:   "Comment",
+	entry:  "disposition",
+	origin: "raise",
+}
+
+// accountFor checks that entries account for every one of the previous round's
+// items, named by id, once each. check judges an entry on its own terms — the
+// statuses its kind allows, and which of them need a response — and is only
+// asked about an entry naming an item that round left.
+func accountFor[E any](kind accounting, prior []int, entries []E, idOf func(E) int, check func(E) *Rejection) *Rejection {
+	known := make(map[int]bool, len(prior))
+	for _, id := range prior {
+		known[id] = true
+	}
+
+	seen := map[int]bool{}
+	for _, entry := range entries {
+		id := idOf(entry)
+		if !known[id] {
+			return reject(kind.reason,
+				"a %s names %s %d, which the previous round did not %s", kind.entry, kind.item, id, kind.origin)
+		}
+		if seen[id] {
+			return reject(kind.reason, "%s %d has more than one %s", kind.item, id, kind.entry)
+		}
+		seen[id] = true
+		if rejection := check(entry); rejection != nil {
+			return rejection
+		}
+	}
+
+	for _, id := range prior {
+		if !seen[id] {
+			return reject(kind.reason,
+				"%s %d from the previous round has no %s; a Revision Round must account for every one", kind.item, id, kind.entry)
+		}
+	}
+	return nil
+}
+
 // resolveDispositions pairs each posted Disposition with the previous round's
 // Comment it names, and refuses a Revision Round that does not account for
 // every one — addressed, or answered or declined with a response.
 func resolveDispositions(dispositions []Disposition, prior []Comment) ([]ResolvedDisposition, *Rejection) {
 	byID := make(map[int]Comment, len(prior))
+	ids := make([]int, 0, len(prior))
 	for _, comment := range prior {
 		byID[comment.ID] = comment
+		ids = append(ids, comment.ID)
 	}
 
-	seen := map[int]bool{}
+	rejection := accountFor(commentAccounting, ids, dispositions,
+		func(d Disposition) int { return d.CommentID }, checkDisposition)
+	if rejection != nil {
+		return nil, rejection
+	}
+
 	out := make([]ResolvedDisposition, 0, len(dispositions))
 	for _, disposition := range dispositions {
-		comment, ok := byID[disposition.CommentID]
-		if !ok {
-			return nil, reject(RejectedMalformedDisposition,
-				"a disposition names Comment %d, which the previous round did not raise", disposition.CommentID)
-		}
-		if seen[disposition.CommentID] {
-			return nil, reject(RejectedMalformedDisposition,
-				"Comment %d has more than one disposition", disposition.CommentID)
-		}
-		seen[disposition.CommentID] = true
-
-		switch disposition.Status {
-		case DispositionAddressed:
-		case DispositionAnswered:
-			if disposition.Response == "" {
-				return nil, reject(RejectedMalformedDisposition,
-					"answering Comment %d needs a response: the response is the answer", disposition.CommentID)
-			}
-		case DispositionDeclined:
-			if disposition.Response == "" {
-				return nil, reject(RejectedMalformedDisposition,
-					"declining Comment %d needs a response the Reviewer can weigh", disposition.CommentID)
-			}
-		default:
-			return nil, reject(RejectedMalformedDisposition,
-				"Comment %d must be disposed as %q, %q or %q", disposition.CommentID, DispositionAddressed, DispositionAnswered, DispositionDeclined)
-		}
-		out = append(out, ResolvedDisposition{Comment: comment, Status: disposition.Status, Response: disposition.Response})
-	}
-
-	for _, comment := range prior {
-		if !seen[comment.ID] {
-			return nil, reject(RejectedMalformedDisposition,
-				"Comment %d from the previous round has no disposition; a Revision Round must account for every one", comment.ID)
-		}
+		out = append(out, ResolvedDisposition{
+			Comment: byID[disposition.CommentID], Status: disposition.Status, Response: disposition.Response,
+		})
 	}
 	return out, nil
+}
+
+// checkDisposition judges one Disposition: a status a Comment can have, with the
+// response it needs.
+func checkDisposition(disposition Disposition) *Rejection {
+	switch disposition.Status {
+	case DispositionAddressed:
+	case DispositionAnswered:
+		if disposition.Response == "" {
+			return reject(RejectedMalformedDisposition,
+				"answering Comment %d needs a response: the response is the answer", disposition.CommentID)
+		}
+	case DispositionDeclined:
+		if disposition.Response == "" {
+			return reject(RejectedMalformedDisposition,
+				"declining Comment %d needs a response the Reviewer can weigh", disposition.CommentID)
+		}
+	default:
+		return reject(RejectedMalformedDisposition,
+			"Comment %d must be disposed as %q, %q or %q", disposition.CommentID, DispositionAddressed, DispositionAnswered, DispositionDeclined)
+	}
+	return nil
 }
 
 // Dispositions reports how the previous round's Comments were resolved,
