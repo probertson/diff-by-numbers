@@ -2294,7 +2294,8 @@ func (m model) headerLine() string {
 	case m.view.Position == 0:
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
-		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) + dimSt.Render(m.coverageSuffix())
+		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) +
+			dimSt.Render(m.coverageSuffix()) + m.unansweredSuffix()
 	}
 }
 
@@ -2598,7 +2599,7 @@ func (m model) brief() string {
 		if i < len(m.view.UnchangedSincePrevious) && m.view.UnchangedSincePrevious[i] {
 			unchanged = dimSt.Render(fmt.Sprintf(" unchanged since round %d", m.view.PreviousRound))
 		}
-		b.WriteString(fmt.Sprintf("  %s %2d. %s%s\n", dimSt.Render(mark), i+1, name, unchanged))
+		b.WriteString(fmt.Sprintf("  %s %2d. %s%s%s\n", dimSt.Render(mark), i+1, name, unchanged, m.asksMark(i+1)))
 	}
 	return b.String()
 }

@@ -83,6 +83,44 @@ func andList(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
+// asksMark is what the Overview's list of Steps says of a Step that asks the
+// Reviewer something: that it does, never what. A Step's question needs the
+// Steps before it for its context, and read cold here it only distracts; the
+// mark is so the Reviewer slows down when they reach it (ADR-0017).
+func (m model) asksMark(step int) string {
+	asked := 0
+	for _, question := range m.view.Questions {
+		if question.Step == step {
+			asked++
+		}
+	}
+	switch asked {
+	case 0:
+		return ""
+	case 1:
+		return warnSt.Render("  ◆ asks you a question")
+	}
+	return warnSt.Render(fmt.Sprintf("  ◆ asks you %d questions", asked))
+}
+
+// unansweredSuffix is the Step status line's count of its questions still
+// unanswered, gone once every one is.
+func (m model) unansweredSuffix() string {
+	if !m.inStep() {
+		return ""
+	}
+	unanswered := 0
+	for _, question := range m.view.Step.Questions {
+		if !question.Answered() {
+			unanswered++
+		}
+	}
+	if unanswered == 0 {
+		return ""
+	}
+	return warnSt.Render("  ·  " + pluralize(unanswered, "unanswered question"))
+}
+
 // questionsHere are the Agent Questions the Reviewer can answer where they are:
 // a Step's own, or on the Overview the Round's.
 func (m model) questionsHere() []daemon.QuestionWire {

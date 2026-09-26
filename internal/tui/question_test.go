@@ -318,3 +318,61 @@ func TestTheOverviewKeybarOffersAnsweringOnlyWhenTheRoundAsks(t *testing.T) {
 		t.Errorf("a Round that asks nothing has nothing to answer, got %q", quiet.modeKeys())
 	}
 }
+
+// overviewOfSteps is the Overview of a three-Step Round asking the given
+// questions.
+func overviewOfSteps(questions ...daemon.QuestionWire) model {
+	m := roundModel(80)
+	m.view.StepNames = []string{"one", "two", "three"}
+	m.view.StepCount = 3
+	m.view.Seen = []bool{false, false, false}
+	m.view.Questions = questions
+	return m
+}
+
+func TestTheOverviewMarksAStepThatAsksButNotWhatItAsks(t *testing.T) {
+	asked := question(1, "3 or 5 retries?", "")
+	asked.Step = 2
+	m := overviewOfSteps(asked)
+
+	out := m.brief()
+
+	two := lineWith(t, out, "2. two")
+	if !strings.Contains(two, "asks you") {
+		t.Errorf("expected Step 2 marked as asking something, got %q", two)
+	}
+	if strings.Contains(out, "3 or 5 retries?") {
+		t.Errorf("a Step's question is read in its Step, never on the Overview, got:\n%s", out)
+	}
+	if strings.Contains(lineWith(t, out, "1. one"), "asks") || strings.Contains(lineWith(t, out, "3. three"), "asks") {
+		t.Errorf("expected only Step 2 marked, got:\n%s", out)
+	}
+}
+
+func TestTheStepStatusLineCountsItsUnansweredQuestions(t *testing.T) {
+	m, _ := askingModel(t, question(4, "3 or 5?", ""), question(5, "keep the name?", ""))
+
+	waiting := m.headerLine()
+	m.view.Step.Questions[0].Answer = "3"
+	one := m.headerLine()
+	m.view.Step.Questions[1].Answer = "yes"
+	none := m.headerLine()
+
+	if !strings.Contains(waiting, "2 unanswered questions") {
+		t.Errorf("expected the status line to count 2 unanswered questions, got %q", waiting)
+	}
+	if !strings.Contains(one, "1 unanswered question") {
+		t.Errorf("expected the count to fall as questions are answered, got %q", one)
+	}
+	if strings.Contains(none, "unanswered") {
+		t.Errorf("expected the count gone once every question is answered, got %q", none)
+	}
+}
+
+func TestAStepWithoutQuestionsHasTheStatusLineItAlwaysHad(t *testing.T) {
+	m := stepModel(t, tallStep())
+
+	if out := m.headerLine(); strings.Contains(out, "question") {
+		t.Errorf("a Step that asks nothing should read as it always did, got %q", out)
+	}
+}
