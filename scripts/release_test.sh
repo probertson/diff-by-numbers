@@ -99,10 +99,11 @@ new_repo() {
 	git -C "$WORK" push -q -u origin main
 }
 
-# cut_release VERSION — run the real release script, answering the prompt with "y".
-# Captures combined output in RELEASE_OUT and the exit status in RELEASE_STATUS.
+# cut_release VERSION [ANSWERS] — run the real release script, answering its
+# prompts with ANSWERS, one per line: "y" to each by default. Captures combined
+# output in RELEASE_OUT and the exit status in RELEASE_STATUS.
 cut_release() {
-	RELEASE_OUT=$(cd "$WORK" && printf 'y\n' |
+	RELEASE_OUT=$(cd "$WORK" && printf '%b' "${2:-y\ny\n}" |
 		SKIP_TESTS=1 GIT_EDITOR="sh $SAND/editor.sh" sh "$RELEASE" "$1" 2>&1)
 	RELEASE_STATUS=$?
 }
@@ -285,6 +286,23 @@ case "$RELEASE_OUT" in
 *"questions"*) pass "the release says which new names raised it" ;;
 *) fail "the release says which new names raised it" "$RELEASE_OUT" ;;
 esac
+
+# The raise is its own decision, asked apart from the release and set off so it
+# is not answered on autopilot: declining it still releases, and leaves the line.
+new_repo
+with_skill v1.0.0
+cut_release v1.0.0
+add_to_surface wire.go '	Questions []string `json:"questions,omitempty"`'
+with_skill v1.0.0 '`label` and `questions`'
+cut_release v1.1.0 'n\ny\n'
+
+case "$RELEASE_OUT" in
+*"Raise the skill's minimum dbn to v1.1.0? [y/N]"*) pass "the raise is asked on its own" ;;
+*) fail "the raise is asked on its own" "$RELEASE_OUT" ;;
+esac
+check_equal "declining the raise still releases" "0" "$RELEASE_STATUS"
+check_equal "declining the raise leaves the line as it was" "v1.0.0" "$(requires_in_skill)"
+check_equal "declining the raise leaves the tree clean" "" "$(git -C "$WORK" status --porcelain)"
 
 # A new tool counts the same as a new field.
 new_repo

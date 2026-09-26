@@ -173,9 +173,30 @@ printf 'Release notes for %s:\n\n%s\n\n' "$version" "$notes"
 printf 'About to set the plugin version to %s, commit it as "Release %s", push main,\n' "$plugin_version" "$version"
 printf 'then tag %s at that commit with the notes above and push the tag,\n' "$version"
 printf 'triggering the release build.\n'
-[ -z "$uses_new" ] ||
-	printf 'The release commit also raises the skill to "Requires dbn %s or later":\nit now uses %s, new since %s.\n' \
-		"$version" "$uses_new" "$previous"
+
+# Raising the skill's line happens only in some releases, so it is asked on its
+# own rather than folded into the release's yes, and set off in a banner so a
+# release answered on autopilot does not answer it too. Declining it still
+# releases, with the line as it was.
+raise_skill=""
+if [ -n "$uses_new" ]; then
+	rule='============================================================'
+	on="" off=""
+	if [ -t 1 ]; then
+		on=$(printf '\033[1;33m') off=$(printf '\033[0m')
+	fi
+	printf '\n%s%s\n' "$on" "$rule"
+	printf '  The dbn-review skill now uses %s,\n' "$uses_new"
+	printf '  new since %s. An older dbn would refuse the agent for using it.\n' "$previous"
+	printf '%s%s\n' "$rule" "$off"
+	printf "Raise the skill's minimum dbn to %s? [y/N] " "$version"
+	read -r raise_reply
+	case "$raise_reply" in
+	y | Y) raise_skill=yes ;;
+	*) echo "leaving the skill at \"Requires dbn ${requires} or later\"" ;;
+	esac
+fi
+
 # Last, so it is what the release is decided on rather than scrolled past.
 [ -z "$skill_warning" ] || printf '\n%s\n' "$skill_warning"
 printf 'Continue? [y/N] '
@@ -201,7 +222,7 @@ written=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pl
 # The skill's line is raised in the same commit, which is the one tagged, so the
 # release's binary embeds the skill as released. It is read back for the same
 # reason the manifest is.
-if [ -n "$uses_new" ]; then
+if [ -n "$raise_skill" ]; then
 	sed "s/Requires dbn v[0-9][0-9.]* or later/Requires dbn ${version} or later/" \
 		"$skill" >"$tmp_skill" || die "could not rewrite ${skill}"
 	cat "$tmp_skill" >"$skill" || die "could not write ${skill}"
@@ -218,7 +239,7 @@ if git diff --quiet -- "$plugin_manifest" "$skill"; then
 else
 	echo "setting the plugin version to ${plugin_version}..."
 	git add -- "$plugin_manifest"
-	[ -z "$uses_new" ] || git add -- "$skill"
+	[ -z "$raise_skill" ] || git add -- "$skill"
 	git commit -qm "Release ${version}"
 fi
 
