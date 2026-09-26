@@ -7,6 +7,16 @@ import "strings"
 // Step and the Steps before it (ADR-0017).
 type Question struct {
 	Text string
+	// AsksAgain is the previous round's Agent Question this one asks again, or
+	// 0 for a question asked for the first time.
+	AsksAgain int
+}
+
+// QuestionExchange is one earlier asking of a question asked again: how it was
+// worded, and what the Reviewer answered, if anything.
+type QuestionExchange struct {
+	Text   string
+	Answer string
 }
 
 // AgentQuestion is an Agent Question as the Session holds it, with the
@@ -24,6 +34,11 @@ type AgentQuestion struct {
 	// place. Its Step is gone, so it belongs to none; it keeps its wording and
 	// Answer, and goes back to the agent at the next Hand Off.
 	CarriedOver bool
+	// AsksAgain is the previous round's question this one asks again, and
+	// History every earlier asking of it, oldest first, so the Reviewer does
+	// not start over.
+	AsksAgain int
+	History   []QuestionExchange
 }
 
 // Answered reports whether the Reviewer has answered the question. One handed
@@ -50,18 +65,39 @@ func CountAnswers(questions []AgentQuestion) (answered, unanswered int) {
 
 // askedIn mints the Agent Questions a Round asks, numbered on from next, in
 // the order the Reviewer meets them: the Round's own with the Brief, then each
-// Step's.
-func askedIn(round Round, next int) []AgentQuestion {
+// Step's. A question asked again takes the history of the one it re-poses,
+// from prior, with that asking added.
+func askedIn(round Round, next int, prior []AgentQuestion) []AgentQuestion {
+	earlier := make(map[int]AgentQuestion, len(prior))
+	for _, question := range prior {
+		earlier[question.ID] = question
+	}
 	var out []AgentQuestion
-	for _, question := range round.Questions {
+	mint := func(step int, question Question) {
 		next++
-		out = append(out, AgentQuestion{ID: next, Text: question.Text})
+		minted := AgentQuestion{ID: next, Step: step, Text: question.Text, AsksAgain: question.AsksAgain}
+		if before, ok := earlier[question.AsksAgain]; ok {
+			minted.History = append(append([]QuestionExchange{}, before.History...),
+				QuestionExchange{Text: before.Text, Answer: before.Answer})
+		}
+		out = append(out, minted)
+	}
+	for _, question := range round.Questions {
+		mint(0, question)
 	}
 	for i, step := range round.Steps {
 		for _, question := range step.Questions {
-			next++
-			out = append(out, AgentQuestion{ID: next, Step: i + 1, Text: question.Text})
+			mint(i+1, question)
 		}
+	}
+	return out
+}
+
+// posted lists every Agent Question a Round asks, wherever it sits.
+func posted(round Round) []Question {
+	out := append([]Question{}, round.Questions...)
+	for _, step := range round.Steps {
+		out = append(out, step.Questions...)
 	}
 	return out
 }

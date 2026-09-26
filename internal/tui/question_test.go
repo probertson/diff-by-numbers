@@ -491,3 +491,43 @@ func TestAQuestionAskedOnThisRoundCannotBeWithdrawn(t *testing.T) {
 		t.Errorf("expected to be told only a carried-over question can be withdrawn, got %q", after.status)
 	}
 }
+
+func TestAQuestionAskedAgainShowsWhatWasAskedAndAnsweredBefore(t *testing.T) {
+	asked := question(9, "exactly 5, or 5 with jitter?", "")
+	asked.History = []daemon.QuestionExchangeWire{
+		{Text: "3 or 5?", Answer: "5 or so"},
+		{Text: "exactly 5?", Answer: ""},
+	}
+	step := askingStep(asked)
+
+	out := flatten(renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, 80, 40, false, false))
+
+	for _, want := range []string{"asked before: 3 or 5?", "you answered: 5 or so", "asked before: exactly 5?", "unanswered"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in the question's history, got:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "3 or 5?") > strings.Index(out, "exactly 5, or 5 with jitter?") {
+		t.Errorf("expected the history before the question as asked now, got:\n%s", out)
+	}
+}
+
+func TestTheOverviewSaysWhereAQuestionWasAskedAgain(t *testing.T) {
+	m := roundModel(80)
+	again := accountedQuestion(1, "3 or 5 retries?", "5 or so", "asked_again", "cannot code '5 or so'")
+	again.AskedAgainAs = &daemon.QuestionWire{ID: 2, Step: 3, Text: "exactly 5, or 5 with jitter?"}
+	onRound := accountedQuestion(4, "right approach?", "", "asked_again", "it decides the rest")
+	onRound.AskedAgainAs = &daemon.QuestionWire{ID: 5, Step: 0, Text: "threading, or a context?"}
+	m.view.AccountedQuestions = []daemon.AccountedQuestionWire{again, onRound}
+
+	out := flatten(m.brief())
+
+	for _, want := range []string{"Asked again (2)", "asked again on Step 3", "asked again with the Brief", "cannot code '5 or so'"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q on the Overview, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "exactly 5, or 5 with jitter?") {
+		t.Errorf("the Overview says where, not what: the new question is read where it sits, got:\n%s", out)
+	}
+}

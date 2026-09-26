@@ -330,15 +330,24 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 			"this is round 1; there are no Comments to dispose of"))
 	}
 
+	// A replacement keeps the answered questions, as it keeps Comments; any
+	// other posting starts a round with only the questions it asks.
+	var carried []AgentQuestion
+	if replacing {
+		carried = carryQuestionsOver(s.questions)
+	}
 	var accountedQuestions []AccountedQuestion
+	var priorQuestions []AgentQuestion
 	if earlier != nil {
-		accounted, rejection := accountForQuestions(w.QuestionStatuses, earlier.questions)
+		priorQuestions = earlier.questions
+		accounted, rejection := accountForQuestions(w.QuestionStatuses, earlier.questions, links(w, carried))
 		add(rejection)
 		accountedQuestions = accounted
 	} else if len(w.QuestionStatuses) > 0 {
 		add(reject(RejectedMalformedQuestionStatus,
 			"this is round 1; there are no Agent Questions to account for"))
 	}
+	add(validateAskingAgain(posted(w), w.QuestionStatuses, earlier))
 
 	add(validateNewSideResolves(w.Steps, s.resolver, round))
 
@@ -359,7 +368,6 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.seen = map[int]bool{}
 	s.finished = false
 	s.dispositions = dispositions
-	s.accountedQuestions = accountedQuestions
 	s.answering = earlier
 	s.latest = captureRound(ledger, round)
 	s.replaced = replacing
@@ -389,17 +397,13 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 		s.comments = nil
 		s.nextCommentID = 0
 	}
-	// A replacement keeps the answered questions, as it keeps Comments; any
-	// other posting starts a round with only the questions it asks.
-	var carried []AgentQuestion
-	if replacing {
-		carried = carryQuestionsOver(s.questions)
-	} else {
+	if !replacing {
 		s.nextQuestionID = 0
 	}
-	asked := askedIn(w, s.nextQuestionID)
+	asked := askedIn(w, s.nextQuestionID, priorQuestions)
 	s.nextQuestionID += len(asked)
 	s.questions = append(carried, asked...)
+	s.accountedQuestions = linkAskedAgain(accountedQuestions, s.questions)
 
 	// The Session's first Round mints the Review's id, which then never changes,
 	// and takes the Round's label as given; a later posting only updates the

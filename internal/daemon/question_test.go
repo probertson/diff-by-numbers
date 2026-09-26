@@ -265,3 +265,47 @@ func TestAnsweredQuestionsCarryOverAReplacementAndCanBeWithdrawn(t *testing.T) {
 		t.Errorf("expected question 1 carried over with its Answer, got %+v", got)
 	}
 }
+
+func TestAQuestionAskedAgainShowsItsHistoryOverTheWire(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	posted := postRound(t, server.URL, askingOnStep1(root, "3 or 5?"))
+	review := reviewURL(server.URL, posted.ReviewID)
+	answer(t, review, 1, "5 or so")
+	httpPost(t, review+"/finish")
+	revision := askingOnStep1(root, "exactly 5, or 5 with jitter?")
+	delete(revision, "label")
+	revision["revises"] = posted.ReviewID
+	revision["steps"].([]any)[0].(map[string]any)["questions"].([]any)[0].(map[string]any)["asks_again"] = 1
+	revision["question_statuses"] = []any{map[string]any{"question_id": 1, "status": "asked_again", "response": "cannot code '5 or so'"}}
+
+	postRound(t, server.URL, revision)
+	httpPost(t, review+"/goto/1")
+	var view struct {
+		Step struct {
+			Questions []struct {
+				History []struct {
+					Text   string `json:"text"`
+					Answer string `json:"answer"`
+				} `json:"history"`
+			} `json:"questions"`
+		} `json:"step"`
+		AccountedQuestions []struct {
+			AskedAgainAs *struct {
+				Step int `json:"step"`
+			} `json:"asked_again_as"`
+		} `json:"accounted_questions"`
+	}
+	if err := json.Unmarshal([]byte(get(t, review+"/view")), &view); err != nil {
+		t.Fatal(err)
+	}
+
+	history := view.Step.Questions[0].History
+	if len(history) != 1 || history[0].Text != "3 or 5?" || history[0].Answer != "5 or so" {
+		t.Errorf("expected the earlier wording and Answer as history, got %+v", history)
+	}
+	if asked := view.AccountedQuestions[0].AskedAgainAs; asked == nil || asked.Step != 1 {
+		t.Errorf("expected the status to say it was asked again on Step 1, got %+v", view.AccountedQuestions)
+	}
+}

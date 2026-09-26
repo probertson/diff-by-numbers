@@ -31,6 +31,17 @@ func questionBlock(questions []daemon.QuestionWire, width int) string {
 	var b strings.Builder
 	b.WriteString(warnSt.Render(heading))
 	for i, question := range questions {
+		// A question asked again comes with what was asked and answered
+		// before, so the Reviewer carries on from there rather than starting
+		// over (ADR-0017).
+		for _, earlier := range question.History {
+			answered := "you answered: " + earlier.Answer
+			if earlier.Answer == "" {
+				answered = "you left it unanswered"
+			}
+			b.WriteString("\n" + dimSt.Render(wrapTo("asked before: "+earlier.Text, inner)))
+			b.WriteString("\n" + dimSt.Render(wrapTo(answered, inner)))
+		}
 		text := question.Text
 		if len(questions) > 1 {
 			text = fmt.Sprintf("%d. %s", i+1, text)

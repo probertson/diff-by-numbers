@@ -99,6 +99,7 @@ func (m model) sinceTheLastRound(width int) string {
 func questionGroups() []dispositionGroup {
 	return []dispositionGroup{
 		{status: "agents_call", heading: "Agent's call", mark: "◆", style: warnSt},
+		{status: "asked_again", heading: "Asked again", mark: "↻", style: accentSt},
 		{status: "addressed", heading: "Addressed", mark: "✓", style: addSt},
 		{status: "no_change_needed", heading: "No change needed", mark: "=", style: accentSt},
 	}
@@ -145,6 +146,19 @@ func accountedQuestionItem(group dispositionGroup, accounted daemon.AccountedQue
 	tail := fmt.Sprintf(" #%d  %s", question.ID, where)
 	rows := []string{strings.Repeat(" ", dispositionIndent) +
 		fitRow(group.mark+tail, group.style.Render(group.mark)+dimSt.Render(tail), width-dispositionIndent)}
+	// Where it was asked again, and not what: the new question is read where
+	// it sits, with the Steps before it for context.
+	if asked := accounted.AskedAgainAs; asked != nil {
+		again := fmt.Sprintf("asked again on Step %d", asked.Step)
+		switch {
+		case asked.CarriedOver:
+			again = "asked again, and answered before the Round was replaced"
+		case asked.Step == 0:
+			again = "asked again with the Brief"
+		}
+		rows = append(rows, strings.Repeat(" ", dispositionLabelIndent)+
+			fitRow(again, accentSt.Render(again), width-dispositionLabelIndent))
+	}
 	rows = append(rows, hangingField("agent asked: ", question.Text, dimSt, width)...)
 	if question.Answered() {
 		rows = append(rows, hangingField("you answered: ", question.Answer, dimSt, width)...)

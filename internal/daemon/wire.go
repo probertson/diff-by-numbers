@@ -43,7 +43,8 @@ type wireStep struct {
 }
 
 type wireQuestion struct {
-	Text string `json:"text" jsonschema:"The question, answerable from its Step and the Steps before it"`
+	Text      string `json:"text" jsonschema:"The question, answerable from its Step and the Steps before it"`
+	AsksAgain int    `json:"asks_again,omitempty" jsonschema:"In a Revision Round, the id of the previous round's Agent Question this one asks again, which you give the status 'asked_again'. The Reviewer sees the earlier wording and Answer with it, so word it to say what is still open rather than starting over. Place it where it now belongs: on the Step whose code it concerns, or on the Round"`
 }
 
 type wireRepository struct {
@@ -59,8 +60,8 @@ type wireDisposition struct {
 
 type wireQuestionStatus struct {
 	QuestionID int    `json:"question_id" jsonschema:"The id of an Agent Question from the previous round this accounts for"`
-	Status     string `json:"status" jsonschema:"'addressed' if the Answer led you to change something, 'no_change_needed' if the Answer agreed with the code as it stood, 'agents_call' if the question went unanswered and you went ahead on your own judgment. There is no declining an Answer: the Reviewer was asked to decide"`
-	Response   string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it with the question and its Answer before any code. Required for 'agents_call': what you chose. Optional otherwise, e.g. to note how you made the change"`
+	Status     string `json:"status" jsonschema:"'addressed' if the Answer led you to change something, 'no_change_needed' if the Answer agreed with the code as it stood, 'agents_call' if the question went unanswered and you went ahead on your own judgment, 'asked_again' if it went unanswered or its Answer cannot be acted on as written and a question of this Round asks it again (naming this id in asks_again). There is no declining an Answer: the Reviewer was asked to decide, so if you cannot follow one, ask again and say why"`
+	Response   string `json:"response,omitempty" jsonschema:"What you say back to the Reviewer, who sees it with the question and its Answer before any code. Required for 'agents_call' (what you chose) and 'asked_again' (why: what is still unclear, or why the Answer cannot be followed). Optional otherwise, e.g. to note how you made the change"`
 }
 
 type wireRound struct {
@@ -203,6 +204,7 @@ type questionWire struct {
 	// Unanswered is set rather than left to an empty answer, so the agent never
 	// reads silence as agreement.
 	Unanswered bool `json:"unanswered,omitempty" jsonschema:"Set when the Reviewer handed off without answering. It is not agreement: go ahead on your own judgment and say what you chose, or ask again"`
+	AsksAgain  int  `json:"asks_again,omitempty" jsonschema:"The id of the previous round's question this one asked again"`
 	// CarriedOver is only ever set on an answered question.
 	CarriedOver bool `json:"carried_over,omitempty" jsonschema:"Set when the question was answered on a Round you since replaced in place. Its step is 0, since that Round's Steps are gone; account for it in the next Revision Round like any other"`
 }
@@ -312,7 +314,7 @@ func (w wireRound) toDomain() review.Round {
 func toQuestions(wires []wireQuestion) []review.Question {
 	var out []review.Question
 	for _, q := range wires {
-		out = append(out, review.Question{Text: q.Text})
+		out = append(out, review.Question{Text: q.Text, AsksAgain: q.AsksAgain})
 	}
 	return out
 }
@@ -346,6 +348,7 @@ func toFetchResult(r review.Results, message string) fetchResult {
 			Answer:     question.Answer,
 			Unanswered: !question.Answered(),
 
+			AsksAgain:   question.AsksAgain,
 			CarriedOver: question.CarriedOver,
 		})
 	}

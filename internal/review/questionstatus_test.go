@@ -147,3 +147,120 @@ func TestReplacingARevisionRoundSuppliesItsQuestionStatusesAgain(t *testing.T) {
 		t.Errorf("expected the replacement's status to stand, got %+v", accounted)
 	}
 }
+
+// askingAgain is a Revision Round asking question prior again on its Step,
+// with the status that says so.
+func askingAgain(prior int, wording, response string) review.Round {
+	round := accounting(status(prior, review.QuestionAskedAgain, response))
+	round.Steps[0].Questions = []review.Question{{Text: wording, AsksAgain: prior}}
+	return round
+}
+
+func TestAQuestionAskedAgainCarriesItsHistory(t *testing.T) {
+	session, _ := handedOffAsking(t, "5 or so")
+
+	mustRevise(t, session, askingAgain(1, "exactly 5, or 5 with jitter?", "5 or so cannot be coded as written"))
+	asked := session.Questions()
+
+	if len(asked) != 1 {
+		t.Fatalf("expected the question asked again, got %+v", asked)
+	}
+	if len(asked[0].History) != 1 {
+		t.Fatalf("expected the earlier wording and Answer as history, got %+v", asked[0].History)
+	}
+	if earlier := asked[0].History[0]; earlier.Text != "3 or 5?" || earlier.Answer != "5 or so" {
+		t.Errorf("expected the earlier wording and Answer, got %+v", earlier)
+	}
+	accounted := session.View().AccountedQuestions[0]
+	if accounted.Status != review.QuestionAskedAgain || accounted.AskedAgainAs.ID != asked[0].ID {
+		t.Errorf("expected the status to name the question it was asked again as, got %+v", accounted)
+	}
+}
+
+func TestAnUnansweredQuestionCanBeAskedAgain(t *testing.T) {
+	session, _ := handedOffAsking(t, "")
+
+	err := session.Revise(session.ReviewID(), askingAgain(1, "3 or 5? It decides the timeout", "it decides the timeout"))
+
+	if err != nil {
+		t.Errorf("expected an unanswered question to be askable again, got %v", err)
+	}
+}
+
+func TestAskedAgainIsRefusedWithoutAResponseOrALink(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		round func() review.Round
+	}{
+		{"no response", func() review.Round { return askingAgain(1, "exactly 5?", "") }},
+		{"no question asking it again", func() review.Round {
+			return accounting(status(1, review.QuestionAskedAgain, "unclear"))
+		}},
+		{"two questions asking it again", func() review.Round {
+			round := askingAgain(1, "exactly 5?", "unclear")
+			round.Questions = []review.Question{{Text: "or jitter?", AsksAgain: 1}}
+			return round
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, _ := handedOffAsking(t, "5 or so")
+
+			err := session.Revise(session.ReviewID(), tc.round())
+
+			assertRejected(t, err, review.RejectedMalformedQuestionStatus)
+		})
+	}
+}
+
+func TestAQuestionCannotAskAgainOneThatWasNotAskedAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		round func() review.Round
+	}{
+		{"a question the previous round never asked", func() review.Round {
+			round := accounting(status(1, review.QuestionAddressed, ""))
+			round.Steps[0].Questions = []review.Question{{Text: "?", AsksAgain: 9}}
+			return round
+		}},
+		{"a question given another status", func() review.Round {
+			round := accounting(status(1, review.QuestionAddressed, ""))
+			round.Steps[0].Questions = []review.Question{{Text: "?", AsksAgain: 1}}
+			return round
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, _ := handedOffAsking(t, "5")
+
+			err := session.Revise(session.ReviewID(), tc.round())
+
+			assertRejected(t, err, review.RejectedMalformedQuestion)
+		})
+	}
+}
+
+func TestAFirstRoundCannotAskAQuestionAgain(t *testing.T) {
+	session := review.NewSession(&textResolver{text: map[string]string{}}, &roundDeriver{lines: changedApp(1, 3)})
+	step := appStep(1, 3)
+	step.Questions = []review.Question{{Text: "?", AsksAgain: 1}}
+
+	err := session.Post(appRound([]review.Step{step}, nil))
+
+	assertRejected(t, err, review.RejectedMalformedQuestion)
+}
+
+func TestAQuestionAskedAgainTwiceShowsTheHistorySoFar(t *testing.T) {
+	session, _ := handedOffAsking(t, "5 or so")
+	mustRevise(t, session, askingAgain(1, "exactly 5?", "cannot code '5 or so'"))
+	mustAnswer(t, session, 1, "whatever is standard")
+	mustFinish(t, session)
+
+	mustRevise(t, session, askingAgain(1, "the standard is 3; is 3 fine?", "no single standard exists"))
+	history := session.Questions()[0].History
+
+	if len(history) != 2 {
+		t.Fatalf("expected both earlier exchanges, got %+v", history)
+	}
+	if history[0].Text != "3 or 5?" || history[1].Text != "exactly 5?" || history[1].Answer != "whatever is standard" {
+		t.Errorf("expected the history oldest first, got %+v", history)
+	}
+}

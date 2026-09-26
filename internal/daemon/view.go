@@ -95,6 +95,15 @@ type QuestionWire struct {
 	// CarriedOver marks an answered question from a Round the agent has since
 	// replaced in place, which belongs to no Step of this one.
 	CarriedOver bool `json:"carried_over,omitempty"`
+	// History is every earlier asking of a question asked again, oldest first.
+	History []QuestionExchangeWire `json:"history,omitempty"`
+}
+
+// QuestionExchangeWire is one earlier asking of a question: its wording and the
+// Answer it got, empty if none.
+type QuestionExchangeWire struct {
+	Text   string `json:"text"`
+	Answer string `json:"answer,omitempty"`
 }
 
 // Answered reports whether the Reviewer has answered the question.
@@ -107,13 +116,20 @@ type AccountedQuestionWire struct {
 	Question QuestionWire `json:"question"`
 	Status   string       `json:"status"`
 	Response string       `json:"response,omitempty"`
+	// AskedAgainAs is the question of this Round asking it again, when it was
+	// asked again, so the Overview can say where without repeating it.
+	AskedAgainAs *QuestionWire `json:"asked_again_as,omitempty"`
 }
 
 func toQuestionWire(question review.AgentQuestion) QuestionWire {
-	return QuestionWire{
+	wire := QuestionWire{
 		ID: question.ID, Step: question.Step, Text: question.Text, Answer: question.Answer,
 		CarriedOver: question.CarriedOver,
 	}
+	for _, earlier := range question.History {
+		wire.History = append(wire.History, QuestionExchangeWire{Text: earlier.Text, Answer: earlier.Answer})
+	}
+	return wire
 }
 
 func toQuestionWires(questions []review.AgentQuestion) []QuestionWire {
@@ -342,11 +358,16 @@ func toViewWire(v review.ViewModel) ViewWire {
 		})
 	}
 	for _, accounted := range v.AccountedQuestions {
-		wire.AccountedQuestions = append(wire.AccountedQuestions, AccountedQuestionWire{
+		entry := AccountedQuestionWire{
 			Question: toQuestionWire(accounted.Question),
 			Status:   string(accounted.Status),
 			Response: accounted.Response,
-		})
+		}
+		if accounted.AskedAgainAs.ID != 0 {
+			asked := toQuestionWire(accounted.AskedAgainAs)
+			entry.AskedAgainAs = &asked
+		}
+		wire.AccountedQuestions = append(wire.AccountedQuestions, entry)
 	}
 	for _, w := range v.Withdrawn {
 		wire.Withdrawn = append(wire.Withdrawn, WithdrawalWire{
