@@ -4,5 +4,11 @@
   "version": "0.5.1",
   "author": {
     "name": "Paul Robertson"
+  },
+  "mcpServers": {
+    "dbn": {
+      "command": "dbn",
+      "args": ["mcp"]
+    }
   }
 }

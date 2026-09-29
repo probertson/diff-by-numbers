@@ -101,11 +101,69 @@ go build -o /usr/local/bin/dbn ./cmd/dbn
 
 ## One-time setup
 
-### 1. Register dbn with your agent
+### 1. Connect dbn to your agent
 
-Register dbn once. Your agent launches it per session, and it starts the shared
-dbn daemon on demand — so the review tools are always present, with nothing to
-start by hand first. For Claude Code, register it for every project:
+Your agent needs two things: the dbn MCP server, which gives it the review tools,
+and the review skill, which teaches it to use them. The skill covers Step sizing
+and narrative ordering, what goes in the Brief, when an Acknowledgement is
+appropriate, and how to run the collect-and-revise loop.
+
+The agent launches the MCP server per session, and that starts the shared dbn
+daemon on demand, so the review tools are always there with nothing to start by
+hand first. Whichever way you set it up, `dbn` must be on your PATH for your
+agent to launch it.
+
+#### Claude Code: install the plugin
+
+The plugin brings both the skill and the MCP server. In a Claude Code session:
+```
+/plugin marketplace add probertson/diff-by-numbers
+/plugin install dbn@diff-by-numbers
+```
+(`/plugin install` opens the plugin panel on dbn, where you choose a scope to install it.
+The user scope makes dbn available in every project.)
+
+Or from a terminal:
+```sh
+claude plugin marketplace add probertson/diff-by-numbers
+claude plugin install dbn@diff-by-numbers
+```
+
+**If you registered dbn by hand** (with `claude mcp add … dbn -- dbn mcp`), you can
+leave that in place: Claude Code skips a plugin's server when you have already
+registered the same command yourself. Or remove it and let the plugin own it:
+
+```sh
+claude mcp remove -s user dbn
+```
+
+(Use the scope you registered it at: drop `-s user` if you ran `claude mcp add`
+without it.) The plugin's tools are named `mcp__plugin_dbn_dbn__…` rather than
+`mcp__dbn__…`, so update any permission rules that name the old ones.
+
+##### Optional: auto-update the plugin
+
+The plugin does not auto-update by default. (Claude Code sets auto-update to
+"off" for third-party marketplaces by default.) To enable auto-updating for the
+diff-by-numbers plugin/skill:
+
+1. `/plugin` — open the plugin panel
+2. Switch to the "Marketplaces" tab
+3. Choose "diff-by-numbers"
+4. Choose "Enable auto-update"
+
+Otherwise, `dbn update` will tell you when your skill is out of date with the
+dbn you installed, and how to update it.
+
+#### Without the plugin: add the skill, then register the server
+
+Copy the review skill with `npx skills`:
+```sh
+npx skills add probertson/diff-by-numbers/skills/dbn-review
+```
+
+Then register `dbn mcp` as a stdio MCP server with your agent. For Claude Code
+without the plugin, register it for every project:
 
 ```sh
 claude mcp add -s user dbn -- dbn mcp
@@ -120,50 +178,7 @@ project's directory:
 claude mcp add dbn -- dbn mcp
 ```
 
-(`dbn` must be on your PATH for your agent to launch it.)
-
-### 2. Install the review skill
-
-Copy the review skill so your agent knows how to interact with dbn:
-
-**Via `npx skills`**
-```sh
-npx skills add probertson/diff-by-numbers/skills/dbn-review
-```
-
-**As a Claude Code plugin**
-
-In a Claude Code session:
-```
-/plugin marketplace add probertson/diff-by-numbers
-/plugin install dbn@diff-by-numbers
-```
-(`/plugin install` opens the plugin panel on dbn, where you choose a scope to install it.)
-
-Or from a terminal:
-```sh
-claude plugin marketplace add probertson/diff-by-numbers
-claude plugin install dbn@diff-by-numbers
-```
-
-The skill teaches Step sizing and narrative ordering, what goes in the Brief, when an
-Acknowledgement is appropriate, and how to run the collect-and-revise loop.
-
-#### Optional: auto-update the plugin
-
-The plugin does not auto-update by default. (Claude Code sets auto-update to
-"off" for third-party marketplaces by default.) To enable auto-updating for the
-diff-by-numbers plugin/skill:
-
-1. `/plugin` — open the plugin panel
-2. Switch to the "Marketplaces" tab
-3. Choose "diff-by-numbers"
-4. Choose "Enable auto-update"
-
-Otherwise, `dbn update` will tell you when your skill is out of date with the
-dbn you installed, and how to update it.
-
-### 3. (Optional) Keep the daemon always running
+### 2. (Optional) Keep the daemon always running
 
 You do not need this: the shim starts the daemon on demand, and it stops itself
 once no review needs it. But if you would rather the daemon be permanently warm —
@@ -304,7 +319,7 @@ go build -o ./dbn ./cmd/dbn
 claude mcp add dbn-local -s user -- "$PWD/dbn" mcp -port 7374
 ```
 
-Every agent session then has both servers: `dbn` (the release, on 7373) and
+Every agent session then has both servers: the release's `dbn` (on 7373) and
 `dbn-local` (this build, on 7374). Open the Reviewer's side with `./dbn -port
 7374`.
 

@@ -106,8 +106,8 @@ func run(args []string, out io.Writer) error {
 
 	case "mcp":
 		// The stdio MCP shim an agent registers and launches: it starts the daemon
-		// if none is running, then proxies to it. Registered with, e.g.,
-		// `claude mcp add dbn -- dbn mcp`.
+		// if none is running, then proxies to it. The Claude Code plugin registers
+		// it; other agents register it by hand, e.g. `claude mcp add dbn -- dbn mcp`.
 		flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 		port := flags.Int("port", defaultPort(), "daemon port to connect to or start")
 		if err := flags.Parse(args[1:]); err != nil {

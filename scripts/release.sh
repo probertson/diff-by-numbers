@@ -206,9 +206,9 @@ y | Y) ;;
 *) die "aborted" ;;
 esac
 
-# Rewrite the first "version" key in the manifest. plugin.json is a flat,
+# Rewrite the first "version" key in the manifest. plugin.json is a
 # hand-maintained object with exactly one, so first-match is the right match;
-# were it ever to gain a nested "version", this would need a real JSON tool.
+# were it ever to gain a second "version", this would need a real JSON tool.
 # The result is read back and checked, because a silently unchanged manifest is
 # the whole bug this guards against.
 sed 's/\("version"[[:space:]]*:[[:space:]]*\)"[^"]*"/\1"'"$plugin_version"'"/' \
