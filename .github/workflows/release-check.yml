@@ -4,7 +4,7 @@
 # shell harness runs (via go test) to catch drift between the archive names
 # GoReleaser produces and the URLs install.sh constructs.
 #
-# General test/vet CI for the whole codebase is tracked separately.
+# General test/vet CI for the whole codebase lives in ci.yml.
 name: release-check
 
 on:
