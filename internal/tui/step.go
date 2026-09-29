@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
@@ -355,14 +356,30 @@ func truncateTo(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= w {
-		return s
+	return ansi.Truncate(s, w, "…")
+}
+
+// cells is how many terminal cells r draws: a wide rune takes two, a combining
+// mark none. It measures as lipgloss.Width does, so a row cut to fit by cells
+// fits the frame by the same count.
+func cells(r []rune) int {
+	return ansi.StringWidth(string(r))
+}
+
+// runesWithin reports how many leading runes of r fit in width cells. It sums
+// rune by rune, which can overcount a cluster that draws narrower than its
+// parts (an emoji joined by ZWJ) but never undercounts, so what it admits always
+// fits. A zero-width rune after the last one that fits is admitted with it, so a
+// combining mark stays on the row of the letter it sits on.
+func runesWithin(r []rune, width int) int {
+	used := 0
+	for i, c := range r {
+		used += ansi.StringWidth(string(c))
+		if used > width {
+			return i
+		}
 	}
-	if w == 1 {
-		return "…"
-	}
-	return string(r[:w-1]) + "…"
+	return len(r)
 }
 
 // leadingSpaces counts the spaces a line starts with, which is how far a
@@ -395,7 +412,7 @@ func wrapCode(s string, first, rest, maxRows int) []string {
 	var chunks []string
 	w := first
 	for len(r) > 0 {
-		if len(chunks)+1 == maxRows && len(r) > w {
+		if len(chunks)+1 == maxRows && cells(r) > w {
 			// The last row allowed, with more text than fits: clip the remainder.
 			return append(chunks, truncateTo(string(r), w))
 		}
@@ -426,13 +443,21 @@ func skipSpaces(r []rune, i int) int {
 // not help: the token the break would push down is too long for the next row
 // anyway and the row edge falls inside it, and the only space available is
 // inside the line's own leading indent.
+//
+// Widths are cells and the result is runes; edge is where the two meet, the
+// number of runes that fit the row. A rune wider than the whole row still
+// takes it, overflowing by a cell, since leaving it would never make progress.
 func runesForRow(r []rune, width, nextWidth int) int {
-	if len(r) <= width {
+	if cells(r) <= width {
 		return len(r)
+	}
+	edge := runesWithin(r, width)
+	if edge == 0 {
+		return 1
 	}
 	indent := skipSpaces(r, 0)
 	brk := -1
-	for i := width; i > indent; i-- {
+	for i := edge; i > indent; i-- {
 		if r[i] == ' ' {
 			brk = i
 			break
@@ -441,7 +466,7 @@ func runesForRow(r []rune, width, nextWidth int) int {
 	if brk < 0 {
 		// Either the row edge is inside a token, or the whole row is the line's own
 		// indent — which the caller's hanging indent keeps narrower than the row.
-		return width
+		return edge
 	}
 	// Step back over the whole run of spaces, so the row does not end in padding.
 	// The run cannot reach the indent, whose next rune is by definition not a space.
@@ -458,8 +483,8 @@ func runesForRow(r []rune, width, nextWidth int) int {
 	for end < len(r) && r[end] != ' ' {
 		end++
 	}
-	if end-start > nextWidth && width > start {
-		return width
+	if cells(r[start:end]) > nextWidth && edge > start {
+		return edge
 	}
 	return brk
 }
