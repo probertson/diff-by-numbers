@@ -7,9 +7,8 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// Within an edit, a removed line and the added line matched with it carry the
-// ranges of runes that changed, so the Reviewer is pointed at a one-word edit
-// (#81).
+// Each line of an edit carries the ranges of runes the edit removed or added,
+// so the Reviewer is pointed at a one-word edit (#81, #125).
 
 func emphasisOf(lines []review.Line) []string {
 	var out []string
@@ -19,8 +18,9 @@ func emphasisOf(lines []review.Line) []string {
 	return out
 }
 
-func TestARemovedLineAndTheLineInItsPlaceCarryWhatChanged(t *testing.T) {
-	// Old line 2 became new lines 2-3; "before …:2" matches "after …:2".
+func TestAnEditsLinesCarryWhatItRemovedAndAdded(t *testing.T) {
+	// Old line 2 became new lines 2-3: "before" became "after" on line 2, and
+	// line 3 is wholly added, so it is lit whole (#125).
 	deriver := pairingDeriver{
 		lines: []review.ChangedLine{
 			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
@@ -37,9 +37,9 @@ func TestARemovedLineAndTheLineInItsPlaceCarryWhatChanged(t *testing.T) {
 
 	got := emphasisOf(session.View().Step.Excerpts[0].Lines)
 
-	want := []string{"new1:[]", "old2:[{0 6}]", "new2:[{0 5}]", "new3:[]", "new4:[]"}
+	want := []string{"new1:[]", "old2:[{0 6}]", "new2:[{0 5}]", "new3:[{0 20}]", "new4:[]"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("expected only the matched lines' first words emphasised:\nwant %v\ngot  %v", want, got)
+		t.Errorf("expected the changed word emphasised and the added line lit whole:\nwant %v\ngot  %v", want, got)
 	}
 }
 
@@ -64,10 +64,10 @@ func TestSinceThePreviousRoundAnEditedLineCarriesWhatChanged(t *testing.T) {
 	}
 }
 
-func TestNothingIsMatchedAcrossTwoEdits(t *testing.T) {
+func TestNothingIsComparedAcrossTwoEdits(t *testing.T) {
 	// Two adjacent edits: old 2 became new 2, and old 3 was removed outright
-	// with new 3 added in a separate edit. "before …:3" would match "after …:3"
-	// on its words, but they belong to different edits.
+	// with new 3 added in a separate edit. "before …:3" shares its words with
+	// "after …:3", but they belong to different edits.
 	deriver := pairingDeriver{
 		lines: []review.ChangedLine{
 			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
@@ -93,14 +93,14 @@ func TestNothingIsMatchedAcrossTwoEdits(t *testing.T) {
 
 	want := []string{"new1:[]", "old2:[{0 6}]", "new2:[{0 5}]", "new3:[]", "new4:[]", "old3:[]"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("expected only the one edit's lines matched:\nwant %v\ngot  %v", want, got)
+		t.Errorf("expected only the one edit's lines lit:\nwant %v\ngot  %v", want, got)
 	}
 }
 
-func TestAnEditShownInTwoRangesIsMatchedWhole(t *testing.T) {
+func TestAnEditShownInTwoRangesIsDiffedWhole(t *testing.T) {
 	// One edit replaced old 2-3 with new 2-3, and the Step shows it through two
 	// ranges. The removed lines are drawn above the first range, but each new
-	// line still carries what changed against the line it took the place of.
+	// line still carries what the whole edit changed on it.
 	deriver := pairingDeriver{
 		lines: []review.ChangedLine{
 			{File: "src/fetch.ts", Side: review.OldSide, Line: 2},
@@ -122,6 +122,6 @@ func TestAnEditShownInTwoRangesIsMatchedWhole(t *testing.T) {
 	second := session.View().Step.Excerpts[1].Lines
 
 	if len(second) == 0 || second[0].Number != 3 || fmt.Sprint(second[0].Emphasis) != "[{0 5}]" {
-		t.Errorf("expected new line 3 in the second range emphasised against old line 3, got %+v", second)
+		t.Errorf("expected new line 3 in the second range to carry what the edit changed, got %+v", second)
 	}
 }

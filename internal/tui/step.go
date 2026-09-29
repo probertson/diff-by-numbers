@@ -61,8 +61,8 @@ type codeLine struct {
 	side    string
 	text    string
 	changed bool
-	// emphasis is the [start, end) rune ranges of text that changed between a
-	// removed line and the added line matched with it (#81).
+	// emphasis is the [start, end) rune ranges of this line's text that its
+	// edit removed or added (#81, #125).
 	emphasis [][2]int
 }
 
@@ -830,9 +830,8 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 // (#26) so its tail is readable without scrolling, capped at wrapCap rows.
 //
 // A changed line is tinted across the whole row, gutter included, green for an
-// addition and red for a removal, with the words that changed — between a
-// removed line and the added line matched with it — on a stronger tint of the
-// same colour (#81). Each
+// addition and red for a removal, with the words the edit removed or added on
+// a stronger tint of the same colour (#81, #125). Each
 // signal keeps its own channel, so they compose: a Comment is the foreground, the
 // cursor is bold, and a selection's blue replaces every tint while it lasts.
 func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAll bool) []string {

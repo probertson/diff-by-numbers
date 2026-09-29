@@ -20,9 +20,8 @@ type LineWire struct {
 	// Steps draw it instead. It is not code: the cursor never lands on it, and
 	// nothing may be selected, copied or commented from it.
 	Signpost bool `json:"signpost,omitempty"`
-	// Emphasis is the [start, end) rune ranges of the text that changed within
-	// a removed line and the added line matched with it (#81). The TUI only
-	// styles them.
+	// Emphasis is the [start, end) rune ranges of the text on this line that the
+	// edit it belongs to removed or added (#81, #125). The TUI only styles them.
 	Emphasis [][2]int `json:"emphasis,omitempty"`
 }
 

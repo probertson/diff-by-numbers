@@ -7,17 +7,15 @@ import (
 )
 
 // changesWithin is what changed inside one edit, by line number on each side:
-// for each removed line matched with the added line that took its place, and
-// for that added line, the runes that differ (#81). A line with no match has no
-// entry.
+// the runes of each line that the edit removed or added (#81, #125).
 type changesWithin struct {
 	removed, added map[int][]intraline.Range
 }
 
-// changesWithinEdit reads one edit's removed and added lines whole and matches
-// them, so every row of the edit is marked against the line it really took the
-// place of — whichever Step or range each row happens to be drawn in. Lines are
-// never matched across edits.
+// changesWithinEdit reads one edit's removed and added lines whole and diffs
+// them as one passage each, so every row of the edit is marked against the
+// whole edit — whichever Step or range each row happens to be drawn in. Nothing
+// is compared across edits.
 //
 // It is remembered for the round, under key: the round's content cannot change
 // while it is on screen, and the view is drawn every second.

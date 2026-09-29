@@ -1,6 +1,7 @@
-// Package intraline finds the words that changed between a removed line and the
-// line that replaced it, so the Reviewer is pointed at a one-word edit in a long
-// line rather than left to compare the two word by word (#81).
+// Package intraline finds the words that changed within one edit, so the
+// Reviewer is pointed at a one-word edit in a long line rather than left to
+// compare the two word by word (#81), and a rewrapped passage lights only what
+// was rewritten (#125).
 //
 // It delegates the algorithm, not the rendering (ADR-0005): it answers with
 // ranges of runes, and whatever draws the rows styles them. dbn owns every row it
@@ -9,6 +10,7 @@
 package intraline
 
 import (
+	"strings"
 	"unicode"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -17,11 +19,35 @@ import (
 // Range is a half-open run of runes, [Start, End), within one line.
 type Range struct{ Start, End int }
 
-// matchThreshold is how alike two lines' words must be before they are
-// treated as one line edited rather than two unrelated lines — delta's choice.
-// Below it, emphasising the differences would highlight nearly everything and
-// point at nothing.
-const matchThreshold = 0.4
+// An edit's changed words are lit only when its two sides are alike enough to
+// be one passage edited rather than one passage replaced by another; a
+// replacement is lit whole, since all of its text was removed or added. An edit
+// is one passage edited when either side's words are mostly shared overall
+// (similarityThreshold, delta's choice), or when most of the smaller side's words
+// are found in the larger (containmentThreshold, with at least containmentMinimum
+// of them), which keeps a small edit made beside many added lines from losing
+// its emphasis (#125).
+const (
+	similarityThreshold  = 0.4
+	containmentThreshold = 0.6
+	containmentMinimum   = 4
+)
+
+// Each distinct token is diffed as one rune from Unicode's private-use planes
+// 15 and 16, so no token can collide with a rune diff-match-patch treats
+// specially. They hold encodable runes: far more distinct tokens than an edit
+// of hand-written text has, but a generated file can have more, and past that
+// the encoding cannot tell tokens apart, so such an edit gets no emphasis.
+const (
+	firstEncoded = rune(0xF0000)
+	encodable    = 0x110000 - 0xF0000
+)
+
+// minimumMatch is the fewest unchanged words that keep two edits apart. A
+// shorter unchanged run between them is emphasised as part of the edit, so a
+// rewritten passage is lit as a few spans rather than a scatter of fragments
+// around the words it happens to share.
+const minimumMatch = 2
 
 // Tokens splits a line into the units a change is measured in: runs of letters,
 // digits and underscores (words, identifiers and numbers), runs of whitespace,
@@ -51,119 +77,311 @@ func Tokens(line string) []string {
 
 func isWord(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
 
-// Emphasis matches removed lines with the added lines that took their place, and
-// says, for each line, which of its runes changed. The two lists must come from one
-// edit: matching never looks beyond them, so a line is never compared with one
-// from somewhere else in the file.
+// Emphasis says, for each line of one edit, which of its runes changed. It diffs
+// the removed lines against the added lines as one passage each, with every line
+// break read as whitespace, and maps what changed back onto the lines (#125).
+// There is no pairing of one line with another, so a lit run means "this text
+// was removed" or "this text was added", and a word that only moved across a
+// wrap is unchanged. The two lists must come from one edit: nothing is compared
+// with a line from somewhere else in the file.
 //
-// Matching walks both lists in order. Each removed line takes the next added line
-// alike enough to be the same line edited; a line that finds no partner, or is
-// never chosen, gets nil. A matched line whose text did not change gets an empty,
-// non-nil list.
+// Whitespace is never emphasised on its own: whitespace tokens all compare
+// equal, and ranges are trimmed of it. When the two sides are too unalike to be
+// one passage edited, or too large to diff faithfully, every line is lit whole:
+// it was replaced, and a row with nothing lit must only ever mean its text is
+// on the other side too. Every line gets a list, empty when nothing on it
+// changed.
 func Emphasis(removed, added []string) ([][]Range, [][]Range) {
-	removedOut := make([][]Range, len(removed))
-	addedOut := make([][]Range, len(added))
-	next := 0
-	for i, before := range removed {
-		for j := next; j < len(added); j++ {
-			diffs, similarity := compare(before, added[j])
-			if similarity < matchThreshold {
-				continue
-			}
-			removedOut[i], addedOut[j] = rangesOf(diffs, before, added[j])
-			next = j + 1
-			break
-		}
-	}
-	return removedOut, addedOut
-}
-
-// compare diffs two lines token by token and says how alike they are: the
-// share of their words the two have in common. Whitespace and punctuation are
-// diffed but not counted towards likeness, since nearly every line of code
-// shares its spaces, brackets and operators with every other and would match
-// with anything. A line with no words at all is measured by all its tokens.
-func compare(before, after string) ([]diffmatchpatch.Diff, float64) {
-	a, b := Tokens(before), Tokens(after)
+	before := passageTokens(removed, carriedMarkers(added))
+	after := passageTokens(added, carriedMarkers(removed))
 	encoded := map[string]rune{}
-	decoded := map[rune]string{}
-	encode := func(tokens []string) []rune {
+	encode := func(tokens []token) []rune {
 		out := make([]rune, len(tokens))
-		for i, token := range tokens {
-			r, ok := encoded[token]
+		for i, t := range tokens {
+			key := t.text
+			if t.isSpace() {
+				key = " "
+			}
+			r, ok := encoded[key]
 			if !ok {
-				// A private-use plane, so no token can collide with a rune
-				// diff-match-patch treats specially.
-				// Planes 15 and 16 hold some 131,000 runes, far more distinct
-				// tokens than one line can have.
-				r = rune(0xF0000 + len(encoded))
-				encoded[token] = r
-				decoded[r] = token
+				r = firstEncoded + rune(len(encoded))
+				encoded[key] = r
 			}
 			out[i] = r
 		}
 		return out
 	}
-	dmp := diffmatchpatch.New()
-	diffs := dmp.DiffMainRunes(encode(a), encode(b), false)
+	beforeRunes, afterRunes := encode(before), encode(after)
+	if len(encoded) > encodable {
+		return litWhole(removed), litWhole(added)
+	}
+	diffs := diffmatchpatch.New().DiffMainRunes(beforeRunes, afterRunes, false)
 
-	counts := func(tokens []string, wordsOnly bool) int {
-		n := 0
-		for _, token := range tokens {
-			if !wordsOnly || isWord([]rune(token)[0]) {
-				n++
-			}
-		}
-		return n
+	if !alike(before, after, diffs) {
+		return litWhole(removed), litWhole(added)
 	}
-	wordsOnly := counts(a, true)+counts(b, true) > 0
-	total := counts(a, wordsOnly) + counts(b, wordsOnly)
-	if total == 0 {
-		return nil, 1
-	}
-	shared := 0
-	for _, d := range diffs {
-		if d.Type != diffmatchpatch.DiffEqual {
-			continue
+	diffs = absorbShortMatches(diffs, before, after)
+
+	removedOut, addedOut := emptyRanges(len(removed)), emptyRanges(len(added))
+	for _, s := range spans(diffs, before, after) {
+		switch s.diff.Type {
+		case diffmatchpatch.DiffDelete:
+			mark(s.before, removedOut)
+		case diffmatchpatch.DiffInsert:
+			mark(s.after, addedOut)
 		}
-		var tokens []string
-		for _, r := range d.Text {
-			tokens = append(tokens, decoded[r])
-		}
-		shared += counts(tokens, wordsOnly)
 	}
-	return dmp.DiffCleanupSemantic(diffs), float64(2*shared) / float64(total)
+	trimWhitespace(removed, removedOut)
+	trimWhitespace(added, addedOut)
+	return removedOut, addedOut
 }
 
-// rangesOf turns a token diff back into rune ranges on each line.
-func rangesOf(diffs []diffmatchpatch.Diff, before, after string) ([]Range, []Range) {
-	beforeTokens, afterTokens := Tokens(before), Tokens(after)
-	removed, added := []Range{}, []Range{}
-	var ti, tj, ri, rj int // token and rune positions in each line
-	span := func(tokens []string, from, count, at int) (Range, int, int) {
-		start := at
-		for k := from; k < from+count; k++ {
-			at += len([]rune(tokens[k]))
+// token is one token of a passage and where it sits: runes [start, end) of line.
+// A line break sits on no line; it stands for the whitespace around the break
+// and whatever the next line's start folds into it.
+type token struct {
+	text       string
+	line       int
+	start, end int
+}
+
+// lineBreak is the line of a token that stands for a line break.
+const lineBreak = -1
+
+func (t token) isSpace() bool { return unicode.IsSpace([]rune(t.text)[0]) }
+func (t token) isWord() bool  { return isWord([]rune(t.text)[0]) }
+
+// commentMarkers are the line starts a rewrap repeats on every line: a comment's
+// leader, a quote, a block comment's star.
+var commentMarkers = []string{"//", "#", ">", "*"}
+
+// passageTokens reads lines as one passage. Each line break is one whitespace
+// token, joined with the whitespace either side of it, the next line's
+// indentation, and a comment marker the next line shares with the line before
+// it, when foldable says the other side carries that marker too. Those are what
+// a rewrap moves around, so they never read as changed.
+func passageTokens(lines []string, foldable map[string]bool) []token {
+	var out []token
+	for i, line := range lines {
+		folded := 0
+		if i > 0 {
+			folded = foldedPrefix(lines[i-1], line, foldable)
 		}
-		return Range{start, at}, from + count, at
+		at := 0
+		for _, text := range Tokens(line) {
+			n := len([]rune(text))
+			if at >= folded {
+				out = append(out, token{text: text, line: i, start: at, end: at + n})
+			}
+			at += n
+		}
+		if i == len(lines)-1 {
+			break
+		}
+		if last := len(out) - 1; last >= 0 && out[last].isSpace() {
+			out[last].line = lineBreak
+		} else {
+			out = append(out, token{text: " ", line: lineBreak})
+		}
 	}
-	for _, d := range diffs {
+	return out
+}
+
+// foldedPrefix is how many runes at the start of line the line break before it
+// takes: its indentation, and a foldable comment marker it shares with prev,
+// with the whitespace after the marker.
+func foldedPrefix(prev, line string, foldable map[string]bool) int {
+	runes := []rune(line)
+	at := skipSpace(runes, 0)
+	marker := markerOf(line)
+	if marker == "" || marker != markerOf(prev) || !foldable[marker] {
+		return at
+	}
+	return skipSpace(runes, at+len([]rune(marker)))
+}
+
+// carriedMarkers are the comment markers lines carry down two or more
+// consecutive lines, as a comment or quote does. A marker is folded into the
+// line breaks on one side only when the other side carries it too: removing
+// "//" from lines, or a "*" dereference from one of two, is a real edit, and
+// folding it on one side alone would hide it.
+func carriedMarkers(lines []string) map[string]bool {
+	out := map[string]bool{}
+	for i := 1; i < len(lines); i++ {
+		if marker := markerOf(lines[i]); marker != "" && marker == markerOf(lines[i-1]) {
+			out[marker] = true
+		}
+	}
+	return out
+}
+
+func markerOf(line string) string {
+	rest := strings.TrimLeftFunc(line, unicode.IsSpace)
+	for _, marker := range commentMarkers {
+		if strings.HasPrefix(rest, marker) {
+			return marker
+		}
+	}
+	return ""
+}
+
+func skipSpace(runes []rune, at int) int {
+	for at < len(runes) && unicode.IsSpace(runes[at]) {
+		at++
+	}
+	return at
+}
+
+// alike says whether the two sides are one passage edited rather than one
+// replaced by another. It counts words only: nearly every line of code shares
+// its spaces, brackets and operators with every other. A passage with no words
+// at all is measured by all its tokens but whitespace.
+func alike(before, after []token, diffs []diffmatchpatch.Diff) bool {
+	counted := func(t token) bool { return t.isWord() }
+	if countOf(before, counted)+countOf(after, counted) == 0 {
+		counted = func(t token) bool { return !t.isSpace() }
+	}
+	shared := 0
+	for _, s := range spans(diffs, before, after) {
+		if s.diff.Type == diffmatchpatch.DiffEqual {
+			shared += countOf(s.before, counted)
+		}
+	}
+	a, b := countOf(before, counted), countOf(after, counted)
+	if a+b == 0 {
+		return true
+	}
+	if float64(2*shared)/float64(a+b) >= similarityThreshold {
+		return true
+	}
+	return shared >= containmentMinimum && float64(shared)/float64(min(a, b)) >= containmentThreshold
+}
+
+// span is one diff with the tokens it covers: on the before side for an
+// unchanged run or a deletion, on the after side for an unchanged run or an
+// insertion.
+type span struct {
+	diff          diffmatchpatch.Diff
+	before, after []token
+}
+
+// spans pairs each diff with the tokens it covers, which is the one place the
+// token positions on each side are counted.
+func spans(diffs []diffmatchpatch.Diff, before, after []token) []span {
+	out := make([]span, len(diffs))
+	var i, j int
+	for k, d := range diffs {
 		n := len([]rune(d.Text))
-		switch d.Type {
-		case diffmatchpatch.DiffEqual:
-			_, ti, ri = span(beforeTokens, ti, n, ri)
-			_, tj, rj = span(afterTokens, tj, n, rj)
-		case diffmatchpatch.DiffDelete:
-			var r Range
-			r, ti, ri = span(beforeTokens, ti, n, ri)
-			removed = appendMerged(removed, r)
-		case diffmatchpatch.DiffInsert:
-			var r Range
-			r, tj, rj = span(afterTokens, tj, n, rj)
-			added = appendMerged(added, r)
+		out[k].diff = d
+		if d.Type != diffmatchpatch.DiffInsert {
+			out[k].before = before[i : i+n]
+			i += n
+		}
+		if d.Type != diffmatchpatch.DiffDelete {
+			out[k].after = after[j : j+n]
+			j += n
 		}
 	}
-	return removed, added
+	return out
+}
+
+func countOf(tokens []token, counted func(token) bool) int {
+	n := 0
+	for _, t := range tokens {
+		if counted(t) {
+			n++
+		}
+	}
+	return n
+}
+
+// absorbShortMatches makes an unchanged run of fewer than minimumMatch words
+// between two edits part of the edit, then merges each run of edits into one
+// deletion and one insertion. An unchanged run at either end of the passage is
+// kept, since it lies between an edit and nothing.
+func absorbShortMatches(diffs []diffmatchpatch.Diff, before, after []token) []diffmatchpatch.Diff {
+	var out []diffmatchpatch.Diff
+	var deleted, inserted strings.Builder
+	flush := func() {
+		if deleted.Len() > 0 {
+			out = append(out, diffmatchpatch.Diff{Type: diffmatchpatch.DiffDelete, Text: deleted.String()})
+		}
+		if inserted.Len() > 0 {
+			out = append(out, diffmatchpatch.Diff{Type: diffmatchpatch.DiffInsert, Text: inserted.String()})
+		}
+		deleted.Reset()
+		inserted.Reset()
+	}
+	for k, s := range spans(diffs, before, after) {
+		d := s.diff
+		switch d.Type {
+		case diffmatchpatch.DiffDelete:
+			deleted.WriteString(d.Text)
+		case diffmatchpatch.DiffInsert:
+			inserted.WriteString(d.Text)
+		case diffmatchpatch.DiffEqual:
+			between := k > 0 && k < len(diffs)-1
+			if between && countOf(s.before, token.isWord) < minimumMatch {
+				deleted.WriteString(d.Text)
+				inserted.WriteString(d.Text)
+			} else {
+				flush()
+				out = append(out, d)
+			}
+		}
+	}
+	flush()
+	return out
+}
+
+// litWhole lights each line from its first non-whitespace rune to its last:
+// what an edit shows when it is not one passage edited but one replaced, since
+// all of its text was removed or added.
+func litWhole(lines []string) [][]Range {
+	out := make([][]Range, len(lines))
+	for i, line := range lines {
+		out[i] = []Range{{0, len([]rune(line))}}
+	}
+	trimWhitespace(lines, out)
+	return out
+}
+
+func emptyRanges(n int) [][]Range {
+	out := make([][]Range, n)
+	for i := range out {
+		out[i] = []Range{}
+	}
+	return out
+}
+
+// mark emphasises tokens on the lines they sit on. A line break sits on none.
+func mark(tokens []token, out [][]Range) {
+	for _, t := range tokens {
+		if t.line != lineBreak {
+			out[t.line] = appendMerged(out[t.line], Range{t.start, t.end})
+		}
+	}
+}
+
+// trimWhitespace takes whitespace off each range's ends and drops a range
+// that was nothing else.
+func trimWhitespace(lines []string, out [][]Range) {
+	for i, ranges := range out {
+		runes := []rune(lines[i])
+		kept := []Range{}
+		for _, r := range ranges {
+			for r.Start < r.End && unicode.IsSpace(runes[r.Start]) {
+				r.Start++
+			}
+			for r.End > r.Start && unicode.IsSpace(runes[r.End-1]) {
+				r.End--
+			}
+			if r.Start < r.End {
+				kept = append(kept, r)
+			}
+		}
+		out[i] = kept
+	}
 }
 
 // appendMerged adds a range, joining it to the last one when they touch.
