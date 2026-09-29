@@ -2643,9 +2643,13 @@ func (m model) brief() string {
 	wrap := func(text string) string { return wrapTo(text, m.viewport.Width) }
 
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Goal) + "\n\n")
-	b.WriteString(labelSt.Render("Approach") + "\n" + wrap(brief.Approach) + "\n\n")
-	// The Round's own questions are about the approach, so they sit with it,
-	// where the Reviewer judges the approach apart from the code (ADR-0017).
+	// Only round 1 must give a Background. A later round that gives none shows
+	// none, rather than an empty heading or an earlier round's stage-setting.
+	if brief.Background != "" {
+		b.WriteString(labelSt.Render("Background") + "\n" + wrap(brief.Background) + "\n\n")
+	}
+	// The Round's own questions are about the work as a whole rather than one
+	// Step's code, so they sit with the Brief (ADR-0017).
 	if len(m.view.RoundQuestions) > 0 {
 		b.WriteString(questionBlock(m.view.RoundQuestions, m.viewport.Width) + "\n\n")
 	}

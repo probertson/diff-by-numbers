@@ -91,8 +91,8 @@ func TestAnOldSideExcerptNamingTheOldPathRendersTheBeforeSide(t *testing.T) {
 	err := session.Post(review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Move the fetch layer under src/ and drop the dead line",
-			Approach: "One move, one deletion",
+			Goal:       "Move the fetch layer under src/ and drop the dead line",
+			Background: "One move, one deletion",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

@@ -16,7 +16,7 @@ func TestARevisionRoundNamesTheReviewItRevises(t *testing.T) {
 	root := featureRepo(t)
 	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	posted := postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"approach": "renamed it"}))
+	posted := postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"background": "renamed it"}))
 
 	if posted.ReviewID != reviewID {
 		t.Errorf("a Revision Round continues the Review it names, got id %q for %q", posted.ReviewID, reviewID)
@@ -68,7 +68,7 @@ func TestRevisesNamingAnUnknownReviewIsRefused(t *testing.T) {
 	root := featureRepo(t)
 	handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	revision := revisionWithBrief(root, "no-such-id", map[string]any{"approach": "renamed it"})
+	revision := revisionWithBrief(root, "no-such-id", map[string]any{"background": "renamed it"})
 	outcome := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", revision))
 
 	if outcome.Accepted || !outcome.has("unknown_review") {

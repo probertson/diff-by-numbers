@@ -23,7 +23,7 @@ func TestEditingAFileMidReviewLeavesThePostedVersionOnScreen(t *testing.T) {
 	walkthrough := review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal: "x", Approach: "y",
+			Goal: "x", Background: "y",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{

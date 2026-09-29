@@ -51,7 +51,7 @@ func pushbackModel(t *testing.T, dispositions []daemon.DispositionWire, comments
 		note:     newNote(80),
 		view: &daemon.ViewWire{
 			Posted: true, Position: 0, StepCount: 1,
-			Brief:        daemon.BriefWire{Goal: "a", Approach: "b"},
+			Brief:        daemon.BriefWire{Goal: "a", Background: "b"},
 			Dispositions: dispositions,
 			Comments:     comments,
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},

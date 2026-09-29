@@ -71,7 +71,7 @@ func TestARevisionRoundRowCountsItsRound(t *testing.T) {
 	root := featureRepo(t)
 	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
-	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"approach": "renamed it"}))
+	postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"background": "renamed it"}))
 
 	row := fullInbox(t, server.URL)[0]
 	if row.Round != 2 {
@@ -110,7 +110,7 @@ func TestAReviewPostedToAgainGoesBelowOnesLeftLonger(t *testing.T) {
 	first := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 	second := postRound(t, server.URL, labelledRound(root, "LABEL-second"))
 
-	postRound(t, server.URL, revisionWithBrief(root, first, map[string]any{"approach": "renamed it"}))
+	postRound(t, server.URL, revisionWithBrief(root, first, map[string]any{"background": "renamed it"}))
 
 	rows := fullInbox(t, server.URL)
 	if len(rows) != 2 || rows[0].ID != second.ReviewID || rows[1].ID != first {

@@ -27,7 +27,7 @@ func comparedRoundModel(t *testing.T, since bool) (model, *[]string) {
 		viewport: viewport.New(100, 40), note: newNote(100),
 		view: &daemon.ViewWire{
 			Posted: true, Position: 0, StepCount: 2,
-			Brief:        daemon.BriefWire{Goal: "a", Approach: "b"},
+			Brief:        daemon.BriefWire{Goal: "a", Background: "b"},
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "feature/a-very-long-base-branch"}},
 			StepNames:    []string{"Retry", "Config"},
 			Seen:         []bool{false, false},

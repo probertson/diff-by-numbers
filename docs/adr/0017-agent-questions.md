@@ -1,5 +1,11 @@
 # Agent Questions: the agent asks, the Reviewer answers
 
+> **Superseded in part by [ADR-0018](0018-the-briefs-background.md).**
+> Everything here stands except where a Round-level question sits and why. It is about the
+> work as a whole, including work left undone for the Reviewer to decide, rather than "the
+> approach". It is still shown with the Brief, but the Overview no longer exists to judge an
+> approach apart from the code, since the Brief's `approach` is now its `background`.
+
 The Authoring Agent can put an **Agent Question** to the Reviewer: a structured question that
 dbn knows about, shows apart from the narration, and makes the Reviewer account for at Hand
 Off. The Reviewer's reply is its **Answer**, in free text. This is the reverse of a Comment

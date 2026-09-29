@@ -125,7 +125,7 @@ func appStep(first, last int) review.Step {
 func appRound(steps []review.Step, dispositions []review.Disposition) review.Round {
 	return review.Round{
 		Label:        "LABEL-the-review",
-		Brief:        review.Brief{Goal: "x", Approach: "y"},
+		Brief:        review.Brief{Goal: "x", Background: "y"},
 		ChangeSet:    review.ChangeSet{Repositories: []review.Repository{{Root: revRepo, Base: "main"}}},
 		Steps:        steps,
 		Dispositions: dispositions,

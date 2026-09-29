@@ -17,7 +17,7 @@ func roundModel(width int, dispositions ...daemon.DispositionWire) model {
 		view: &daemon.ViewWire{
 			Posted: true,
 			Brief: daemon.BriefWire{
-				Goal: "ask", Approach: "approach",
+				Goal: "ask", Background: "background",
 			},
 			Dispositions: dispositions,
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
@@ -218,7 +218,7 @@ func TestTheConclusionScreenSaysWhatWasDeclined(t *testing.T) {
 	}
 }
 
-// The Overview opens on the Goal and the Approach and nothing else from the
+// The Overview opens on the Goal and the Background and nothing else from the
 // Brief: there is no Source section, since dbn no longer asks where the agent's
 // account came from.
 func TestTheOverviewHasNoSourceSection(t *testing.T) {
@@ -226,10 +226,26 @@ func TestTheOverviewHasNoSourceSection(t *testing.T) {
 
 	out := m.brief()
 
-	if !strings.Contains(out, "Goal") || !strings.Contains(out, "Approach") {
-		t.Fatalf("the Overview should still show the Goal and the Approach, got:\n%s", out)
+	if !strings.Contains(out, "Goal") || !strings.Contains(out, "Background") {
+		t.Fatalf("the Overview should still show the Goal and the Background, got:\n%s", out)
 	}
 	if strings.Contains(out, "Source") || strings.Contains(out, "inferred") || strings.Contains(out, "stated") {
 		t.Errorf("the Overview should say nothing about where the account came from, got:\n%s", out)
+	}
+}
+
+// A Revision Round that gives no Background shows none: no heading over an
+// empty section, and nothing from an earlier round in its place.
+func TestTheOverviewLeavesOutABackgroundTheRoundDidNotGive(t *testing.T) {
+	m := roundModel(80, addressed(1))
+	m.view.Brief.Background = ""
+
+	out := m.brief()
+
+	if strings.Contains(out, "Background") {
+		t.Errorf("a round with no Background should show no Background heading, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Goal") {
+		t.Errorf("the Goal should still be shown, got:\n%s", out)
 	}
 }

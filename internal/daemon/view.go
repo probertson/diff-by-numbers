@@ -141,8 +141,8 @@ func toQuestionWires(questions []review.AgentQuestion) []QuestionWire {
 }
 
 type BriefWire struct {
-	Goal     string `json:"goal"`
-	Approach string `json:"approach"`
+	Goal       string `json:"goal"`
+	Background string `json:"background"`
 }
 
 type RepositoryWire struct {
@@ -306,8 +306,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 		Posting:  v.Posting,
 		ReviewID: v.ReviewID,
 		Brief: BriefWire{
-			Goal:     v.Brief.Goal,
-			Approach: v.Brief.Approach,
+			Goal:       v.Brief.Goal,
+			Background: v.Brief.Background,
 		},
 		StepNames: v.StepNames,
 		StepCount: v.StepCount,

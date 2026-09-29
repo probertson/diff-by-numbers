@@ -49,7 +49,7 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal": "rework the guard", "approach": "renamed it",
+			"goal": "rework the guard", "background": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -110,7 +110,7 @@ func TestAnAnchorEndpointNamingNoRowIsRefused(t *testing.T) {
 	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal": "rework the guard", "approach": "renamed it",
+			"goal": "rework the guard", "background": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
@@ -173,7 +173,7 @@ func TestACommentCanBeRaisedInAcknowledgedCode(t *testing.T) {
 	posted := postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal": "rework the guard", "approach": "renamed it",
+			"goal": "rework the guard", "background": "renamed it",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{

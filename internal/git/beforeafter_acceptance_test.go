@@ -22,8 +22,8 @@ func TestPointingAtTheAfterSideShowsTheBeforeEndToEnd(t *testing.T) {
 	walkthrough := review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Rework line two",
-			Approach: "Point at the after-side; the before rides along",
+			Goal:       "Rework line two",
+			Background: "Point at the after-side; the before rides along",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

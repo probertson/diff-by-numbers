@@ -46,20 +46,47 @@ tried — mean nothing to them until you explain them. Do not assume they rememb
 decisions made while planning: when one matters to a Step, say what was decided
 and why.
 
-**The Brief is the birds-eye view.** It sets context before any code:
+**The Brief sets the stage.** It is what the reviewer reads before any code:
 - `goal` — what the work set out to achieve, as the reviewer asked for it, in
   their words. Give it in round 1. The Goal belongs to the Review, so dbn
   carries it forward: leave it out of a Revision Round or a replacement, and
   give it again only if what the reviewer wants has changed.
-- `approach` — the overall architecture and direction of the change, and the
-  order the Steps will take the reviewer through it, so they can judge the
-  approach apart from the code. It does not explain every change; that is what
-  the Steps are for. When the work came from a spec — an issue, an ADR, a plan
-  — name it, so the reviewer can go back to it.
+- `background` — what the reviewer needs to know before seeing any code, so
+  that everything after it makes sense. Start from what they already know and
+  build from there: covering ground they know is better than assuming ground
+  they don't. It is usually more than one line. Give it in round 1, and again
+  if you replace round 1. In a Revision Round, or a replacement of one, give it
+  only when there is new stage-setting worth reading — an Answer sent the work
+  in a new direction, say — and otherwise leave it out. dbn does not carry an
+  earlier round's forward, so a round without one shows none.
+
+A background can open in many ways, and none of these is a template:
+- **One shape — a problem as someone meets it:** "Saving a draft twice creates
+  two drafts. The second save doesn't know the first already made a record…"
+- **Another — how a system works today:** "Every request to the pricing service
+  checks a cached rate table, refreshed hourly…"
+- **Another — a constraint found partway through:** "The export has to finish
+  inside the nightly job's thirty-minute window…"
+
+`background` leaves out:
+- **The change, change by change.** That is what the Steps are for.
+- **Design that code can show.** An architecture, a design pattern, a data flow
+  or a data model goes in a Step showing the least code that demonstrates it —
+  function signatures, say, or only the calls between them. It goes in
+  `background` only when no code shows it.
+- **The Steps and their order.** The Overview lists the Steps; `background` is
+  context, not commentary on the Round.
+- **Verification.** Test counts, lint results and the like belong in your report
+  to the user, not the Review. Mention a result only where it helps explain the
+  change — "these tests fail against the old code", in the Step that shows the
+  tests.
+- **Work you left undone.** If it needs the reviewer's decision, ask it as an
+  Agent Question on the Round (see *Asking the reviewer a question*). If it
+  doesn't, leave it out of the Review: it only tells the reviewer what not to
+  look for.
 
 Only the agent that wrote the changes posts their Review; the point is to hear
-the story from the one who knows it. If you are working from a summary of that
-work — after compaction, say — say so in `approach`.
+the story from the one who knows it.
 
 **Order the Steps to communicate.** There is no fixed direction, top-down or
 bottom-up. Choose the sequence that best conveys what the change is about, as
@@ -124,21 +151,25 @@ give a change context, not to bridge from one change to the next.
 
 ### Asking the reviewer a question
 
-When you need the reviewer to decide something before you go on — a trade-off you
-could take either way, a behaviour the goal leaves open — ask it as an **Agent
-Question**, not in an explanation. A question written into the narration reads
-like the rest of it, and a reviewer reading for the design can miss it. dbn shows
+When you need the reviewer to decide something — a trade-off you could take
+either way, a behaviour the goal leaves open, work you left for them to decide —
+ask it as an **Agent Question**, not in an explanation or the Brief. A question
+written into the narration reads like the rest of it, and a reviewer reading for the design can miss it. dbn shows
 an Agent Question apart, in its own block. It also marks it on the Overview,
 counts it until it is answered, and checks with the reviewer before they hand off
 without answering.
 
 - **Ask only for a decision or a judgment.** Never "does this look OK?" — the
-  whole review asks that. Never for something you should simply state in the
-  Brief.
+  whole review asks that. Never for something you should simply state.
+- **Work you left undone for the reviewer to decide is always a question**,
+  including something the goal asked for that you chose not to do. Say what you
+  left and why, with any finding behind it — the spec's reasoning turned out to
+  be wrong, say — and ask whether they want it done. Undone work that needs no
+  decision stays out of the Review entirely.
 - **Attach it where it belongs.** A question about a Step's code goes in that
   Step's `questions`; it is shown after the Step's explanation and before its
-  code, and only there. A question about the approach goes in the Round's own
-  `questions`, shown with the Brief.
+  code, and only there. A question about the work as a whole — work you left
+  undone included — goes in the Round's own `questions`, shown with the Brief.
 - **Write it so it can be answered from its Step and the Steps before it.** The
   reviewer reads a Step's question after the Steps leading up to it, never on the
   Overview, so it can lean on them — but not on anything later, or on
@@ -390,8 +421,8 @@ reviewer knows there is nothing new in it.
 
 A Comment whose anchor says the code was `acknowledged in Step "…"`
 disputes that Acknowledgement as well as the line: the reviewer read code you
-called mechanical and found something to say. When you resolve it, say in the
-Revision Round's Brief whether the "mechanical" claim still holds. Do not
+called mechanical and found something to say. When you resolve it, say in that
+Comment's `response` whether the "mechanical" claim still holds. Do not
 acknowledge the same kind of change again in a later Round without saying
 why it is mechanical this time.
 

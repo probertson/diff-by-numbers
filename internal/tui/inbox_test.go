@@ -470,7 +470,7 @@ func postedReview(t *testing.T, baseURL string) string {
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "post_round", Arguments: map[string]any{
 		"label":        "auth refactor",
-		"brief":        map[string]any{"goal": "g", "approach": "a"},
+		"brief":        map[string]any{"goal": "g", "background": "a"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "the change", "explanation": "why",

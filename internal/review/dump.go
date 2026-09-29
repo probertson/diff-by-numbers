@@ -17,10 +17,10 @@ func (s *Session) Dump() string {
 	w := s.current
 	var out strings.Builder
 
-	fmt.Fprintf(&out, "Goal:     %s\n", w.Brief.Goal)
-	fmt.Fprintf(&out, "Approach: %s\n", w.Brief.Approach)
+	fmt.Fprintf(&out, "Goal:       %s\n", w.Brief.Goal)
+	fmt.Fprintf(&out, "Background: %s\n", w.Brief.Background)
 	for _, question := range w.Questions {
-		fmt.Fprintf(&out, "Asks:     %s\n", question.Text)
+		fmt.Fprintf(&out, "Asks:       %s\n", question.Text)
 	}
 	out.WriteString("\nChange Set:\n")
 	for _, repository := range w.ChangeSet.Repositories {

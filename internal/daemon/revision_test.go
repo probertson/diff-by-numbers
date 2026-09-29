@@ -89,7 +89,7 @@ func TestARevisionRoundFlowsThroughTheDaemon(t *testing.T) {
 		},
 	}
 	brief := map[string]any{
-		"goal": "x", "approach": "y",
+		"goal": "x", "background": "y",
 	}
 
 	// Round 1: post, flag the code Step, finish.
@@ -161,7 +161,7 @@ func TestARaisedResolutionCannotBeReRaisedTwice(t *testing.T) {
 		"name": "Mechanical", "explanation": "the lockfile",
 		"acknowledgements": []any{map[string]any{"repository": root, "files": []any{"LOCKFILE"}, "reason": "generated"}},
 	}}
-	brief := map[string]any{"goal": "x", "approach": "y"}
+	brief := map[string]any{"goal": "x", "background": "y"}
 	body := map[string]any{"label": "LABEL-the-review", "brief": brief,
 		"repositories": []any{map[string]any{"root": root, "base": "main"}}, "steps": steps}
 

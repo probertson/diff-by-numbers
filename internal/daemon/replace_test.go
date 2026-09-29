@@ -21,7 +21,7 @@ func TestAReviewIsReplacedInPlaceThroughTheDaemon(t *testing.T) {
 	walkthrough := func() map[string]any {
 		return map[string]any{
 			"label":        "LABEL-the-review",
-			"brief":        map[string]any{"goal": "x", "approach": "y"},
+			"brief":        map[string]any{"goal": "x", "background": "y"},
 			"repositories": []any{map[string]any{"root": root, "base": "main"}},
 			"steps": []any{
 				map[string]any{

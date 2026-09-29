@@ -6,8 +6,8 @@ import "time"
 
 // Brief is the opening screen of a Round, shown before any code.
 type Brief struct {
-	Goal     string
-	Approach string
+	Goal       string
+	Background string
 }
 
 // OpenReview is a review the daemon is still holding: enough for the Authoring
@@ -128,8 +128,8 @@ type Round struct {
 	// Dispositions accounts for the previous round's Comments when this
 	// Round is a Revision Round. It is empty for a first Round.
 	Dispositions []Disposition
-	// Questions are the Agent Questions about the approach rather than any
-	// Step's code, shown with the Brief (ADR-0017).
+	// Questions are the Agent Questions about the work as a whole rather than
+	// any Step's code, shown with the Brief (ADR-0017).
 	Questions []Question
 	// QuestionStatuses accounts for the previous round's Agent Questions when
 	// this Round is a Revision Round, as Dispositions does for its Comments.

@@ -43,8 +43,8 @@ func TestABranchOfMechanicalChangesCanCompleteARound(t *testing.T) {
 	walkthrough := review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Bump the dependency and refresh the asset",
-			Approach: "One real code line; everything else is mechanical",
+			Goal:       "Bump the dependency and refresh the asset",
+			Background: "One real code line; everything else is mechanical",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{

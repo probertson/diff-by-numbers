@@ -12,8 +12,8 @@ func validRound() review.Round {
 	return review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Add retry with backoff to the fetch layer",
-			Approach: "Wrap the transport in a retrier, then thread the policy through callers",
+			Goal:       "Add retry with backoff to the fetch layer",
+			Background: "Fetches fail outright on the first network error, so a brief blip loses the whole request",
 		},
 		ChangeSet: review.ChangeSet{
 			Repositories: []review.Repository{
@@ -131,8 +131,8 @@ func TestAMalformedBriefIsRejectedNamingTheProblem(t *testing.T) {
 		"no goal": func(w *review.Round) {
 			w.Brief.Goal = ""
 		},
-		"no approach": func(w *review.Round) {
-			w.Brief.Approach = ""
+		"no background": func(w *review.Round) {
+			w.Brief.Background = ""
 		},
 	}
 
@@ -202,7 +202,7 @@ func TestDumpRendersThePostedRoundAsText(t *testing.T) {
 
 	for _, want := range []string{
 		"Add retry with backoff to the fetch layer",
-		"Wrap the transport in a retrier",
+		"Fetches fail outright on the first network error",
 		"Add the retrier",
 		"A transport wrapper that retries idempotent requests",
 		"src/fetch.ts",

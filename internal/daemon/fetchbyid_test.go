@@ -102,7 +102,7 @@ func TestTheLoopRunsOnExplicitIDs(t *testing.T) {
 	reviewID := handedOffWithAComment(t, server.URL, root, "GOAL-first")
 
 	results := fetchByReviewID(t, server.URL, map[string]any{"review_id": reviewID})
-	revised := postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"approach": "renamed it"}))
+	revised := postRound(t, server.URL, revisionWithBrief(root, reviewID, map[string]any{"background": "renamed it"}))
 
 	if !results.Posted || !strings.Contains(results.Message, "handed off") {
 		t.Errorf("expected the handed-off Review's results, got %+v", results)

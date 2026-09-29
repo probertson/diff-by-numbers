@@ -81,8 +81,8 @@ func TestANewFileListedAsSectionsIsAcceptedWithoutNamingItsBlankLines(t *testing
 	err := session.Post(review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Add the config file",
-			Approach: "Two sections, listed one per Excerpt",
+			Goal:       "Add the config file",
+			Background: "Two sections, listed one per Excerpt",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

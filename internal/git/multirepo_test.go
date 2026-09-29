@@ -40,8 +40,8 @@ func TestARoundSpansTwoRepositoriesWithDifferentDefaults(t *testing.T) {
 	walkthrough := review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Change both repositories at once",
-			Approach: "A Step per repository",
+			Goal:       "Change both repositories at once",
+			Background: "A Step per repository",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
 			{Root: portal, Base: "main"},
@@ -87,7 +87,7 @@ func TestCoverageDistinguishesSameNamedFilesAcrossRepositories(t *testing.T) {
 	walkthrough := review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal: "x", Approach: "y",
+			Goal: "x", Background: "y",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{
 			{Root: portal, Base: "main"},

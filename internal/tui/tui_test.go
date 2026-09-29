@@ -59,8 +59,8 @@ func TestBriefWrapsALongGoal(t *testing.T) {
 		view: &daemon.ViewWire{
 			Posted: true,
 			Brief: daemon.BriefWire{
-				Goal:     "the session on 2026-09-01 where the reviewer asked for the retry backoff to be threaded through every caller of the fetch layer",
-				Approach: "short approach",
+				Goal:       "the session on 2026-09-01 where the reviewer asked for the retry backoff to be threaded through every caller of the fetch layer",
+				Background: "short background",
 			},
 			Repositories: []daemon.RepositoryWire{{Root: "repo", Base: "main"}},
 			StepNames:    []string{"one"},
@@ -846,7 +846,7 @@ func TestOverviewShowsAnsweredCommentsWithTheirResponse(t *testing.T) {
 		viewport: viewport.New(80, 40),
 		view: &daemon.ViewWire{
 			Posted: true,
-			Brief:  daemon.BriefWire{Goal: "ask", Approach: "approach"},
+			Brief:  daemon.BriefWire{Goal: "ask", Background: "background"},
 			Dispositions: []daemon.DispositionWire{
 				{CommentID: 1, Status: "addressed", Note: "cap the retry", Response: "capped at 3"},
 				{CommentID: 2, Status: "answered", Note: "why this timeout?", Response: "the upstream SLA is 5s"},

@@ -15,8 +15,8 @@ import (
 // drift from, where a prose instruction is only a hope.
 
 type wireBrief struct {
-	Goal     string `json:"goal,omitempty" jsonschema:"What the work set out to achieve, as the Reviewer asked for it, in their terms. Required in round 1. A Revision Round or a Replacement leaves it out to keep the Review's Goal, and gives it only when what the Reviewer wants has changed"`
-	Approach string `json:"approach" jsonschema:"The approach you took, so the Reviewer can judge it separately from the code implementing it"`
+	Goal       string `json:"goal,omitempty" jsonschema:"What the work set out to achieve, as the Reviewer asked for it, in their terms. Required in round 1. A Revision Round or a Replacement leaves it out to keep the Review's Goal, and gives it only when what the Reviewer wants has changed"`
+	Background string `json:"background,omitempty" jsonschema:"What the Reviewer needs to know before seeing any code, starting from what they already know — not a list of the changes (design that code can show goes in a Step that shows it), a report of tests or lint, or work you left undone (ask about that as an Agent Question on the Round). Required in round 1 and a Replacement of it; a later round gives it only when there is new stage-setting worth reading, and nothing carries forward. The dbn-review skill says more"`
 }
 
 type wireExcerpt struct {
@@ -72,7 +72,7 @@ type wireRound struct {
 	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
 	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments or Agent Questions, alongside the dispositions and question statuses accounting for them. Leave it out and this post starts a new Review"`
 	Replaces     string            `json:"replaces,omitempty" jsonschema:"The id of the Review, to replace the Round under review in place rather than wait for a hand-off. Use it only when the Reviewer asked for a change during the Round, or you see your Round is wrong before they have got far. The review keeps its id, and the Reviewer's Comments and answered Agent Questions carry over; unanswered questions are dropped, so ask again any that still matter. When replacing a Revision Round, supply its dispositions again"`
-	Questions    []wireQuestion    `json:"questions,omitempty" jsonschema:"Agent Questions about the approach rather than any one Step's code, shown with the Brief where the Reviewer judges the approach. A question about a Step's code belongs on that Step instead"`
+	Questions    []wireQuestion    `json:"questions,omitempty" jsonschema:"Agent Questions about the work as a whole rather than any one Step's code, shown with the Brief. Work you left undone for the Reviewer to decide is asked here, never mentioned in the Brief. A question about a Step's code belongs on that Step instead"`
 	// QuestionStatuses sits apart from Dispositions: a question is the agent's
 	// own, so its statuses are not a Comment's.
 	QuestionStatuses []wireQuestionStatus `json:"question_statuses,omitempty" jsonschema:"When this is a Revision Round, or a replacement of one, one entry per Agent Question the previous round asked, answered or not, saying what you did with it. Omit when the previous round asked nothing"`
@@ -198,7 +198,7 @@ type commentWire struct {
 // and what the Reviewer answered, or that they did not.
 type questionWire struct {
 	ID       int    `json:"id"`
-	Step     int    `json:"step" jsonschema:"The Step number the question was asked on, or 0 for one asked on the Round, about the approach"`
+	Step     int    `json:"step" jsonschema:"The Step number the question was asked on, or 0 for one asked on the Round, about the work as a whole"`
 	Question string `json:"question"`
 	Answer   string `json:"answer,omitempty" jsonschema:"What the Reviewer answered, in free text"`
 	// Unanswered is set rather than left to an empty answer, so the agent never
@@ -234,14 +234,14 @@ type fetchResult struct {
 	Posted   bool `json:"posted" jsonschema:"Whether the review you named has a Round posted. False also when the call was refused — read problems"`
 	Finished bool `json:"finished" jsonschema:"Whether the Reviewer has handed the Round off to you"`
 	// Dismissed is reported once, and the review is then released.
-	Dismissed bool             `json:"dismissed,omitempty" jsonschema:"Set when the Reviewer discarded this review rather than handing it off. It is over: post new work as a new review, not a Revision Round of this one. Anything they raised before dismissing it is in comments"`
-	Message   string           `json:"message"`
-	Goal      string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
-	Approach  string           `json:"approach"`
-	Comments  []commentWire    `json:"comments"`
-	Questions []questionWire   `json:"questions,omitempty" jsonschema:"Every Agent Question you asked this round, with the Reviewer's Answer or marked unanswered"`
-	Steps     []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
-	Problems  []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
+	Dismissed  bool             `json:"dismissed,omitempty" jsonschema:"Set when the Reviewer discarded this review rather than handing it off. It is over: post new work as a new review, not a Revision Round of this one. Anything they raised before dismissing it is in comments"`
+	Message    string           `json:"message"`
+	Goal       string           `json:"goal" jsonschema:"The Review's Goal, as round 1 gave it or a later round restated it, so you can re-ground yourself if your context has moved on"`
+	Background string           `json:"background,omitempty" jsonschema:"This round's Background, as you gave it; empty when this round gave none"`
+	Comments   []commentWire    `json:"comments"`
+	Questions  []questionWire   `json:"questions,omitempty" jsonschema:"Every Agent Question you asked this round, with the Reviewer's Answer or marked unanswered"`
+	Steps      []stepReportWire `json:"steps" jsonschema:"Every Step and its final disposition: unseen, seen, or flagged"`
+	Problems   []problemWire    `json:"problems,omitempty" jsonschema:"Why the fetch was refused, when it was"`
 	// OpenReviews is filled only when a fetch named no review: it is how an agent
 	// that lost its id finds it again.
 	OpenReviews []openReviewWire `json:"open_reviews,omitempty" jsonschema:"The reviews dbn is holding, when you called without a review_id. Find yours and call again with its id"`
@@ -298,8 +298,8 @@ func (w wireRound) toDomain() review.Round {
 
 	return review.Round{
 		Brief: review.Brief{
-			Goal:     w.Brief.Goal,
-			Approach: w.Brief.Approach,
+			Goal:       w.Brief.Goal,
+			Background: w.Brief.Background,
 		},
 		ChangeSet:    toChangeSet(w.Repositories),
 		Steps:        steps,
@@ -321,12 +321,12 @@ func toQuestions(wires []wireQuestion) []review.Question {
 
 func toFetchResult(r review.Results, message string) fetchResult {
 	out := fetchResult{
-		Posted:    r.Posted,
-		Finished:  r.Finished,
-		Dismissed: r.Dismissed,
-		Message:   message,
-		Goal:      r.Brief.Goal,
-		Approach:  r.Brief.Approach,
+		Posted:     r.Posted,
+		Finished:   r.Finished,
+		Dismissed:  r.Dismissed,
+		Message:    message,
+		Goal:       r.Brief.Goal,
+		Background: r.Brief.Background,
 	}
 	for _, comment := range r.Comments {
 		out.Comments = append(out.Comments, commentWire{

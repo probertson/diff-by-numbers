@@ -25,7 +25,7 @@ type QuestionExchange struct {
 type AgentQuestion struct {
 	ID int
 	// Step is the Step the question was asked on, or 0 for one asked on the
-	// Round, about the approach.
+	// Round, about the work as a whole.
 	Step int
 	Text string
 	// Answer is what the Reviewer said, in free text; empty while unanswered.
@@ -47,7 +47,7 @@ type AgentQuestion struct {
 func (q AgentQuestion) Answered() bool { return q.Answer != "" }
 
 // OnRound reports whether the question was asked on the Round, about the
-// approach, rather than about one Step's code. A carried-over question has
+// work as a whole, rather than about one Step's code. A carried-over question has
 // left its Step, but it was not asked on the Round.
 func (q AgentQuestion) OnRound() bool { return q.Step == 0 && !q.CarriedOver }
 

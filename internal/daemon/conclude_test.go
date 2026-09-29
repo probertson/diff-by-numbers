@@ -14,8 +14,8 @@ func minimalRound(root string) map[string]any {
 	return map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal":     "goal",
-			"approach": "approach",
+			"goal":       "goal",
+			"background": "background",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{

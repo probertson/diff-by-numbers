@@ -282,14 +282,14 @@ func TestTheOverviewShowsRoundLevelQuestionsWithTheBrief(t *testing.T) {
 
 	out := m.brief()
 
-	approach := strings.Index(out, "Approach")
+	background := strings.Index(out, "Background")
 	asked := strings.Index(out, "is threading the id the right approach?")
 	steps := strings.Index(out, "Steps")
 	if asked < 0 || !strings.Contains(out, "Agent Question") {
 		t.Fatalf("expected the Round-level question in its block, got:\n%s", out)
 	}
-	if !(approach < asked && asked < steps) {
-		t.Errorf("expected the question with the Brief, after the approach and before the Steps, got:\n%s", out)
+	if !(background < asked && asked < steps) {
+		t.Errorf("expected the question with the Brief, after the background and before the Steps, got:\n%s", out)
 	}
 }
 

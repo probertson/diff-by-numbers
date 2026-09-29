@@ -291,7 +291,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	if w.Brief.Goal == "" && (earlier != nil || replacing) {
 		w.Brief.Goal = s.current.Brief.Goal
 	}
-	if rejection := validate(w); rejection != nil {
+	if rejection := validate(w, earlier == nil); rejection != nil {
 		return rejection
 	}
 

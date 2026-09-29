@@ -170,7 +170,7 @@ type ViewModel struct {
 	// so a surface can say why the review changed under the Reviewer.
 	Replaced bool
 	// RoundQuestions are the Agent Questions asked on the Round, about the
-	// approach, which the Overview shows with the Brief.
+	// work as a whole, which the Overview shows with the Brief.
 	RoundQuestions []AgentQuestion
 	// AccountedQuestions are the previous round's Agent Questions in a Revision
 	// Round, each with its Answer and what the agent did about it.

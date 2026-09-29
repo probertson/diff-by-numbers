@@ -9,12 +9,13 @@ import (
 // validate checks that a Round is structurally well-formed. It deliberately
 // says nothing about whether Excerpt ranges resolve against real files or whether
 // coverage is complete: those need the Change Set derived from git, which arrives
-// with plan validation.
-func validate(w Round) *Rejection {
+// with plan validation. firstRound says the Round is a Review's round 1, or a
+// Replacement of it, which is where the stage is set.
+func validate(w Round, firstRound bool) *Rejection {
 	if rejection := validateChangeSet(w.ChangeSet); rejection != nil {
 		return rejection
 	}
-	if rejection := validateBrief(w.Brief); rejection != nil {
+	if rejection := validateBrief(w.Brief, firstRound); rejection != nil {
 		return rejection
 	}
 	if rejection := validateQuestions(w.Questions, "the Round"); rejection != nil {
@@ -179,14 +180,17 @@ func validateChangeSet(c ChangeSet) *Rejection {
 	return nil
 }
 
-func validateBrief(b Brief) *Rejection {
+// validateBrief requires the Background only in round 1. A later round gives one
+// only when there is new stage-setting worth reading, and nothing is carried
+// forward in its place.
+func validateBrief(b Brief, firstRound bool) *Rejection {
 	if b.Goal == "" {
 		return reject(RejectedMalformedBrief,
 			"the Brief does not give the Goal, which is the context the Reviewer cannot reconstruct from the diff; round 1 must state it")
 	}
-	if b.Approach == "" {
+	if firstRound && b.Background == "" {
 		return reject(RejectedMalformedBrief,
-			"the Brief does not state the approach taken, so the Reviewer cannot judge the approach separately from the code")
+			"the Brief does not give the Background, what the Reviewer needs to know before seeing any code; round 1 must give it")
 	}
 	return nil
 }

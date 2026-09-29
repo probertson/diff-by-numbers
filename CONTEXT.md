@@ -57,18 +57,29 @@ round rather than starting another.
 _Avoid_: walkthrough, pass, iteration
 
 **Brief**:
-What the Authoring Agent writes to open a Round: the approach it took, so the
-Reviewer can judge the approach apart from the code implementing it, and in round 1
-the Goal. Required on every Round, however small the change. It is authored, not composed: dbn shows it on the
-Overview and hands it back to the agent to re-ground it, but adds nothing to it.
+What the Authoring Agent writes to open a Round: in round 1 the Goal, and the
+Background — what the Reviewer needs to know before seeing any code. Round 1 must
+give both. A Revision Round gives a Background only when there is new
+stage-setting worth reading; nothing carries it forward, so a round without one
+shows none. It is authored, not composed: dbn shows it on the Overview and hands
+it back to the agent to re-ground it, but adds nothing to it.
 _Avoid_: summary, table of contents
 
 **Goal**:
 What the work set out to achieve, as the Reviewer asked for it, and what every
-Round's approach and code are judged against. It belongs to the Review, not a
+Round's code is judged against. It belongs to the Review, not a
 Round: given in round 1's Brief and carried forward to every Overview after it. A
 Revision Round restates it only when what the Reviewer wants has changed.
 _Avoid_: ask, request, task, objective
+
+**Background**:
+What the Reviewer needs to know before seeing any code: the stage-setting that
+makes the whole Review's argument make sense, starting from what the Reviewer
+already knows. It is not an account of the changes (the Steps give that), a report
+of tests or lint, or work left undone (a decision left to the Reviewer is an Agent
+Question). Design that code can show goes in a Step that shows it. It belongs to
+its Round: round 1 gives it, and a later round only when there is new stage-setting.
+_Avoid_: approach, summary
 
 **Overview**:
 The Reviewer's opening screen of a Round, shown before any code. dbn composes it
@@ -192,7 +203,8 @@ _Avoid_: change request, note, feedback, todo
 **Agent Question**:
 A question the Authoring Agent puts to the Reviewer, which dbn knows about and shows
 apart from the narration: the reverse of a Comment (ADR-0017). It attaches to the Round,
-shown with the Brief, when it is about the approach, or to a Step, shown after that
+shown with the Brief, when it is about the work as a whole, including work left undone
+for the Reviewer to decide, or to a Step, shown after that
 Step's Explanation and before its code, when it is about its code. A Step's question is never shown on the Overview,
 since it needs the Steps before it for its context; the Overview only marks which Steps
 carry one. A Round that carried any is never concluded by its Hand Off: the agent reads

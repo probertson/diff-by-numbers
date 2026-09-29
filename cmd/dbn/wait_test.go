@@ -59,7 +59,7 @@ func reviewRepo(t *testing.T) string {
 // replaces set, it continues or replaces the review of that id.
 func roundOver(root string, extra map[string]any) map[string]any {
 	round := map[string]any{
-		"brief":        map[string]any{"goal": "scope every query by tenant", "approach": "thread the id through"},
+		"brief":        map[string]any{"goal": "scope every query by tenant", "background": "thread the id through"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name":        "the change",

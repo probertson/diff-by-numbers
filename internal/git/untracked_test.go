@@ -287,8 +287,8 @@ func walkthroughCovering(root, file string, first, last int) review.Round {
 	return review.Round{
 		Label: "LABEL-the-review",
 		Brief: review.Brief{
-			Goal:     "Add a line and some notes",
-			Approach: "One code change, one new file",
+			Goal:       "Add a line and some notes",
+			Background: "One code change, one new file",
 		},
 		ChangeSet: review.ChangeSet{Repositories: []review.Repository{{Root: root, Base: "main"}}},
 		Steps: []review.Step{{

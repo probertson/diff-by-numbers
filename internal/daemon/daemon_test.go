@@ -59,8 +59,8 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 	posted := map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal":     "GOAL-tenant-scoping",
-			"approach": "APPROACH-thread-the-id-through",
+			"goal":       "GOAL-tenant-scoping",
+			"background": "BACKGROUND-the-id-is-dropped-today",
 		},
 		"repositories": []any{
 			map[string]any{"root": root, "base": "main"},
@@ -99,7 +99,7 @@ func TestEveryPostedFieldSurvivesTheRoundTrip(t *testing.T) {
 	dump := get(t, server.URL+"/dump")
 	for _, want := range []string{
 		"GOAL-tenant-scoping",
-		"APPROACH-thread-the-id-through",
+		"BACKGROUND-the-id-is-dropped-today",
 		root,
 		"main",
 		"NAME-add-the-retrier",
@@ -216,8 +216,8 @@ func roundWithRepository(root string, repository map[string]any) map[string]any 
 	return map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal":     "GOAL-tenant-scoping",
-			"approach": "APPROACH-thread-the-id-through",
+			"goal":       "GOAL-tenant-scoping",
+			"background": "BACKGROUND-the-id-is-dropped-today",
 		},
 		"repositories": []any{repository},
 		"steps": []any{
@@ -252,8 +252,8 @@ func TestASingleRepositoryPostMayOmitTheRepository(t *testing.T) {
 	postRound(t, server.URL, map[string]any{
 		"label": "LABEL-the-review",
 		"brief": map[string]any{
-			"goal":     "GOAL-tenant-scoping",
-			"approach": "APPROACH-thread-the-id-through",
+			"goal":       "GOAL-tenant-scoping",
+			"background": "BACKGROUND-the-id-is-dropped-today",
 		},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
