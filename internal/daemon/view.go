@@ -229,13 +229,14 @@ type SegmentWire struct {
 }
 
 type CommentWire struct {
-	ID       int           `json:"id"`
-	Step     int           `json:"step"`
-	File     string        `json:"file"`
-	Segments []SegmentWire `json:"segments"`
-	Location string        `json:"location"`
-	Anchor   string        `json:"anchor"`
-	Note     string        `json:"note"`
+	ID         int           `json:"id"`
+	Step       int           `json:"step"`
+	Repository string        `json:"repository"`
+	File       string        `json:"file"`
+	Segments   []SegmentWire `json:"segments"`
+	Location   string        `json:"location"`
+	Anchor     string        `json:"anchor"`
+	Note       string        `json:"note"`
 	// Acknowledgement is the index, within its Step, of the Acknowledgement the
 	// Comment was raised in, absent for the Step's own code.
 	Acknowledgement *int `json:"acknowledgement,omitempty"`
@@ -277,8 +278,8 @@ func (comment CommentWire) Stepless() string {
 // Covers reports whether the Comment is anchored over a row of the
 // rendering. It tests every segment, so a Comment spanning a removal and
 // its replacement is found from either side.
-func (comment CommentWire) Covers(file, side string, line int) bool {
-	if comment.File != file {
+func (comment CommentWire) Covers(repository, file, side string, line int) bool {
+	if comment.Repository != repository || comment.File != file {
 		return false
 	}
 	for _, segment := range comment.Segments {
@@ -332,11 +333,12 @@ func toViewWire(v review.ViewModel) ViewWire {
 	for _, comment := range v.Comments {
 		wire.Comments = append(wire.Comments, CommentWire{
 			ID: comment.ID, Step: comment.Step,
-			File:     comment.Anchor.File,
-			Segments: toSegmentWires(comment.Anchor.Segments),
-			Location: comment.Anchor.Location(),
-			Anchor:   comment.Anchor.Render(),
-			Note:     comment.Note,
+			Repository: comment.Anchor.Repository,
+			File:       comment.Anchor.File,
+			Segments:   toSegmentWires(comment.Anchor.Segments),
+			Location:   comment.Anchor.Location(),
+			Anchor:     comment.Anchor.Render(),
+			Note:       comment.Note,
 
 			Acknowledgement: comment.Anchor.Acknowledgement,
 			ReRaisedFrom:    comment.ReRaisedFrom,

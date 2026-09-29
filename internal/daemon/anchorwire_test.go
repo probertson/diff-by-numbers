@@ -92,8 +92,13 @@ func TestACommentSpansTheSidesItsEndpointsReach(t *testing.T) {
 	if comment.Location != "fetch.ts — before 2 — after 2" {
 		t.Errorf("unexpected location %q", comment.Location)
 	}
+	// The TUI matches a Comment to the rows it covers by the Excerpt's
+	// repository, so the two must name it the same way.
+	if comment.Repository != view.Step.Excerpts[0].Repository {
+		t.Errorf("expected the Comment's repository %q to match its Excerpt's %q", comment.Repository, view.Step.Excerpts[0].Repository)
+	}
 	// Both rows are marked, so the Reviewer sees the comment from either side.
-	if !comment.Covers("fetch.ts", "old", 2) || !comment.Covers("fetch.ts", "new", 2) {
+	if !comment.Covers(comment.Repository, "fetch.ts", "old", 2) || !comment.Covers(comment.Repository, "fetch.ts", "new", 2) {
 		t.Error("expected the Comment to cover its rows on both sides")
 	}
 }

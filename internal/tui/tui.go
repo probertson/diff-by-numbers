@@ -324,10 +324,11 @@ type leftStep struct {
 }
 
 type commentFilter struct {
-	active bool
-	file   string
-	side   string
-	line   int
+	active     bool
+	repository string
+	file       string
+	side       string
+	line       int
 }
 
 type mode int
@@ -1084,7 +1085,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				default:
 					line := m.cursor.lines[m.cursor.cursor]
 					m.openList(modeReview)
-					m.commentFilter = commentFilter{active: true, file: m.cursor.excerptOf(m.view.Step, line).File, side: line.side, line: line.number}
+					excerpt := m.cursor.excerptOf(m.view.Step, line)
+					m.commentFilter = commentFilter{active: true, repository: excerpt.Repository, file: excerpt.File, side: line.side, line: line.number}
 				}
 				return m, nil
 			case "c":
@@ -2130,9 +2132,9 @@ func (m model) commentAtCursor() (daemon.CommentWire, bool) {
 		return daemon.CommentWire{}, false
 	}
 	line := m.cursor.lines[m.cursor.cursor]
-	file := m.cursor.excerptOf(m.view.Step, line).File
+	excerpt := m.cursor.excerptOf(m.view.Step, line)
 	for _, comment := range m.view.Comments {
-		if comment.Step == m.view.Position && comment.Covers(file, line.side, line.number) {
+		if comment.Step == m.view.Position && comment.Covers(excerpt.Repository, excerpt.File, line.side, line.number) {
 			return comment, true
 		}
 	}
@@ -2149,7 +2151,7 @@ func (m model) filteredComments() []daemon.CommentWire {
 	}
 	var out []daemon.CommentWire
 	for _, comment := range all {
-		if comment.Covers(m.commentFilter.file, m.commentFilter.side, m.commentFilter.line) {
+		if comment.Covers(m.commentFilter.repository, m.commentFilter.file, m.commentFilter.side, m.commentFilter.line) {
 			out = append(out, comment)
 		}
 	}
@@ -2174,17 +2176,17 @@ func (m model) commentsAtCursor() []daemon.CommentWire {
 		return nil
 	}
 	line := m.cursor.lines[m.cursor.cursor]
-	file := m.cursor.excerptOf(m.view.Step, line).File
+	excerpt := m.cursor.excerptOf(m.view.Step, line)
 	var out []daemon.CommentWire
 	for _, comment := range m.view.Comments {
-		if comment.Step == m.view.Position && comment.Covers(file, line.side, line.number) {
+		if comment.Step == m.view.Position && comment.Covers(excerpt.Repository, excerpt.File, line.side, line.number) {
 			out = append(out, comment)
 		}
 	}
 	return out
 }
 
-// commentedLines is the set of "file:side:line" in the current Step that carry a
+// commentedLines is the set of "repository:file:side:line" in the current Step that carry a
 // Comment, so the diff can mark them — keyed by side so a comment on a
 // before-side row does not mark the after-side row that shares its number. A
 // Comment spanning a removal and its replacement marks rows on both sides,
@@ -2200,7 +2202,7 @@ func (m model) commentedLines() map[string]bool {
 		}
 		for _, segment := range comment.Segments {
 			for n := segment.FirstLine; n <= segment.LastLine; n++ {
-				out[commentKey(comment.File, segment.Side, n)] = true
+				out[commentKey(comment.Repository, comment.File, segment.Side, n)] = true
 			}
 		}
 	}
@@ -2226,10 +2228,10 @@ func (m model) ackComments() []int {
 	return counts
 }
 
-// commentKey identifies a commented row by file, side, and line — the granularity
-// at which a Comment is anchored in a unified diff.
-func commentKey(file, side string, line int) string {
-	return fmt.Sprintf("%s:%s:%d", file, side, line)
+// commentKey identifies a commented row by repository, file, side, and line —
+// the granularity at which a Comment is anchored in a unified diff.
+func commentKey(repository, file, side string, line int) string {
+	return fmt.Sprintf("%s:%s:%s:%d", repository, file, side, line)
 }
 
 // headerHeight is how many rows the header occupies, including the blank line

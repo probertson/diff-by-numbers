@@ -127,6 +127,54 @@ func TestRenderStepInterleavesBeforeAndAfterAsAUnifiedDiff(t *testing.T) {
 	}
 }
 
+func TestACommentBelongsToItsOwnRepositoryNotASameNamedFileInAnother(t *testing.T) {
+	// Two repositories each carry an app.ts changed at line 3; the Comment is
+	// on the first repository's copy only.
+	step := &daemon.StepWire{
+		Number: 1, Name: "Both apps", Explanation: "the same edit in two repositories",
+		Excerpts: []daemon.ExcerptWire{
+			{Repository: "/a", File: "app.ts", Side: "new", FirstLine: 3, LastLine: 3, Lines: []daemon.LineWire{
+				{Number: 3, Text: "the first app", Side: "new", Changed: true},
+			}},
+			{Repository: "/b", File: "app.ts", Side: "new", FirstLine: 3, LastLine: 3, Lines: []daemon.LineWire{
+				{Number: 3, Text: "the second app", Side: "new", Changed: true},
+			}},
+		},
+	}
+	m := model{
+		view: &daemon.ViewWire{
+			Posted: true, Position: 1, Step: step,
+			Comments: []daemon.CommentWire{{ID: 1, Step: 1, Repository: "/a", File: "app.ts", Segments: []daemon.SegmentWire{
+				{Side: "new", FirstLine: 3, LastLine: 3},
+			}}},
+		},
+		cursor: newStepCursor(step, nil),
+	}
+	m.cursor.cursor = 1 // the second repository's row
+
+	marked := m.commentedLines()
+	_, onSecond := m.commentAtCursor()
+	hereOnSecond := m.commentsAtCursor()
+	m.commentFilter = commentFilter{active: true, repository: "/b", file: "app.ts", side: "new", line: 3}
+	listedForSecond := m.filteredComments()
+
+	if !marked[commentKey("/a", "app.ts", "new", 3)] {
+		t.Error("expected the first repository's row to be marked as commented")
+	}
+	if marked[commentKey("/b", "app.ts", "new", 3)] {
+		t.Error("the second repository's same-named row must not be marked")
+	}
+	if onSecond {
+		t.Error("the cursor on the second repository's row must not find the first repository's Comment")
+	}
+	if len(hereOnSecond) != 0 {
+		t.Errorf("expected no Comments at the second repository's row, got %d", len(hereOnSecond))
+	}
+	if len(listedForSecond) != 0 {
+		t.Errorf("expected the List filtered to the second repository's line to be empty, got %d", len(listedForSecond))
+	}
+}
+
 func TestACommentAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.T) {
 	// A before-row and an after-row both numbered 2; a Comment on the
 	// before-side must attribute to the before-row alone.
@@ -149,10 +197,10 @@ func TestACommentAttachesToItsOwnSideNotTheRowSharingItsNumber(t *testing.T) {
 
 	marked := m.commentedLines()
 
-	if !marked[commentKey("guard.go", "old", 2)] {
+	if !marked[commentKey("", "guard.go", "old", 2)] {
 		t.Error("expected the before-side row to be marked as commented")
 	}
-	if marked[commentKey("guard.go", "new", 2)] {
+	if marked[commentKey("", "guard.go", "new", 2)] {
 		t.Error("the after-side row sharing the line number must not be marked")
 	}
 

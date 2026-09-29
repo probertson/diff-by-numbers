@@ -787,8 +787,8 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			})
 			continue
 		}
-		file := cur.excerptOf(step, line).File
-		for _, text := range codeRows(cur, i, commented[commentKey(file, line.side, line.number)], width, wrapCap, wrapAll) {
+		excerpt := cur.excerptOf(step, line)
+		for _, text := range codeRows(cur, i, commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)], width, wrapCap, wrapAll) {
 			rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 		}
 	}
