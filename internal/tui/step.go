@@ -630,11 +630,16 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 			start = 0
 		}
 	}
+	// The headers are taken afresh at the top of every pass and the loop only
+	// ever leaves from there, so the headers drawn are always the ones for the
+	// window's final top row. The pass limit is a backstop: each pass sheds the
+	// rows its headers need, so the window is over budget again only if the
+	// next top row has more headers than the last.
 	var sticky []string
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; ; attempt++ {
 		sticky = stickyHeaders(rows[start])
 		over := len(sticky) + (end - start) - budget
-		if over <= 0 {
+		if over <= 0 || attempt == 3 {
 			break
 		}
 		cut := curFirst - start
