@@ -230,8 +230,10 @@ func (m model) updateQuestions(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if m.questionCursor < len(here) {
+			// Back to the list after, so the Reviewer goes on to the next
+			// question rather than having to press a again to find it.
 			chosen := here[m.questionCursor]
-			return m, m.openEditor(answerEditor(chosen), chosen.Answer, modeReview)
+			return m, m.openEditor(answerEditor(chosen), chosen.Answer, modeQuestions)
 		}
 	case "d", "x":
 		if m.questionCursor < len(here) && here[m.questionCursor].CarriedOver {

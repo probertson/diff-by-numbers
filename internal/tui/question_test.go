@@ -213,6 +213,22 @@ func TestAWithSeveralQuestionsOffersThemToChooseFrom(t *testing.T) {
 	}
 }
 
+func TestLeavingAnAnswerChosenFromTheListGoesBackToTheList(t *testing.T) {
+	m, _ := askingModel(t, question(4, "3 or 5?", ""), question(5, "keep the name?", ""))
+	answering := press(press(m, "a"), "enter")
+	answering.note.SetValue("5")
+
+	saved, _ := answering.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cancelled := press(answering, "esc")
+
+	if sm := saved.(model); sm.mode != modeQuestions {
+		t.Errorf("expected saving an Answer to go back to the question list, got mode %v", sm.mode)
+	}
+	if cancelled.mode != modeQuestions {
+		t.Errorf("expected esc from the Answer to go back to the question list, got mode %v", cancelled.mode)
+	}
+}
+
 func TestTheStepKeybarOffersAnsweringOnlyWhenThereIsAQuestion(t *testing.T) {
 	asking, _ := askingModel(t, question(4, "3 or 5?", ""))
 	quiet := stepModel(t, tallStep())

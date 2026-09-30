@@ -271,7 +271,8 @@ type model struct {
 	confirmingQuit   bool          // a second-q quit heads-up is armed on an unfinished review
 	commentFilter    commentFilter // when active, the List shows only the Comments on one line
 	// noteReturn is where leaving the edit screen goes: modeReview when it was
-	// opened on a Step, modeList when it was opened from the List. Its zero value
+	// opened on a Step, modeList when it was opened from the List, modeQuestions
+	// when an Answer was chosen from the question list. Its zero value
 	// is modeReview, which is where every exit went before the List could be an
 	// origin.
 	noteReturn mode
