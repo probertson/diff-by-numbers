@@ -103,6 +103,22 @@ works out the merge-base itself. Always named by the Authoring Agent, never disc
 dbn, which assumes nothing about the session's working directory.
 _Avoid_: the diff, the changes, the branch
 
+**Document**:
+A file in the Change Set whose content is prose for a person to read (a spec, a story,
+an ADR, a skill's instructions) rather than code. Being a Document is a property of the
+file, never of a Step, Round or Review, so one Step can show a Document beside the code
+it describes, and a Review can mix both freely. dbn classifies every file from its type
+(Markdown files are Documents, everything else is not) and tells the Authoring Agent how
+it did, since the agent structures a Round around its Documents. The agent may overrule
+dbn for any file, either way, because it knows what the file is for; an overruling holds
+for the rest of the Review, as a Label does, so a file never changes kind between Rounds
+because the agent didn't repeat itself. A file the agent says nothing about keeps dbn's
+classification, so an agent that never overrules still gets it right for the common case.
+A Document is not necessarily Markdown: prose in another format is a Document when the
+agent says so. The Reviewer never classifies: seeing a Document's source is a matter of
+how it is shown, and a file the Reviewer thinks misclassified is a Comment for the agent.
+_Avoid_: doc file, prose file, document mode, document review (as a kind of Review)
+
 **Excerpt**:
 A contiguous range of lines in one file of one repository that the Authoring Agent chose
 to show,
