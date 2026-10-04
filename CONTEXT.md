@@ -287,6 +287,17 @@ is open is the window's business, not the daemon's, and every call about a revie
 names it by its id (ADR-0015).
 _Avoid_: queue, dashboard, list
 
+**Browser Renderer**:
+A page in the Reviewer's browser that draws the Step they are on in the TUI, for
+what a terminal can't draw: real tables, images and typography. It shows what the
+Step shows (its title, the agent's text, every Excerpt, Documents and code alike,
+and the Reviewer's Comments) and follows the Reviewer as they move, to the next
+Step and to the block under the cursor. It only ever draws: the Reviewer reads
+there but does everything else, from commenting to Hand Off, in the TUI. It is
+not a second client, and nothing can be done "in the Browser Renderer".
+_Avoid_: Browser App (kept for a full browser client, should one ever exist), mirror,
+browser view, GUI
+
 **Dismissal**:
 The Reviewer discarding a review from the Inbox without handing it off, and with
 it any Comments raised. The daemon remembers the id as dismissed until the
