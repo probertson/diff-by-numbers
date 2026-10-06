@@ -85,8 +85,8 @@ _Avoid_: approach, summary
 The Reviewer's opening screen of a Round, shown before any code. dbn composes it
 from the Brief and what it knows itself: in a Revision Round, what became of each
 of the last round's Comments and Agent Questions and what was withdrawn since; any
-Agent Questions on the Round itself; and the Steps to come, marking those that carry
-an Agent Question.
+Agent Questions on the Round itself; and the Steps to come (or, in a Round with
+Chapters, the Chapters to come), marking those that carry an Agent Question.
 _Avoid_: brief, summary, table of contents
 
 **Step**:
@@ -94,6 +94,17 @@ One numbered stop in a Round: a single self-contained idea the Authoring
 Agent names, carrying whatever Excerpts across whatever files that idea touches.
 Steps are ordered so each is comprehensible given only the Steps before it.
 _Avoid_: chunk, chunk set, section, slice
+
+**Chapter**:
+A named run of consecutive Steps in a Round, like a chapter of a book, opened by an
+intro in the Authoring Agent's own words that grounds the Steps inside it, as the
+Overview grounds the whole Round. The intro is a stop of its own, before the Chapter's
+first Step, and lists the Chapter's Steps; it carries no Excerpts, so the grounding text
+itself is the Chapter's first Step. Chapters are optional, but a Round that has any puts
+every Step in one, and they never nest. They belong to their Round, as its Steps do:
+each Round declares its own Chapters or none. A Chapter only organises what the Reviewer
+sees, and Steps keep their numbers across the whole Round.
+_Avoid_: part, section, group, stage
 
 **Change Set**:
 The complete set of changes under review. May span several repositories, each named by its
@@ -188,24 +199,30 @@ for a new file: that name carries atoms of its own, so it means that file.
 _Avoid_: move, moved, old name, path mapping
 
 **Acknowledgement**:
-The Authoring Agent's declaration that a set of changes is mechanical and need not be
-read line by line, carrying a one-line reason. Satisfies the Coverage Ledger in place of
-an Excerpt and renders as a manifest of files and counts. A claim, not a dismissal: the
-Reviewer may expand it into real Excerpts at any time — inline in the Step, as a unified diff
-they can navigate, anchor and raise Comments against like any other code. Its repository may
-be left out on the same terms as an Excerpt's.
+The Authoring Agent's declaration that a set of changes need not be read line by line,
+carrying a one-line reason why. Being mechanical is the commonest reason, but not the
+only one: Document text that follows from something the Reviewer already reviewed, or
+lies outside the parts they asked to see, is acknowledged on the same terms. Satisfies
+the Coverage Ledger in place of an Excerpt and renders as a manifest of files and
+counts. A Comment on acknowledged text disputes its reason as well as the text. A claim,
+not a dismissal: the Reviewer may expand it into real Excerpts at any time — inline in
+the Step, as a unified diff they can navigate, anchor and raise Comments against like
+any other code. Its repository may be left out on the same terms as an Excerpt's.
 _Avoid_: skip, noise, ignore, suppress
 
 **Anchor**:
 dbn's composed reference to a contiguous run of lines the Reviewer selected out of a Step's
-rendering — repository, file, line numbers, Step name, and the code itself. Self-contained by
-design, so it survives being pasted into a chat whose context has since been compacted. It
-exists because the expensive part of raising a point during review is the pointing, not the
-saying. Its extent may cross from the before-side to the after-side, because a new-side
-Excerpt renders as a unified diff and a point is often about the removal and its replacement
-together; it may not cross an Excerpt, which is one file's range. An Anchor into an expanded
-Acknowledgement names that Acknowledgement and its reason, because a point raised there
-disputes the claim that the change was mechanical, not just the line.
+rendering — repository, file, line numbers, Step name, and the code itself. Self-contained
+by design, so it survives being pasted into a chat whose context has since been compacted.
+It exists because the expensive part of raising a point during review is the pointing, not
+the saying. In a Document's formatted view the Reviewer selects whole blocks rather than
+lines, but the Anchor still carries those blocks' source lines, so the agent always gets
+lines it can act on, and it names the heading path the blocks sit under. Its extent may
+cross from the before-side to the after-side, because a new-side Excerpt renders as a
+unified diff and a point is often about the removal and its replacement together; it may not
+cross an Excerpt, which is one file's range. An Anchor into an expanded Acknowledgement
+names that Acknowledgement and its reason, because a point raised there disputes the claim
+that the change need not be read, not just the line.
 _Avoid_: reference, citation, pointer, location
 
 **Comment**:
