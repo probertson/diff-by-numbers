@@ -24,11 +24,26 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/updatecheck"
 )
 
+// Options is what the TUI is started with, from dbn's settings.
+type Options struct {
+	// Port is where the daemon listens.
+	Port int
+	// UpdateCheck is whether to ask, in the background, about a newer release.
+	UpdateCheck bool
+	// ConfigWarning names config file keys dbn ignored, or is empty. It is shown
+	// as a notice rather than printed, since the screen is about to be taken.
+	ConfigWarning string
+}
+
 // Run attaches to the daemon and blocks until the Reviewer quits.
-func Run(port int) error {
-	starting, err := attach(port)
+func Run(opts Options) error {
+	starting, err := attach(opts.Port)
 	if err != nil {
 		return err
+	}
+	starting.updateCheck = opts.UpdateCheck
+	if opts.ConfigWarning != "" {
+		starting.configNotice = "config: " + opts.ConfigWarning
 	}
 
 	program := tea.NewProgram(starting, tea.WithAltScreen())
@@ -233,6 +248,12 @@ type model struct {
 	// Persistent for the same reason daemonVersion is: it is a standing fact about
 	// this install, not a response to a keypress.
 	updateNotice string
+	// updateCheck is whether Init asks about a newer release at all: the
+	// Reviewer can turn the check off (internal/config).
+	updateCheck bool
+	// configNotice names config file keys dbn ignored. Persistent like
+	// updateNotice: it holds until the Reviewer fixes the file and relaunches.
+	configNotice string
 	// replacedNotice tells the Reviewer the agent replaced the Round under
 	// them. Unlike the other notices it is about a moment rather than a standing
 	// fact, so the next navigation clears it.
@@ -439,16 +460,16 @@ func (m *model) toggleAcknowledgement() {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.readStatus(), checkForUpdate())
+	return tea.Batch(tick(), m.readStatus(), checkForUpdate(m.updateCheck))
 }
 
 // checkForUpdate asks — in the background, so it costs the Reviewer no startup
 // delay — whether a newer dbn has been released. A check that fails is silent
 // here: the Reviewer came to read code, and `dbn version` is where someone who
 // wants to know why gets told.
-func checkForUpdate() tea.Cmd {
+func checkForUpdate(enabled bool) tea.Cmd {
 	return func() tea.Msg {
-		result, err := updatecheck.Check(context.Background(), updatecheck.DefaultConfig())
+		result, err := updatecheck.Check(context.Background(), updatecheck.DefaultConfig(enabled))
 		if err != nil || !result.Available {
 			return updateMsg{}
 		}
@@ -2281,13 +2302,18 @@ func (m model) bodyHeight() int {
 // should know about for as long as it holds, unlike m.status, which is a
 // transient response to a keypress. There is one slot, and a daemon running a
 // different build outranks an available release — it is about the review in
-// front of them, and is usually the consequence of acting on the other one.
+// front of them, and is usually the consequence of acting on the other one. A
+// config warning sits between: about the setup rather than the review, but a
+// thing the Reviewer can fix now, and may be puzzling over.
 func (m model) notice() string {
 	if mismatch := m.daemonMismatchNotice(); mismatch != "" {
 		return mismatch
 	}
 	if m.replacedNotice != "" {
 		return m.replacedNotice
+	}
+	if m.configNotice != "" {
+		return m.configNotice
 	}
 	return m.updateNotice
 }

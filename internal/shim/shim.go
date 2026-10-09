@@ -8,6 +8,7 @@ package shim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
+	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
 // keepaliveInterval is how often the shim pings the daemon while the agent
@@ -84,6 +86,102 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+// RunUntilConfigured is Run for when dbn's settings are invalid, so the port is
+// not known. The agent harness launched this process, so an error on stderr
+// would reach no one; instead it serves this build's tools, and each call
+// re-reads the settings through resolve. While they are invalid, the call
+// returns their error as a tool error, which the agent shows the Reviewer. Once
+// they are valid, it carries on as Run would — ensuring the daemon, connecting,
+// forwarding — and the settings are fixed for the rest of the session.
+func RunUntilConfigured(ctx context.Context, cfg Config, resolve func() (int, error)) error {
+	if cfg.StartTimeout <= 0 {
+		cfg.StartTimeout = 5 * time.Second
+	}
+	tools, err := daemon.Tools(ctx)
+	if err != nil {
+		return fmt.Errorf("could not list dbn's tools: %w", err)
+	}
+
+	pending := &pendingLink{cfg: cfg, resolve: resolve}
+	defer pending.close()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "dbn", Version: buildinfo.Version()}, nil)
+	for _, tool := range tools {
+		server.AddTool(tool, pending.forward(tool.Name))
+	}
+	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+// pendingLink is a link to a daemon whose port is not known yet, made on the
+// first call that finds dbn's settings valid.
+type pendingLink struct {
+	cfg     Config
+	resolve func() (int, error)
+
+	mu            sync.Mutex
+	ready         *link
+	stopKeepalive chan struct{}
+}
+
+// invalidSettings marks the settings being invalid, as distinct from the daemon
+// being unreachable once they are valid: the first is the Reviewer's to fix,
+// and goes to the agent as a tool result.
+type invalidSettings struct{ err error }
+
+func (e invalidSettings) Error() string { return e.err.Error() }
+
+func (p *pendingLink) forward(name string) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		l, err := p.link(ctx)
+		var invalid invalidSettings
+		if errors.As(err, &invalid) {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
+					"dbn's settings are invalid, so no dbn tool can run: %v. Tell the Reviewer; "+
+						"once it is fixed, the next dbn call works without restarting anything.", invalid.err)}},
+			}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return l.callTool(ctx, &mcp.CallToolParams{Name: name, Arguments: req.Params.Arguments})
+	}
+}
+
+// link returns the daemon link, making it if the settings are now valid.
+func (p *pendingLink) link(ctx context.Context) (*link, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ready != nil {
+		return p.ready, nil
+	}
+	port, err := p.resolve()
+	if err != nil {
+		return nil, invalidSettings{err}
+	}
+	cfg := p.cfg
+	cfg.Port = port
+	made := &link{cfg: cfg}
+	if err := made.connect(ctx); err != nil {
+		return nil, err
+	}
+	p.ready = made
+	// As in Run: hold the daemon open for as long as this session lives.
+	p.stopKeepalive = make(chan struct{})
+	go keepalive(port, p.stopKeepalive)
+	return made, nil
+}
+
+func (p *pendingLink) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ready != nil {
+		close(p.stopKeepalive)
+		p.ready.close()
+	}
 }
 
 // forward relays one tool call to the daemon and returns its result verbatim.

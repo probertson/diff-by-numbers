@@ -38,6 +38,13 @@ Development builds never check. A build that was not stamped by the release pipe
 compiled by whoever is running it; there is no published release it is meaningfully behind,
 and its binary did not come from a download that could be replaced.
 
+## Amendment (#161): the check is now a config file key too
+
+The config file arrived (ADR-0019), and the check is its `update-check` key:
+`update-check = false` turns it off. `DBN_NO_UPDATE_CHECK` still works and outranks the
+file, but only to turn the check off: `0`, `false` and `no` now count as unset, so the file
+decides rather than the variable switching the check on.
+
 ## Binaries are replaced only by an explicit `dbn update`
 
 No background download, no self-replacement on startup, no "restart to apply". A tool that

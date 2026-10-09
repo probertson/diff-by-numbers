@@ -23,9 +23,9 @@ var waitContext = context.Background
 // hands the review off or dismisses it, then prints one line saying so and what
 // to call next. The Authoring Agent's harness runs it in the background and
 // wakes the agent when it exits (ADR-0016).
-func runWait(args []string, out io.Writer) error {
+func runWait(args []string, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet("wait", flag.ContinueOnError)
-	port := flags.Int("port", defaultPort(), "port the daemon is listening on")
+	portFor := portFlag(flags, "port the daemon is listening on")
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "usage: dbn wait <review_id> [-port N]")
 		flags.PrintDefaults()
@@ -46,7 +46,11 @@ func runWait(args []string, out io.Writer) error {
 		return fmt.Errorf("dbn wait needs the review id post_round gave you; run `dbn wait -h` for usage")
 	}
 
-	answer, err := daemon.Wait(waitContext(), daemonURL(*port), id, waitRetry)
+	_, port, err := loadSettings(portFor, errOut)
+	if err != nil {
+		return err
+	}
+	answer, err := daemon.Wait(waitContext(), daemonURL(port), id, waitRetry)
 	if err != nil {
 		return err
 	}

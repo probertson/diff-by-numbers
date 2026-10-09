@@ -72,7 +72,7 @@ func DefaultConfig(daemonURL string) (Config, error) {
 	}
 	executable = resolve(executable) // replace the bytes, not a link to them
 
-	check := updatecheck.DefaultConfig()
+	check := updatecheck.DefaultConfig(true)
 	check.Force = true
 	// The Reviewer asked for this one: neither an opt-out nor a cached answer
 	// should make it silently do nothing. A development build still refuses, but

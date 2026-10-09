@@ -191,3 +191,43 @@ func TestAFailedStatusReadLeavesTheKnownVersionAlone(t *testing.T) {
 type errUnreachable struct{}
 
 func (errUnreachable) Error() string { return "connection refused" }
+
+func TestAConfigWarningIsANotice(t *testing.T) {
+	m := noticeModel(buildinfo.Version())
+	m.configNotice = `config: unknown key "colour-preset" in /home/r/.config/dbn/config.toml`
+
+	notice := m.notice()
+
+	if notice != m.configNotice {
+		t.Errorf("notice = %q, want the config warning", notice)
+	}
+}
+
+// The config warning is a standing fact about the setup, like the update
+// notice, but one the Reviewer can fix in a moment and may be puzzling over
+// ("why didn't my setting take?"), so it outranks the release. The daemon
+// mismatch and a replaced Round are about the review in front of them, so they
+// outrank it.
+func TestAConfigWarningRanksBetweenTheReviewNoticesAndTheUpdateNotice(t *testing.T) {
+	const config = `config: unknown key "x" in /c.toml`
+	const update = "dbn 0.2.0 available — run dbn update"
+
+	withUpdate := noticeModel(buildinfo.Version())
+	withUpdate.configNotice, withUpdate.updateNotice = config, update
+	withMismatch := noticeModel("0.1.0")
+	withMismatch.configNotice = config
+	withReplaced := noticeModel(buildinfo.Version())
+	withReplaced.configNotice, withReplaced.replacedNotice = config, "the agent replaced this Round"
+
+	overUpdate, underMismatch, underReplaced := withUpdate.notice(), withMismatch.notice(), withReplaced.notice()
+
+	if overUpdate != config {
+		t.Errorf("with an update available, notice = %q, want the config warning", overUpdate)
+	}
+	if !strings.Contains(underMismatch, "daemon is running") {
+		t.Errorf("with a daemon mismatch, notice = %q, want the mismatch", underMismatch)
+	}
+	if underReplaced != "the agent replaced this Round" {
+		t.Errorf("with a replaced Round, notice = %q, want the replaced notice", underReplaced)
+	}
+}

@@ -87,7 +87,8 @@ A few things worth knowing:
 - **If the binary's directory is not writable** (say you installed to
   `/usr/local/bin`), dbn will not use sudo for you. It points you at reinstalling
   somewhere you own with the installer above, or at `sudo dbn update`.
-- **Turning the check off.** `DBN_NO_UPDATE_CHECK=1` disables it entirely — no
+- **Turning the check off.** `update-check = false` in the [config
+  file](#configuration), or `DBN_NO_UPDATE_CHECK=1`, disables it entirely — no
   network call is made. `dbn update` still works when you ask for it.
 - Builds you compiled yourself never check, and never update themselves.
 
@@ -294,7 +295,41 @@ losing anything, and `dbn` reopens to the same Inbox.
 Other subcommands: `dbn wait <review_id>` blocks until you hand that review off or dismiss
 it (the agent runs it in the background, from the command dbn gives it), `dbn dump` prints
 every review the daemon holds as text, `dbn version` reports the build, `dbn update`
-installs a newer one (see [Updating](#updating)).
+installs a newer one (see [Updating](#updating)), and `dbn config` shows your settings (see
+[Configuration](#configuration)).
+
+## Configuration
+
+dbn reads an optional config file at `$XDG_CONFIG_HOME/dbn/config.toml`, or
+`~/.config/dbn/config.toml` when `XDG_CONFIG_HOME` isn't set (on macOS too). Without one,
+everything has its default.
+
+```toml
+port = 7373           # the daemon's port
+update-check = true   # false turns the update check off
+```
+
+Each setting can also come from somewhere else. The order of precedence, highest first:
+
+| Setting | Flag | Environment variable | Config file | Default |
+|---|---|---|---|---|
+| Port | `-port N` | `DBN_PORT=N` | `port = N` | `7373` |
+| Update check | — | `DBN_NO_UPDATE_CHECK=1` | `update-check = false` | on |
+
+Note that the environment variable is the opposite way round from the key:
+`DBN_NO_UPDATE_CHECK=1` means `update-check = false`. It can only turn the check off: `0`,
+`false`, `no` and an empty value count as unset, and the config file decides.
+
+`dbn config` prints where the file is, checks it, and lists each setting with where its value
+came from.
+
+- **An invalid setting stops dbn.** A file that isn't valid TOML, a bad value, or an
+  unparseable `DBN_PORT` makes every command exit with an error saying where the problem
+  is: the file, line and key, or the variable. Your agent's dbn tools report the same error when called. Once you fix the
+  file, the next call works without restarting anything.
+- **An unknown key only warns** (on stderr, as a notice in the TUI, and in `dbn config`), so a
+  file written for a newer dbn still works with an older one.
+- **The file is read at launch.** Relaunch the TUI after editing it.
 
 ## Development
 

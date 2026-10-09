@@ -23,11 +23,6 @@ import (
 // and rate-limited per IP; the cache below is what keeps dbn well inside it.
 const Endpoint = "https://api.github.com/repos/probertson/diff-by-numbers/releases/latest"
 
-// OptOutEnv turns the check off entirely. It is an environment variable rather
-// than a setting because dbn has no settings file yet, and one variable is not
-// reason enough to introduce one.
-const OptOutEnv = "DBN_NO_UPDATE_CHECK"
-
 // How long an answer stands before dbn asks again. A failure is retried sooner
 // than a success is refreshed: being offline for a moment should not cost the
 // Reviewer a day of not hearing about a release.
@@ -73,26 +68,16 @@ type Config struct {
 }
 
 // DefaultConfig is the real check: the published endpoint, the user's cache
-// directory, and off for anything but a release build that has not opted out.
-func DefaultConfig() Config {
+// directory, and off for anything but a release build the Reviewer has left it
+// on for. enabled is the update-check setting (internal/config), which the
+// Reviewer turns off in the config file or with DBN_NO_UPDATE_CHECK.
+func DefaultConfig(enabled bool) Config {
 	// Only the two fields withDefaults cannot supply: where the answer is kept,
 	// and whether to ask at all.
 	return withDefaults(Config{
 		CachePath: defaultCachePath(),
-		Disabled:  !buildinfo.IsRelease() || OptedOut(),
+		Disabled:  !buildinfo.IsRelease() || !enabled,
 	})
-}
-
-// OptedOut reports whether the Reviewer has turned the check off. Any value but
-// the ones that plainly mean "no" counts, so DBN_NO_UPDATE_CHECK=1 — and =true,
-// and =yes — all do what they look like they do.
-func OptedOut() bool {
-	switch os.Getenv(OptOutEnv) {
-	case "", "0", "false", "no":
-		return false
-	default:
-		return true
-	}
 }
 
 // Check reports the newest published release, from the cache when the last

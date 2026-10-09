@@ -192,7 +192,7 @@ func startWait(t *testing.T, port int, id string) waiting {
 	}
 
 	w := waiting{out: &bytes.Buffer{}, done: make(chan error, 1)}
-	go func() { w.done <- run([]string{"wait", id, "-port", strconv.Itoa(port)}, w.out) }()
+	go func() { w.done <- run([]string{"wait", id, "-port", strconv.Itoa(port)}, w.out, io.Discard) }()
 	return w
 }
 

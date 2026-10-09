@@ -788,6 +788,30 @@ func (d *Daemon) locked(act func() error) error {
 	return act()
 }
 
+// Tools lists the MCP tools a daemon of this build serves, without starting
+// one. The shim needs them when it cannot reach a daemon yet — dbn's settings
+// are invalid, so it does not know the port — and a daemon of the same build
+// serves exactly these.
+func Tools(ctx context.Context) ([]*mcp.Tool, error) {
+	serverEnd, clientEnd := mcp.NewInMemoryTransports()
+	served, err := New().mcpServer().Connect(ctx, serverEnd, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer served.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "dbn-tools", Version: buildinfo.Version()}, nil)
+	session, err := client.Connect(ctx, clientEnd, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+	listed, err := session.ListTools(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return listed.Tools, nil
+}
+
 func (d *Daemon) mcpServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "dbn",

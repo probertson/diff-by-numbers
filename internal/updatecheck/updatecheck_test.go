@@ -218,24 +218,10 @@ func TestAnUnreadableCacheIsJustACacheMiss(t *testing.T) {
 	}
 }
 
-func TestOptedOutReadsTheEnvironmentTheWayItLooks(t *testing.T) {
-	cases := map[string]bool{"1": true, "true": true, "yes": true, "": false, "0": false, "false": false, "no": false}
-
-	for value, want := range cases {
-		t.Setenv(OptOutEnv, value)
-
-		if got := OptedOut(); got != want {
-			t.Errorf("%s=%q opted out = %v, want %v", OptOutEnv, value, got, want)
-		}
-	}
-}
-
 // A development build has no published release it is meaningfully behind, and
 // its binary was not downloaded in the first place — so it must never ask.
 func TestTheDefaultConfigIsDisabledOnADevelopmentBuild(t *testing.T) {
-	t.Setenv(OptOutEnv, "")
-
-	if !DefaultConfig().Disabled {
+	if !DefaultConfig(true).Disabled {
 		t.Error("the update check is live on a development build")
 	}
 }

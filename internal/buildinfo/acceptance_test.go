@@ -21,6 +21,19 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// TestMain points every dbn process these tests start at an empty config
+// directory, so the developer's own config file can't change what a test sees.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "dbn-config")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CONFIG_HOME", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 // stampedVersion is deliberately nothing like the default dev stamp, so a
 // surface that ignored the ldflags fails loudly rather than coincidentally.
 const stampedVersion = "9.9.9"
