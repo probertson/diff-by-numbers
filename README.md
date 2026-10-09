@@ -307,7 +307,7 @@ everything has its default.
 ```toml
 port = 7373           # the daemon's port
 update-check = true   # false turns the update check off
-background = "auto"   # auto | dark | light
+background = "auto"   # your terminal's background: auto | dark | light
 
 [diff]
 preset = "medium"     # subtle | medium | strong: applies to both backgrounds
@@ -361,9 +361,13 @@ colour.
 | `medium` (default) | light | `#e3f5e3` | `#abe2ab` | `#fae3e3` | `#f0a8a8` |
 | `strong` | light | `#cdeecd` | `#8fd68f` | `#f6cccc` | `#e88a8a` |
 
-dbn asks the terminal whether its background is dark or light. Some terminals and
-multiplexers don't answer, and dbn then assumes dark. `background = "dark"` or `"light"`
-overrides the answer, for the whole TUI, not only the diff.
+`background` describes your terminal; it doesn't change it. dbn draws on the terminal's own
+background and in its own text colour, and picks the rest of its colours, the diff's
+included, to suit them. It asks the terminal whether that background is dark or light. Some
+terminals and multiplexers don't answer, and dbn then assumes dark. If yours is light and
+dbn's colours look meant for a dark one, set `background = "light"` (or the reverse). Setting
+it to the opposite of your terminal makes dbn pick colours for a background you don't have,
+which leaves text unreadable on the tints.
 
 ## Development
 
