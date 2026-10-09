@@ -133,9 +133,11 @@ func run(args []string, out, errOut io.Writer) error {
 			return err
 		}
 		return tui.Run(tui.Options{
-			Port:          resolved.Value,
-			UpdateCheck:   settings.UpdateCheck.Value,
-			ConfigWarning: settings.Warning(),
+			Port:               resolved.Value,
+			UpdateCheck:        settings.UpdateCheck.Value,
+			ConfigWarning:      settings.Warning(),
+			TerminalBackground: settings.TerminalBackground.Value,
+			Diff:               settings.Diff,
 		})
 	}
 

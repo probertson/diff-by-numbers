@@ -175,3 +175,40 @@ func TestConfigWarnsAboutAnUnknownKeyAsOtherCommandsDo(t *testing.T) {
 		t.Errorf("dbn config does not warn about the unknown key on stderr:\n%s", errOut.String())
 	}
 }
+
+func TestConfigListsTheBackgroundAndTheDiffColours(t *testing.T) {
+	withConfig(t, "background = \"light\"\n[diff]\npreset = \"strong\"\n[diff.dark]\nremoved-change = \"#8a3535\"\n")
+	var out bytes.Buffer
+
+	err := run([]string{"config"}, &out, &bytes.Buffer{})
+
+	if err != nil {
+		t.Fatalf("dbn config: %v", err)
+	}
+	for _, row := range [][]string{
+		{"background", "light", "config", "file"},
+		{"diff.preset", "strong", "config", "file"},
+		{"diff.dark.added-line", "#1d4a1d", "strong", "preset"},
+		{"diff.dark.removed-change", "#8a3535", "config", "file"},
+		{"diff.light.removed-change", "#e88a8a", "strong", "preset"},
+	} {
+		if !hasRow(out.String(), row...) {
+			t.Errorf("dbn config has no row %v:\n%s", row, out.String())
+		}
+	}
+}
+
+func TestConfigShowsTheDefaultColours(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var out bytes.Buffer
+
+	err := run([]string{"config"}, &out, &bytes.Buffer{})
+
+	if err != nil {
+		t.Fatalf("dbn config: %v", err)
+	}
+	if !hasRow(out.String(), "background", "auto", "default") || !hasRow(out.String(), "diff.preset", "medium", "default") ||
+		!hasRow(out.String(), "diff.light.added-line", "#e3f5e3", "medium", "preset") {
+		t.Errorf("dbn config does not show the default background and colours:\n%s", out.String())
+	}
+}

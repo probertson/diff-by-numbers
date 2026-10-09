@@ -19,6 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
+	"github.com/probertson/diff-by-numbers/internal/config"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 	"github.com/probertson/diff-by-numbers/internal/selfupdate"
 	"github.com/probertson/diff-by-numbers/internal/updatecheck"
@@ -33,10 +34,16 @@ type Options struct {
 	// ConfigWarning names config file keys dbn ignored, or is empty. It is shown
 	// as a notice rather than printed, since the screen is about to be taken.
 	ConfigWarning string
+	// TerminalBackground is whether to trust the terminal's own answer about
+	// its background, or to override it.
+	TerminalBackground config.TerminalBackground
+	// Diff is the colours the diff is drawn in.
+	Diff config.DiffColours
 }
 
 // Run attaches to the daemon and blocks until the Reviewer quits.
 func Run(opts Options) error {
+	useColours(opts.TerminalBackground, opts.Diff)
 	starting, err := attach(opts.Port)
 	if err != nil {
 		return err

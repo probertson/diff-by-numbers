@@ -307,6 +307,16 @@ everything has its default.
 ```toml
 port = 7373           # the daemon's port
 update-check = true   # false turns the update check off
+background = "auto"   # auto | dark | light
+
+[diff]
+preset = "medium"     # subtle | medium | strong: applies to both backgrounds
+
+[diff.dark]           # optional; each key replaces one of the preset's colours on a dark background
+removed-change = "#8a3535"
+
+[diff.light]          # optional; the same for a light background
+added-line = "#e8f7e8"
 ```
 
 Each setting can also come from somewhere else. The order of precedence, highest first:
@@ -320,16 +330,40 @@ Note that the environment variable is the opposite way round from the key:
 `DBN_NO_UPDATE_CHECK=1` means `update-check = false`. It can only turn the check off: `0`,
 `false`, `no` and an empty value count as unset, and the config file decides.
 
+`background` and `[diff]` are set in the file only.
+
 `dbn config` prints where the file is, checks it, and lists each setting with where its value
-came from.
+came from, including all eight diff colours.
 
 - **An invalid setting stops dbn.** A file that isn't valid TOML, a bad value, or an
   unparseable `DBN_PORT` makes every command exit with an error saying where the problem
-  is: the file, line and key, or the variable. Your agent's dbn tools report the same error when called. Once you fix the
-  file, the next call works without restarting anything.
+  is: the file, line and key, or the variable. Your agent's dbn tools report the same
+  error when called. Once you fix the file, the next call works without restarting
+  anything.
 - **An unknown key only warns** (on stderr, as a notice in the TUI, and in `dbn config`), so a
   file written for a newer dbn still works with an older one.
 - **The file is read at launch.** Relaunch the TUI after editing it.
+
+### Diff colours
+
+A changed line is tinted across its width, and the characters that changed within it get a
+stronger tint of the same colour. Each background has four colours: `added-line`,
+`added-change`, `removed-line` and `removed-change`. The `-line` colour is the tint across
+the whole line, and the `-change` colour is the stronger one. Each is a `#rrggbb` background
+colour.
+
+| Preset | Background | added-line | added-change | removed-line | removed-change |
+|---|---|---|---|---|---|
+| `subtle` | dark | `#1f2b1f` | `#2f4a2f` | `#2e1f1f` | `#4f2d2d` |
+| `medium` (default) | dark | `#213a21` | `#2f6b2f` | `#3f2222` | `#7a2f2f` |
+| `strong` | dark | `#1d4a1d` | `#2e8b2e` | `#5a1f1f` | `#a33a3a` |
+| `subtle` | light | `#f0f9f0` | `#c9ecc9` | `#fbf0f0` | `#f3c9c9` |
+| `medium` (default) | light | `#e3f5e3` | `#abe2ab` | `#fae3e3` | `#f0a8a8` |
+| `strong` | light | `#cdeecd` | `#8fd68f` | `#f6cccc` | `#e88a8a` |
+
+dbn asks the terminal whether its background is dark or light. Some terminals and
+multiplexers don't answer, and dbn then assumes dark. `background = "dark"` or `"light"`
+overrides the answer, for the whole TUI, not only the diff.
 
 ## Development
 

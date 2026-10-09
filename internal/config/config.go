@@ -32,6 +32,9 @@ const (
 	File    Source = "file"
 	Env     Source = "env"
 	Flag    Source = "flag"
+	// Preset is a diff colour that comes from the diff preset, not from a
+	// setting of its own.
+	Preset Source = "preset"
 )
 
 // Setting is one setting's effective value and where it came from.
@@ -48,6 +51,10 @@ type Settings struct {
 
 	Port        Setting[int]
 	UpdateCheck Setting[bool]
+	// TerminalBackground is whether to trust the terminal's own answer about
+	// its background, or to override it.
+	TerminalBackground Setting[TerminalBackground]
+	Diff               DiffColours
 
 	// unknown is the keys in the file dbn does not know. Not an error: the
 	// repo-built dbn and the installed one share the file, and a key only the
@@ -75,8 +82,10 @@ func (s Settings) Warning() string {
 // fileShape is the config file as decoded. Pointers, so a key the file leaves
 // out is told apart from one set to its zero value.
 type fileShape struct {
-	Port        *port    `toml:"port"`
-	UpdateCheck *boolean `toml:"update-check"`
+	Port        *port               `toml:"port"`
+	UpdateCheck *boolean            `toml:"update-check"`
+	Background  *TerminalBackground `toml:"background"`
+	Diff        *diffShape          `toml:"diff"`
 }
 
 // boolean is a true/false value checked as it is decoded, for the same reason
@@ -121,9 +130,11 @@ func CheckPort(n int) error {
 // outside a test.
 func Load(lookup func(string) (string, bool)) (Settings, error) {
 	settings := Settings{
-		Path:        Path(lookup),
-		Port:        Setting[int]{Value: daemon.DefaultPort, Source: Default},
-		UpdateCheck: Setting[bool]{Value: true, Source: Default},
+		Path:               Path(lookup),
+		Port:               Setting[int]{Value: daemon.DefaultPort, Source: Default},
+		UpdateCheck:        Setting[bool]{Value: true, Source: Default},
+		TerminalBackground: Setting[TerminalBackground]{Value: BackgroundAuto, Source: Default},
+		Diff:               defaultDiffColours(),
 	}
 
 	if settings.Path != "" {
@@ -141,6 +152,10 @@ func Load(lookup func(string) (string, bool)) (Settings, error) {
 			if file.UpdateCheck != nil {
 				settings.UpdateCheck = Setting[bool]{Value: bool(*file.UpdateCheck), Source: File}
 			}
+			if file.Background != nil {
+				settings.TerminalBackground = Setting[TerminalBackground]{Value: *file.Background, Source: File}
+			}
+			settings.Diff = file.Diff.apply()
 			settings.unknown = unknownKeys(meta.Undecoded())
 		}
 	}

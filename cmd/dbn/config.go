@@ -47,15 +47,34 @@ func runConfig(args []string, out, errOut io.Writer) error {
 
 	fmt.Fprintln(out)
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(table, "port\t%d\t%s\n", port.Value, sourceLabel(port.Source, config.PortEnv, "-port flag"))
-	fmt.Fprintf(table, "update-check\t%t\t%s\n", settings.UpdateCheck.Value, sourceLabel(settings.UpdateCheck.Source, config.NoUpdateCheckEnv, ""))
+	diff := settings.Diff
+	label := func(source config.Source, env, flagName string) string {
+		return sourceLabel(source, env, flagName, diff.Preset.Value)
+	}
+	fmt.Fprintf(table, "port\t%d\t%s\n", port.Value, label(port.Source, config.PortEnv, "-port flag"))
+	fmt.Fprintf(table, "update-check\t%t\t%s\n", settings.UpdateCheck.Value, label(settings.UpdateCheck.Source, config.NoUpdateCheckEnv, ""))
+	fmt.Fprintf(table, "background\t%s\t%s\n", settings.TerminalBackground.Value, label(settings.TerminalBackground.Source, "", ""))
+	fmt.Fprintf(table, "diff.preset\t%s\t%s\n", diff.Preset.Value, label(diff.Preset.Source, "", ""))
+	// Every colour, not only the ones set: what is drawn is the question, and a
+	// preset's colours are part of the answer.
+	for _, background := range []struct {
+		name    string
+		colours config.Colours
+	}{{"dark", diff.Dark}, {"light", diff.Light}} {
+		for _, role := range background.colours.Roles() {
+			fmt.Fprintf(table, "diff.%s.%s\t%s\t%s\n", background.name, role.Key, role.Colour.Value, label(role.Colour.Source, "", ""))
+		}
+	}
 	return table.Flush()
 }
 
 // sourceLabel says where a setting came from in the words the Reviewer would
-// use to change it.
-func sourceLabel(source config.Source, env, flagName string) string {
+// use to change it. preset names the diff preset, for a colour that comes from
+// it.
+func sourceLabel(source config.Source, env, flagName, preset string) string {
 	switch source {
+	case config.Preset:
+		return preset + " preset"
 	case config.File:
 		return "config file"
 	case config.Env:

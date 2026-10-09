@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/probertson/diff-by-numbers/internal/config"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
@@ -954,14 +955,36 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 	return out
 }
 
-// Palette B (#81): a medium tint for a changed row, and a stronger one of the
-// same colour for the words that changed within it, in light and dark themes.
+// The diff's tints: one for a changed row, and a stronger one of the same colour
+// for the words that changed within it, on light and dark backgrounds. These are
+// the medium preset (#81's palette B), the default; useColours replaces them with the Reviewer's
+// settings before the TUI draws anything.
 var (
 	addTint     = lipgloss.AdaptiveColor{Light: "#e3f5e3", Dark: "#213a21"}
 	addEmphasis = lipgloss.AdaptiveColor{Light: "#abe2ab", Dark: "#2f6b2f"}
 	delTint     = lipgloss.AdaptiveColor{Light: "#fae3e3", Dark: "#3f2222"}
 	delEmphasis = lipgloss.AdaptiveColor{Light: "#f0a8a8", Dark: "#7a2f2f"}
 )
+
+// useColours applies the Reviewer's colour settings. They are package state
+// rather than threaded through every draw, because lipgloss's own background
+// answer — which background setting overrides — already is: both are fixed
+// for the life of the process.
+func useColours(background config.TerminalBackground, diff config.DiffColours) {
+	switch background {
+	case config.BackgroundDark:
+		lipgloss.SetHasDarkBackground(true)
+	case config.BackgroundLight:
+		lipgloss.SetHasDarkBackground(false)
+	}
+	adaptive := func(light, dark config.Setting[string]) lipgloss.AdaptiveColor {
+		return lipgloss.AdaptiveColor{Light: light.Value, Dark: dark.Value}
+	}
+	addTint = adaptive(diff.Light.AddedLine, diff.Dark.AddedLine)
+	addEmphasis = adaptive(diff.Light.AddedChange, diff.Dark.AddedChange)
+	delTint = adaptive(diff.Light.RemovedLine, diff.Dark.RemovedLine)
+	delEmphasis = adaptive(diff.Light.RemovedChange, diff.Dark.RemovedChange)
+}
 
 // tintsFor is a changed line's row tint, the stronger tint for the words that
 // changed in it, and the colour of its sign — each decided by the one question

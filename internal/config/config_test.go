@@ -230,7 +230,7 @@ func TestAnUnknownKeyIsAWarningNotAnError(t *testing.T) {
 }
 
 func TestSeveralUnknownKeysShareOneWarning(t *testing.T) {
-	env := homeWith(t, "colour = 1\n[diff]\npreset = \"strong\"\n")
+	env := homeWith(t, "colour = 1\n[colours]\npreset = \"strong\"\n")
 
 	settings, err := Load(env.lookup)
 
@@ -238,7 +238,7 @@ func TestSeveralUnknownKeysShareOneWarning(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	// A whole unknown table is named once, not once per key inside it.
-	want := `unknown keys "colour", "diff" in ` + settings.Path
+	want := `unknown keys "colour", "colours" in ` + settings.Path
 	if settings.Warning() != want {
 		t.Errorf("Warning() = %q, want %q", settings.Warning(), want)
 	}
