@@ -149,6 +149,34 @@ excerpt.
 rather than one wide range across unrelated ones. Unchanged lines are there to
 give a change context, not to bridge from one change to the next.
 
+**Order a Step's Excerpts as the story needs, not by file or line.** You own the
+order inside a Step as much as the order of Steps. Put a test next to the
+behaviour it checks; put a caller just before or just after what it calls,
+whichever its explanation needs. Source order is only right when it is also the
+order that explains the change best.
+
+**Show moved code's two places together.** Moves are the sharpest case of the
+rule above. git sees a move as a removal in one place and an addition in
+another, and nothing in dbn connects the two. When you move code or text,
+within a file or across files, in code or in a Document, show both places in
+one Step: an `old`-side Excerpt of the removed lines, immediately followed by a
+`new`-side Excerpt of the added lines. Place the pair among the Step's other
+Excerpts wherever it best shows the intent of the change. The explanation says
+what moved and why, and whether it changed on the way. If it did, say exactly
+what changed: dbn does not compare the two copies, so a one-word edit inside
+moved code is otherwise invisible.
+- **Check `describe_changes` first.** git sometimes pairs the removed lines with
+  unrelated new lines nearby, as a modification. Then those lines are an edit's
+  before-side, and dbn draws them above that edit's new lines, not beside the
+  moved code. Show that modification's new side in the same Step, and say in the
+  explanation that git paired the move with the code near it (see *Describe the
+  diff the reviewer will see*, above).
+- **A move is one idea that does not divide.** Both sides count against the
+  budget, so a move over about 15 lines is over it: give
+  `oversize_justification` ("one move, shown whole on both sides") rather than
+  splitting the pair across Steps. If the move is a file's whole change — code lifted unchanged into a new
+  file, say — an Acknowledgement ("moved unchanged from …") covers it instead.
+
 ### Asking the reviewer a question
 
 When you need the reviewer to decide something — a trade-off you could take
@@ -213,9 +241,11 @@ are `still_to_cover`.
 - **Point once at a change.** For an edit, give a `new`-side Excerpt over the
   after-side; dbn reads the before-side from git and shows a real before → after
   diff, so you never name the old side for an edit. Use an `old`-side Excerpt only
-  to show a **standalone deletion** — removed code that nothing replaced — with
-  your explanation of why it went. (A bulk, mechanical removal can stay an
-  Acknowledgement instead; your call per case, exactly as for additions.)
+  to show a **standalone deletion** — removed code that nothing replaced in its
+  place, including the old place of moved code (see *Show moved code's two
+  places together*) — with your explanation of why it went. (A bulk, mechanical
+  removal can stay an Acknowledgement instead; your call per case, exactly as
+  for additions.)
 - **Either path of a renamed file works.** dbn derives a renamed file's changes
   under its new path, but an Acknowledgement or an `old`-side Excerpt may name
   the path it came from — listing both is fine too. The Reviewer sees the new
