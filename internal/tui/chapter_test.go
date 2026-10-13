@@ -197,3 +197,99 @@ func TestAStepHeaderNamesNoChapterInARoundWithout(t *testing.T) {
 		t.Errorf("expected no Chapter named in a Round without Chapters, got:\n%s", header)
 	}
 }
+
+// The digit keys are the Chapter shortcuts: dbn decides where the Chapter's
+// intro is, so the TUI only asks for the Chapter by number.
+func TestADigitGoesToThatChaptersIntro(t *testing.T) {
+	m, rec := recordingIntro(t, 1)
+
+	after := press(m, "3")
+
+	if !rec.sent("/chapter/3") {
+		t.Errorf("expected 3 to ask for Chapter 3, sent %v", rec.paths)
+	}
+	if after.mode != modeReview {
+		t.Errorf("expected 3 to stay in the review, got mode %d", after.mode)
+	}
+}
+
+func TestADigitPastTheLastChapterDoesNothing(t *testing.T) {
+	m, rec := recordingIntro(t, 2)
+
+	after := press(m, "4")
+
+	if sent := rec.all(); len(sent) > 0 {
+		t.Errorf("expected 4 in a Round of three Chapters to ask for nothing, sent %v", sent)
+	}
+	if after.view.ChapterIntro != 2 || after.mode != modeReview {
+		t.Errorf("expected 4 to leave the Reviewer on Chapter 2's intro, got intro %d in mode %d", after.view.ChapterIntro, after.mode)
+	}
+}
+
+// The digits were once shortcuts to Steps 1–9. They are Chapter shortcuts
+// only, so a Round without Chapters gives them nothing to do, while g still
+// goes to the Overview.
+func TestDigitsDoNothingInARoundWithoutChapters(t *testing.T) {
+	m, rec := recordingIntro(t, 1)
+	m.view.Chapters, m.view.ChapterIntro, m.view.Position = nil, 0, 2
+	m.view.Step = oneLineStep("held")
+	m.view.Step.Number = 2
+	m.syncCursor()
+
+	for _, digit := range []string{"1", "2", "9"} {
+		m = press(m, digit)
+	}
+	afterDigits := rec.all()
+	press(m, "g")
+
+	if len(afterDigits) > 0 {
+		t.Errorf("expected digits in a Round without Chapters to ask for nothing, sent %v", afterDigits)
+	}
+	if !rec.sent("/goto/0") {
+		t.Errorf("expected g to go to the Overview, sent %v", rec.all())
+	}
+}
+
+func TestTheKeybarOffersTheDigitsForChaptersOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		chapters int
+		want     []string
+		unwanted []string
+	}{
+		{"three Chapters", 3, []string{"←/→ go to Step", "1-3 go to Chapter"}, []string{"1-5"}},
+		{"one Chapter", 1, []string{"←/→ go to Step", "1 go to Chapter"}, []string{"1-"}},
+		{"no Chapters", 0, []string{"←/→ go to Step"}, []string{"1-", "Chapter"}},
+	} {
+		m := atIntro(1)
+		m.view.Chapters = m.view.Chapters[:tc.chapters]
+		m.view.ChapterIntro = 0
+
+		keys := m.globalKeys()
+
+		for _, want := range tc.want {
+			if !strings.Contains(keys, keybar(want)) {
+				t.Errorf("%s: expected the keybar to offer %q, got %q", tc.name, want, keys)
+			}
+		}
+		for _, unwanted := range tc.unwanted {
+			if strings.Contains(keys, keybar(unwanted)) {
+				t.Errorf("%s: expected the keybar not to offer %q, got %q", tc.name, unwanted, keys)
+			}
+		}
+	}
+}
+
+func TestTheKeybarOffersNoDigitsPastTheNinthChapter(t *testing.T) {
+	m := atIntro(1)
+	m.view.Chapters = nil
+	for n := 1; n <= 12; n++ {
+		m.view.Chapters = append(m.view.Chapters, daemon.ChapterWire{Number: n, Name: "c", Intro: "i", FirstStep: 1, LastStep: 1})
+	}
+
+	keys := m.globalKeys()
+
+	if !strings.Contains(keys, keybar("1-9 go to Chapter")) {
+		t.Errorf("expected the keybar to offer 1-9 for a Round of 12 Chapters, got %q", keys)
+	}
+}

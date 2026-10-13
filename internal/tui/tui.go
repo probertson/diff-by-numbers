@@ -1108,8 +1108,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.client.intent("/goto/0")
 			return m, m.refresh()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			m.status = "→ Step " + key
-			m.client.intent("/goto/" + key)
+			// The Chapter shortcuts. A digit with no Chapter behind it — past the
+			// last, or in a Round without Chapters — does nothing.
+			if _, ok := m.chapter(int(key[0] - '0')); !ok {
+				return m, nil
+			}
+			m.status = ""
+			m.client.intent("/chapter/" + key)
 			return m, m.refresh()
 		case "r":
 			if m.view != nil && m.view.Finished {
@@ -1789,7 +1794,7 @@ func (m model) globalKeys() string {
 	if m.view == nil || !m.view.Posted {
 		return keybar("q exit")
 	}
-	return keybar(m.navHint(), "g Overview", "l list", "h hand off", "i inbox", "q exit")
+	return keybar(append(m.navHints(), "g Overview", "l list", "h hand off", "i inbox", "q exit")...)
 }
 
 // modeKeys is the blue row: the actions available on the current page only. It
@@ -2630,18 +2635,21 @@ func keybar(tokens ...string) string {
 	return strings.Join(labels, "  ·  ")
 }
 
-// jumpHint labels the number-jump with the real Step count, and says how to
-// reach Steps past 9.
-func (m model) navHint() string {
-	n := m.view.StepCount
-	switch {
-	case n <= 1:
-		return "→ go to Step"
-	case n <= 9:
-		return fmt.Sprintf("←/→/1-%d go to Step", n)
-	default:
-		return "←/→/1-9 go to Step (→ for later)"
+// navHints labels moving through the Round: the arrows from stop to stop, and,
+// in a Round with Chapters, the digits that go to one, labelled with the real
+// Chapter count. Chapters past 9 have no digit.
+func (m model) navHints() []string {
+	hints := []string{"←/→ go to Step"}
+	if m.view.StepCount <= 1 {
+		hints = []string{"→ go to Step"}
 	}
+	switch n := len(m.view.Chapters); {
+	case n == 1:
+		hints = append(hints, "1 go to Chapter")
+	case n > 1:
+		hints = append(hints, fmt.Sprintf("1-%d go to Chapter", min(n, 9)))
+	}
+	return hints
 }
 
 func (m model) content() string {

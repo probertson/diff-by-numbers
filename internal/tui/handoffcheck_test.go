@@ -29,6 +29,13 @@ func (r *pathRecorder) sent(path string) bool {
 	return false
 }
 
+// all is every path sent so far, in order.
+func (r *pathRecorder) all() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.paths...)
+}
+
 // checkingModel is a review on its last Step with the given questions in the
 // Round, talking to a server that records what it is sent.
 func checkingModel(t *testing.T, mode mode, questions ...daemon.QuestionWire) (model, *pathRecorder) {
