@@ -1,7 +1,12 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -316,14 +321,112 @@ func TestCodeKeepsItsCommentStyling(t *testing.T) {
 	}
 }
 
-func TestSelectingABlockSelectsItsSourceLines(t *testing.T) {
-	m := stepModel(t, documentStep(retries()))
-	m = press(m, "down")
+// anchorServer stands in for the daemon's /anchor: it answers every request
+// with the same Anchor text and records what each one asked for.
+func anchorServer(t *testing.T, m *model, text string) *[]map[string]any {
+	t.Helper()
+	var asked []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/anchor") {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		asked = append(asked, body)
+		io.WriteString(w, text)
+	}))
+	t.Cleanup(server.Close)
+	m.client.base = server.URL
+	m.note = newNote(m.width)
+	return &asked
+}
 
-	run, ok := m.cursor.selection()
+// twoParagraphs is a new Document of a heading on line 1, paragraphs on lines
+// 3-4 and 6-7, and a list item on 9.
+func twoParagraphs() *daemon.StepWire {
+	return documentStep(documentExcerpt("docs/retries.md",
+		heading(1, "Retries"),
+		para("A request is retried", "when the transport fails."),
+		para("It waits between", "attempts."),
+		item("- the first attempt"),
+	))
+}
 
-	if !ok || run.start != (rowRef{"new", 3}) || run.end != (rowRef{"new", 6}) || run.rows != 4 {
-		t.Errorf("expected the paragraph's lines 3-6 selected, got %+v (%v)", run, ok)
+// selectingTwoParagraphs selects the Document's two paragraphs, block by block.
+func selectingTwoParagraphs(m model) model {
+	return press(press(press(m, "down"), "v"), "down")
+}
+
+func TestCommentingOnTwoParagraphsAsksForThoseBlocksAnchor(t *testing.T) {
+	m := stepModel(t, twoParagraphs())
+	asked := anchorServer(t, &m, "Re: docs/retries.md — after 3-7")
+	m = selectingTwoParagraphs(m)
+
+	m = press(m, "c")
+
+	want := []map[string]any{{
+		"excerpt_index": float64(0), "blocks": true,
+		"start": map[string]any{"side": "new", "line": float64(3)},
+		"end":   map[string]any{"side": "new", "line": float64(6)},
+	}}
+	if !reflect.DeepEqual(*asked, want) {
+		t.Errorf("expected the Anchor asked for by the blocks at each end\n%v\ngot\n%v", want, *asked)
+	}
+	if m.mode != modeNote || m.pendingCode != "Re: docs/retries.md — after 3-7" {
+		t.Errorf("expected the Comment editor open on the Anchor, got mode %v and %q", m.mode, m.pendingCode)
+	}
+}
+
+func TestYCopiesTheSameAnchorACommentWouldCarry(t *testing.T) {
+	var copied []string
+	was := copyText
+	copyText = func(text string) bool { copied = append(copied, text); return true }
+	t.Cleanup(func() { copyText = was })
+	m := stepModel(t, twoParagraphs())
+	asked := anchorServer(t, &m, "Re: docs/retries.md — after 3-7")
+	commented := press(selectingTwoParagraphs(m), "c")
+
+	m = press(selectingTwoParagraphs(m), "y")
+
+	if len(*asked) != 2 || !reflect.DeepEqual((*asked)[0], (*asked)[1]) {
+		t.Errorf("expected y to ask for the same Anchor as c, got %v", *asked)
+	}
+	if !slices.Equal(copied, []string{commented.pendingCode}) {
+		t.Errorf("expected the Anchor text copied, got %q", copied)
+	}
+	if m.status != "copied Anchor for 2 blocks — paste it into your agent chat" {
+		t.Errorf("expected the status to count the blocks selected, got %q", m.status)
+	}
+}
+
+func TestTheSourceViewSelectsAndAnchorsLinesAsBefore(t *testing.T) {
+	m := press(stepModel(t, twoParagraphs()), "s")
+	asked := anchorServer(t, &m, "Re: docs/retries.md — after 3-4")
+	m = press(press(press(press(m, "down"), "down"), "v"), "down") // lines 3 and 4
+
+	press(m, "c")
+
+	want := []map[string]any{{
+		"excerpt_index": float64(0),
+		"start":         map[string]any{"side": "new", "line": float64(3)},
+		"end":           map[string]any{"side": "new", "line": float64(4)},
+	}}
+	if !reflect.DeepEqual(*asked, want) {
+		t.Errorf("expected the source view to anchor the lines selected\n%v\ngot\n%v", want, *asked)
+	}
+}
+
+func TestEOnABlockEditsACommentOnAnyOfItsLines(t *testing.T) {
+	m := press(stepModel(t, twoParagraphs()), "down")
+	m.note = newNote(m.width)
+	m.view.Comments = []daemon.CommentWire{{ID: 4, Step: 1, File: "docs/retries.md", Note: "say how long",
+		Segments: []daemon.SegmentWire{{Side: "new", FirstLine: 4, LastLine: 4}}}}
+
+	m = press(m, "e")
+
+	if m.mode != modeNote || m.editingID != 4 {
+		t.Errorf("expected e to open the Comment on the paragraph's second line, got mode %v, editing %d (%s)", m.mode, m.editingID, m.status)
 	}
 }
 

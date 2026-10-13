@@ -3,6 +3,7 @@ package tui
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1011,7 +1012,7 @@ func TestDeletingAnEditOpenedFromTheListReturnsToTheList(t *testing.T) {
 }
 
 func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *testing.T) {
-	filter := commentFilter{active: true, file: "a.go", side: "after", line: 12}
+	filter := commentFilter{active: true, file: "a.go", rows: []rowRef{{side: "after", line: 12}}}
 	m := model{
 		client:        client{base: acceptingServer(t).URL, review: "a1"},
 		mode:          modeList,
@@ -1031,7 +1032,7 @@ func TestOpeningAnEditFromTheFilteredListKeepsTheFilterAcrossTheRoundTrip(t *tes
 	if sm.mode != modeList {
 		t.Fatal("saving should return to the List")
 	}
-	if sm.commentFilter != filter {
+	if !reflect.DeepEqual(sm.commentFilter, filter) {
 		t.Errorf("the filtered List should still be filtered to the same line, got %+v", sm.commentFilter)
 	}
 }
@@ -1106,7 +1107,7 @@ func concludingModel(comments ...daemon.CommentWire) model {
 func TestListOpensFromTheConclusionScreenUnfiltered(t *testing.T) {
 	for _, key := range []string{"l", "L"} {
 		m := concludingModel(daemon.CommentWire{ID: 1, Step: 1, Note: "n"})
-		m.commentFilter = commentFilter{active: true, file: "a.go", side: "after", line: 12}
+		m.commentFilter = commentFilter{active: true, file: "a.go", rows: []rowRef{{side: "after", line: 12}}}
 		m.commentCursor = 4
 
 		opened, _ := m.updateConclusion(key)

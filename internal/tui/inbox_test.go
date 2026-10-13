@@ -459,7 +459,16 @@ func settle(m model) model {
 // returns the review id.
 func postedReview(t *testing.T, baseURL string) string {
 	t.Helper()
-	root := reviewableRepo(t)
+	return postedRound(t, baseURL, reviewableRepo(t), map[string]any{
+		"name": "the change", "explanation": "why",
+		"excerpts": []any{map[string]any{"file": "fetch.ts", "side": "new", "first_line": 1, "last_line": 4}},
+	})
+}
+
+// postedRound posts a Round of the Steps over the repository to a real daemon
+// over MCP, as an agent does, and returns the review id.
+func postedRound(t *testing.T, baseURL, root string, steps ...any) string {
+	t.Helper()
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: baseURL + "/mcp"}, nil)
@@ -472,10 +481,7 @@ func postedReview(t *testing.T, baseURL string) string {
 		"label":        "auth refactor",
 		"brief":        map[string]any{"goal": "g", "background": "a"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
-		"steps": []any{map[string]any{
-			"name": "the change", "explanation": "why",
-			"excerpts": []any{map[string]any{"file": "fetch.ts", "side": "new", "first_line": 1, "last_line": 4}},
-		}},
+		"steps":        steps,
 	}})
 	if err != nil {
 		t.Fatalf("post_round failed: %v", err)
@@ -503,6 +509,13 @@ func postedReview(t *testing.T, baseURL string) string {
 // reviewableRepo is a repository with one changed line to review.
 func reviewableRepo(t *testing.T) string {
 	t.Helper()
+	return repoChanging(t, "fetch.ts", "a\nb\nc\n", "a\nb\nc\nADDED\n")
+}
+
+// repoChanging is a repository whose feature branch changes one file from
+// before to after.
+func repoChanging(t *testing.T, file, before, after string) string {
+	t.Helper()
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -513,11 +526,11 @@ func reviewableRepo(t *testing.T) string {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	os.WriteFile(filepath.Join(root, "fetch.ts"), []byte("a\nb\nc\n"), 0o644)
+	os.WriteFile(filepath.Join(root, file), []byte(before), 0o644)
 	git("init", "-q", "-b", "main")
 	git("add", ".")
 	git("commit", "-qm", "initial")
 	git("checkout", "-q", "-b", "feature")
-	os.WriteFile(filepath.Join(root, "fetch.ts"), []byte("a\nb\nc\nADDED\n"), 0o644)
+	os.WriteFile(filepath.Join(root, file), []byte(after), 0o644)
 	return root
 }

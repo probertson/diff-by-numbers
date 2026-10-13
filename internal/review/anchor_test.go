@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,4 +110,134 @@ func TestAnchorReportsWhenTheCodeCannotBeRead(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected anchoring to fail when the code cannot be read")
 	}
+}
+
+// In a Document's formatted view the Reviewer selects whole blocks, and the
+// Anchor carries those blocks' source lines (#148). The selection names the
+// blocks at each end by a row of each, and dbn takes every row of every block
+// between them.
+
+// blocks is a selection of the blocks holding the two new-side rows, and every
+// block between them.
+func blocks(excerpt, first, last int) review.AnchorTarget {
+	return review.AnchorTarget{ExcerptIndex: excerpt, Blocks: true,
+		Start: review.AnchorEndpoint{Line: first}, End: review.AnchorEndpoint{Line: last}}
+}
+
+// anchoringIn opens the first Step of a Round over the files, ready to anchor.
+func anchoringIn(t *testing.T, files workingFiles, steps ...review.Step) *review.Session {
+	t.Helper()
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(steps...))
+	mustAdvance(t, session)
+	return session
+}
+
+func numbersOf(lines []review.Line) []int {
+	var out []int
+	for _, line := range lines {
+		out = append(out, line.Number)
+	}
+	return out
+}
+
+func TestSelectingTwoParagraphsAnchorsTheirSourceLines(t *testing.T) {
+	// A heading on line 1; paragraphs on 3-4, 6-7 and 9.
+	files := adding("docs/retries.md", markdown("# Retries", "one two\nthree four", "five six\nseven eight", "nine"))
+	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	anchor, err := session.Anchor(blocks(0, 3, 6))
+
+	if err != nil {
+		t.Fatalf("expected the two paragraphs to anchor, got %v", err)
+	}
+	if got, want := numbersOf(anchor.Lines), []int{3, 4, 5, 6, 7}; !slices.Equal(got, want) {
+		t.Errorf("expected both paragraphs whole, and the blank line between them, %v; got %v", want, got)
+	}
+	if want := []review.AnchorSegment{{Side: review.NewSide, FirstLine: 3, LastLine: 7}}; !slices.Equal(anchor.Segments, want) {
+		t.Errorf("expected the Anchor to cover %v, got %v", want, anchor.Segments)
+	}
+	if rendered := anchor.Render(); !strings.Contains(rendered, "+     7 | seven eight") {
+		t.Errorf("expected the source lines quoted with their signs and numbers:\n%s", rendered)
+	}
+}
+
+func TestAnEditedParagraphsAnchorQuotesItsRemovedAndAddedLines(t *testing.T) {
+	// The paragraph on line 3 is edited; a new one follows it on line 5.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "A request is retried when the transport fails."),
+		markdown("# Retries", "A request is resent when the transport fails.", "It waits between attempts."),
+	)
+	session := anchoringIn(t, files, showingLines("Resend", "docs/retries.md", review.NewSide, 3, 5))
+
+	anchor, err := session.Anchor(blocks(0, 3, 3))
+
+	if err != nil {
+		t.Fatalf("expected the edited paragraph to anchor, got %v", err)
+	}
+	want := []review.AnchorSegment{
+		{Side: review.OldSide, FirstLine: 3, LastLine: 3},
+		{Side: review.NewSide, FirstLine: 3, LastLine: 3},
+	}
+	if !slices.Equal(anchor.Segments, want) {
+		t.Errorf("expected the paragraph's removed and added lines, %v; got %v", want, anchor.Segments)
+	}
+	rendered := anchor.Render()
+	for _, line := range []string{"-     3 | A request is retried", "+     3 | A request is resent"} {
+		if !strings.Contains(rendered, line) {
+			t.Errorf("expected %q quoted:\n%s", line, rendered)
+		}
+	}
+}
+
+// attemptsTable is a heading on line 1 and a table: its header row on line 3,
+// its divider on 4 and its rows on 5-8.
+const attemptsTable = "| Attempt | Delay |\n| ------- | ----- |\n| 1 | none |\n| 2 | 1s |\n| 3 | 2s |\n| 4 | 4s |"
+
+func TestAnchoringATableRowQuotesTheHeaderRowForContext(t *testing.T) {
+	// One Step shows the heading and the first row; the one under test shows
+	// rows 7-8, so dbn adds the header row and divider to it as context.
+	files := adding("docs/retries.md", markdown("# Retries", attemptsTable))
+	session := anchoringIn(t, files,
+		showingLines("The last attempts", "docs/retries.md", review.NewSide, 7, 8),
+		showingLines("The first attempt", "docs/retries.md", review.NewSide, 1, 6))
+
+	anchor, err := session.Anchor(blocks(0, 8, 8))
+
+	if err != nil {
+		t.Fatalf("expected the table row to anchor, got %v", err)
+	}
+	if got, want := numbersOf(anchor.Lines), []int{3, 4, 8}; !slices.Equal(got, want) {
+		t.Errorf("expected the header row and divider quoted above the row, %v; got %v", want, got)
+	}
+	// The header is there to read the row by; the Comment is on the row.
+	if want := []review.AnchorSegment{{Side: review.NewSide, FirstLine: 8, LastLine: 8}}; !slices.Equal(anchor.Segments, want) {
+		t.Errorf("expected the Anchor to point at the row alone, %v; got %v", want, anchor.Segments)
+	}
+	if rendered := anchor.Render(); !strings.Contains(rendered, "| Attempt | Delay |") || !strings.Contains(rendered, "after 8 ") {
+		t.Errorf("expected the header quoted and the row named:\n%s", rendered)
+	}
+}
+
+func TestAnchoringATablesHeaderRowPointsAtIt(t *testing.T) {
+	files := adding("docs/retries.md", markdown("# Retries", attemptsTable))
+	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	anchor, err := session.Anchor(blocks(0, 3, 5))
+
+	if err != nil {
+		t.Fatalf("expected the header row and first row to anchor, got %v", err)
+	}
+	if want := []review.AnchorSegment{{Side: review.NewSide, FirstLine: 3, LastLine: 5}}; !slices.Equal(anchor.Segments, want) {
+		t.Errorf("expected the Anchor to cover the header row it was raised on, %v; got %v", want, anchor.Segments)
+	}
+}
+
+func TestASelectionOfBlocksMustEndInBlocks(t *testing.T) {
+	files := adding("docs/retries.md", markdown("# Retries", "one two"))
+	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	_, err := session.Anchor(blocks(0, 2, 3)) // line 2 is the blank line
+
+	assertRejected(t, err, review.RejectedBadSelection)
 }

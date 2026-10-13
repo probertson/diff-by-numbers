@@ -364,12 +364,23 @@ type leftStep struct {
 	expanded map[int][]daemon.ExcerptWire
 }
 
+// commentFilter narrows the List to the Comments on where the cursor rested: a
+// line, or every row of a Document's block.
 type commentFilter struct {
 	active     bool
 	repository string
 	file       string
-	side       string
-	line       int
+	rows       []rowRef
+}
+
+// covers reports whether a Comment covers any of the filter's rows.
+func (f commentFilter) covers(comment daemon.CommentWire) bool {
+	for _, row := range f.rows {
+		if comment.Covers(f.repository, f.file, row.side, row.line) {
+			return true
+		}
+	}
+	return false
 }
 
 type mode int
@@ -547,7 +558,8 @@ func tick() tea.Cmd {
 }
 
 // anchorBody is a selected run as the daemon's /anchor and /comment
-// endpoints take it: the Excerpt and the row at each end, never a range.
+// endpoints take it: the Excerpt and the row at each end, never a range. c and y
+// both send it, so a Comment carries exactly the Anchor y would have copied.
 func anchorBody(run selectedRun) map[string]any {
 	body := map[string]any{
 		"excerpt_index": run.excerpt,
@@ -558,6 +570,11 @@ func anchorBody(run selectedRun) map[string]any {
 	// expansion, so the daemon must be told which one.
 	if run.ack >= 0 {
 		body["acknowledgement_index"] = run.ack
+	}
+	// A run of blocks names a row of the block at each end, and the daemon
+	// gathers the blocks' rows, which need not be one run of them.
+	if run.blocks > 0 {
+		body["blocks"] = true
 	}
 	return body
 }
@@ -654,8 +671,14 @@ func (m *model) copyAnchor() tea.Cmd {
 		m.status = "could not compose the Anchor"
 		return nil
 	}
-	if copyToClipboard(text) {
-		m.status = fmt.Sprintf("copied Anchor for %s — paste it into your agent chat", pluralize(run.rows, "line"))
+	if copyText(text) {
+		// Counted in what the Reviewer selected: blocks of a formatted Document,
+		// whose source lines they never saw counted, or lines.
+		selected := pluralize(run.rows, "line")
+		if run.blocks > 0 {
+			selected = pluralize(run.blocks, "block")
+		}
+		m.status = fmt.Sprintf("copied Anchor for %s — paste it into your agent chat", selected)
 	} else {
 		m.status = "no clipboard tool found; the Anchor could not be copied"
 	}
@@ -1177,10 +1200,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.pendingCode = here[0].Anchor
 					return m, m.openEditor(m.commentEditor(), here[0].Note, modeReview)
 				default:
-					line := m.cursor.lines[m.cursor.cursor]
 					m.openList(modeReview)
-					excerpt := m.cursor.excerptOf(m.view.Step, line)
-					m.commentFilter = commentFilter{active: true, repository: excerpt.Repository, file: excerpt.File, side: line.side, line: line.number}
+					m.commentFilter = m.cursorFilter()
 				}
 				return m, nil
 			case "c":
@@ -1933,7 +1954,7 @@ func (m model) listView() string {
 	}
 	title := pluralize(len(list), "Comment")
 	if m.commentFilter.active {
-		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "Comment"), m.commentFilter.file, m.commentFilter.line)
+		title = fmt.Sprintf("%s on %s:%d", pluralize(len(list), "Comment"), m.commentFilter.file, m.commentFilter.rows[0].line)
 	}
 	items := make([][]string, 0, len(list))
 	for i, comment := range list {
@@ -2226,20 +2247,32 @@ func (m model) conclusionView() string {
 	return b.String()
 }
 
-// commentAtCursor returns the Comment anchored over the cursor's line, if
-// there is one, so it can be edited in place.
+// commentAtCursor returns the Comment anchored over the cursor's line, or any
+// row of its block, if there is one, so it can be edited in place.
 func (m model) commentAtCursor() (daemon.CommentWire, bool) {
-	if !m.inStep() || !m.cursor.onCode() {
+	here := m.commentsAtCursor()
+	if len(here) == 0 {
 		return daemon.CommentWire{}, false
 	}
+	return here[0], true
+}
+
+// cursorFilter is a filter to the Comments on where the cursor rests: its line,
+// or, on a block of a formatted Document, any row of the block, since that is
+// where the block's mark says a Comment is.
+func (m model) cursorFilter() commentFilter {
 	line := m.cursor.lines[m.cursor.cursor]
 	excerpt := m.cursor.excerptOf(m.view.Step, line)
-	for _, comment := range m.view.Comments {
-		if comment.Step == m.view.Position && comment.Covers(excerpt.Repository, excerpt.File, line.side, line.number) {
-			return comment, true
-		}
+	filter := commentFilter{active: true, repository: excerpt.Repository, file: excerpt.File}
+	if line.block == 0 {
+		filter.rows = []rowRef{{side: line.side, line: line.number}}
+		return filter
 	}
-	return daemon.CommentWire{}, false
+	for _, r := range line.rows {
+		row := excerpt.Lines[r]
+		filter.rows = append(filter.rows, rowRef{side: lineSide(row, excerpt), line: row.Number})
+	}
+	return filter
 }
 
 // filteredComments is the List's current contents: every Comment, or just
@@ -2252,7 +2285,7 @@ func (m model) filteredComments() []daemon.CommentWire {
 	}
 	var out []daemon.CommentWire
 	for _, comment := range all {
-		if comment.Covers(m.commentFilter.repository, m.commentFilter.file, m.commentFilter.side, m.commentFilter.line) {
+		if m.commentFilter.covers(comment) {
 			out = append(out, comment)
 		}
 	}
@@ -2271,16 +2304,16 @@ func (m *model) clampCommentCursor(length int) {
 	}
 }
 
-// commentsAtCursor returns every Comment anchored over the cursor's line.
+// commentsAtCursor returns every Comment anchored over the cursor's line, or
+// any row of its block.
 func (m model) commentsAtCursor() []daemon.CommentWire {
 	if !m.inStep() || !m.cursor.onCode() {
 		return nil
 	}
-	line := m.cursor.lines[m.cursor.cursor]
-	excerpt := m.cursor.excerptOf(m.view.Step, line)
+	filter := m.cursorFilter()
 	var out []daemon.CommentWire
 	for _, comment := range m.view.Comments {
-		if comment.Step == m.view.Position && comment.Covers(excerpt.Repository, excerpt.File, line.side, line.number) {
+		if comment.Step == m.view.Position && filter.covers(comment) {
 			out = append(out, comment)
 		}
 	}
