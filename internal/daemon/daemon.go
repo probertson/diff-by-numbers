@@ -309,12 +309,14 @@ func watchForQuitKey(onQuit func()) (func(), error) {
 // it lies in and the row at each end of it. The rows between them are the core's
 // to derive, so the client never states a range (#57). AcknowledgementIndex is
 // present only for a selection in an expanded Acknowledgement, whose Excerpts
-// ExcerptIndex then counts.
+// ExcerptIndex then counts. Blocks says the selection is of a Document's
+// blocks, each end naming a row of the block at that end.
 type anchorRequest struct {
 	AcknowledgementIndex *int         `json:"acknowledgement_index,omitempty"`
 	ExcerptIndex         int          `json:"excerpt_index"`
 	Start                endpointWire `json:"start"`
 	End                  endpointWire `json:"end"`
+	Blocks               bool         `json:"blocks,omitempty"`
 }
 
 type endpointWire struct {
@@ -328,6 +330,7 @@ func (r anchorRequest) target() review.AnchorTarget {
 		ExcerptIndex:    r.ExcerptIndex,
 		Start:           review.AnchorEndpoint{Side: review.Side(r.Start.Side), Line: r.Start.Line},
 		End:             review.AnchorEndpoint{Side: review.Side(r.End.Side), Line: r.End.Line},
+		Blocks:          r.Blocks,
 	}
 }
 

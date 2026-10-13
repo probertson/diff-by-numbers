@@ -362,11 +362,15 @@ type rowRef struct {
 // it lies in, the row at each end, and how many rows it spans. The rows between
 // the ends are deliberately not named here — the daemon owns the order they are
 // in, and re-deriving it client-side would be a second copy of that knowledge.
+//
+// A run of a formatted Document's blocks names the first row of the block at
+// each end, and blocks counts them; it is 0 for a run of lines.
 type selectedRun struct {
 	ack        int // the Acknowledgement whose expansion it lies in, or -1
 	excerpt    int
 	start, end rowRef
 	rows       int
+	blocks     int
 }
 
 // selection returns the run currently selected, and whether it can be anchored.
@@ -399,9 +403,14 @@ func (c stepCursor) selection() (selectedRun, bool) {
 		rows:    end - start + 1,
 	}
 	if first.block > 0 && last.block > 0 {
-		// A run of blocks is the source lines from the first block's first row to
-		// the last block's last, which is what the Anchor carries.
-		run.end = last.lastRow
+		// A run of blocks: the daemon takes each block whole, with whatever the
+		// Anchor needs to read it by (a table's header row), and the rows of one
+		// block need not be one run, so the ends name blocks, not a range of rows.
+		for _, line := range c.lines[start : end+1] {
+			if line.block > 0 {
+				run.blocks++
+			}
+		}
 		run.rows = last.rows[len(last.rows)-1] - first.rows[0] + 1
 	}
 	return run, true

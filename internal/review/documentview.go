@@ -149,6 +149,33 @@ func widened(rows []Line, doc document, excerpt Excerpt) []Line {
 	return out
 }
 
+// headerOf is the number, among an Excerpt's blocks, of the block holding the
+// header row of the table that block b is a row of: 0 when b is no table row,
+// or when the header is not shown. Widening adds the header to any Excerpt
+// showing a table's rows, so it is shown whenever they are.
+func (s *Session) headerOf(view ExcerptView, b int) int {
+	block := view.Blocks[b-1]
+	if block.Kind != BlockTableRow {
+		return 0
+	}
+	doc, ok := s.ledger.documents[documentSide{fileRef{view.Excerpt.Repository, view.Excerpt.File}, block.Side}]
+	if !ok {
+		return 0
+	}
+	for i, parsed := range doc.blocks {
+		if parsed.lines.First != block.Lines.First {
+			continue
+		}
+		header := doc.blocks[tableHeader(doc.blocks, i)].lines.First
+		for h, shown := range view.Blocks {
+			if shown.Side == block.Side && shown.Lines.First == header {
+				return h + 1
+			}
+		}
+	}
+	return 0
+}
+
 // tableHeader is the index of the block holding the header row of the table
 // the block at i is a row of. A table's rows are contiguous, one block each, and
 // its header row and divider are its first block, so the header is the first of

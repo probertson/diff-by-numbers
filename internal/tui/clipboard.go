@@ -5,6 +5,10 @@ import (
 	"runtime"
 )
 
+// copyText is how the TUI copies text: the system clipboard, or in a test, a
+// stand-in that keeps what was copied without touching the Reviewer's own.
+var copyText = copyToClipboard
+
 // copyToClipboard writes text to the system clipboard. dbn runs locally beside
 // the Reviewer, so shelling out to the platform tool is enough and avoids a
 // dependency. It returns whether it succeeded, so the UI can be honest when no

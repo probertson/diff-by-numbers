@@ -25,10 +25,15 @@ type AnchorEndpoint struct {
 // Acknowledgement, when set, says the run lies in acknowledged code the Reviewer
 // expanded: ExcerptIndex then counts into that Acknowledgement's expansion rather
 // than the Step's own Excerpts.
+//
+// Blocks, when set, says the Reviewer selected whole blocks of a Document
+// rather than rows: each end then names a row of the block at that end, and the
+// selection is every block from one to the other (#148).
 type AnchorTarget struct {
 	Acknowledgement *int
 	ExcerptIndex    int
 	Start, End      AnchorEndpoint
+	Blocks          bool
 }
 
 // AnchorSegment is one side-qualified run of lines within an Anchor. An Anchor
@@ -73,9 +78,10 @@ type Anchor struct {
 	PreviousRound int
 }
 
-// Anchor composes an Anchor for a selection within the Step in view. The run
-// between the two endpoints is taken from the Excerpt's own rendering, so an
-// Anchor is always a contiguous run of rows the Reviewer actually saw.
+// Anchor composes an Anchor for a selection within the Step in view. Its rows
+// are taken from the Excerpt's own rendering, so an Anchor only ever quotes rows
+// the Reviewer actually saw: the contiguous run between the two endpoints or,
+// for a selection of blocks, those blocks' rows.
 func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	if s.current == nil {
 		return Anchor{}, reject(RejectedNoRound, "there is no Round to anchor into")
@@ -96,17 +102,9 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		return Anchor{}, fmt.Errorf("could not read the selected code: %s", view.Problem)
 	}
 
-	start, err := rowIndex(view.Lines, target.Start, excerpt)
+	rows, err := s.selectedRows(view, target)
 	if err != nil {
 		return Anchor{}, err
-	}
-	end, err := rowIndex(view.Lines, target.End, excerpt)
-	if err != nil {
-		return Anchor{}, err
-	}
-	// The ends are rows, not bounds, so which was selected first carries no meaning.
-	if start > end {
-		start, end = end, start
 	}
 
 	var ackIndex *int
@@ -119,19 +117,25 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	// which is quoted as source and acted on. An unreadable before-side means the
 	// selection cannot be quoted at all; a signpost is only a reference to code
 	// drawn in another Step, so it is dropped and the rest still quotes.
-	var lines []Line
-	for _, line := range view.Lines[start : end+1] {
-		if line.Unreadable {
-			return Anchor{}, fmt.Errorf("could not read the selected code: %s", line.Text)
+	//
+	// A row quoted only for context is not what the Anchor points at, so it is
+	// left out of the extent the Comment is marked and located by.
+	var lines, pointed []Line
+	for _, row := range rows {
+		if row.line.Unreadable {
+			return Anchor{}, fmt.Errorf("could not read the selected code: %s", row.line.Text)
 		}
-		if line.Content() {
-			lines = append(lines, line)
+		if row.line.Content() {
+			lines = append(lines, row.line)
+			if !row.context {
+				pointed = append(pointed, row.line)
+			}
 		}
 	}
 	return Anchor{
 		Repository: excerpt.Repository,
 		File:       excerpt.File,
-		Segments:   segmentsOf(lines),
+		Segments:   segmentsOf(pointed),
 		StepName:   step.Name,
 		Lines:      lines,
 
@@ -140,6 +144,73 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		ChangedOnDisk:         view.ChangedOnDisk,
 		PreviousRound:         s.previousRoundIn(lines),
 	}, nil
+}
+
+// quotedRow is a row an Anchor quotes, and whether it is quoted only so the
+// rows selected can be read: a table's header row, above a row of the table.
+type quotedRow struct {
+	line    Line
+	context bool
+}
+
+// selectedRows is the rows of an Excerpt's rendering a selection takes, in the
+// order they were rendered: the contiguous run between its two ends or, for a
+// selection of blocks, every row of the blocks from one end's to the other's,
+// with the header row of any table they are rows of.
+func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedRow, error) {
+	start, err := rowIndex(view.Lines, target.Start, view.Excerpt)
+	if err != nil {
+		return nil, err
+	}
+	end, err := rowIndex(view.Lines, target.End, view.Excerpt)
+	if err != nil {
+		return nil, err
+	}
+	// The ends are rows, not bounds, so which was selected first carries no meaning.
+	if start > end {
+		start, end = end, start
+	}
+	if !target.Blocks {
+		var rows []quotedRow
+		for _, line := range view.Lines[start : end+1] {
+			rows = append(rows, quotedRow{line: line})
+		}
+		return rows, nil
+	}
+
+	first, last := view.Lines[start].Block, view.Lines[end].Block
+	if first == 0 || last == 0 {
+		return nil, reject(RejectedBadSelection, "a selection of blocks must start and end in a block")
+	}
+	selected := func(b int) bool { return b >= first && b <= last }
+	headers := map[int]bool{}
+	for b := first; b <= last; b++ {
+		if h := s.headerOf(view, b); h > 0 && !selected(h) {
+			headers[h] = true
+		}
+	}
+	// A block's rows are not always one run, so they are gathered by the block
+	// they name rather than by position. The blank lines between the blocks are
+	// kept, so the Anchor reads as the source does.
+	lo, hi := -1, -1
+	for i, line := range view.Lines {
+		if selected(line.Block) {
+			if lo < 0 {
+				lo = i
+			}
+			hi = i
+		}
+	}
+	var rows []quotedRow
+	for i, line := range view.Lines {
+		switch {
+		case headers[line.Block]:
+			rows = append(rows, quotedRow{line: line, context: true})
+		case selected(line.Block), line.Block == 0 && i > lo && i < hi:
+			rows = append(rows, quotedRow{line: line})
+		}
+	}
+	return rows, nil
 }
 
 // anchoredExcerpt finds the Excerpt a selection lies in — one of the Step's own,

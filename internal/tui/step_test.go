@@ -155,7 +155,7 @@ func TestACommentBelongsToItsOwnRepositoryNotASameNamedFileInAnother(t *testing.
 	marked := m.commentedLines()
 	_, onSecond := m.commentAtCursor()
 	hereOnSecond := m.commentsAtCursor()
-	m.commentFilter = commentFilter{active: true, repository: "/b", file: "app.ts", side: "new", line: 3}
+	m.commentFilter = commentFilter{active: true, repository: "/b", file: "app.ts", rows: []rowRef{{side: "new", line: 3}}}
 	listedForSecond := m.filteredComments()
 
 	if !marked[commentKey("/a", "app.ts", "new", 3)] {
