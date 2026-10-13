@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,4 +162,127 @@ func TestAnAnchorRemembersWhichAcknowledgementItLiesIn(t *testing.T) {
 	if anchor.Acknowledgement == nil || *anchor.Acknowledgement != 0 {
 		t.Errorf("expected the Anchor to record Acknowledgement 0, got %v", anchor.Acknowledgement)
 	}
+}
+
+// acknowledgedDocumentAndCode is a session whose one Step acknowledges an edit to
+// a Markdown Document beside an edit to code: in the Document a word of one
+// paragraph is replaced and, further down, the last paragraph is removed
+// outright; in the code one line is replaced.
+func acknowledgedDocumentAndCode(t *testing.T) *review.Session {
+	t.Helper()
+	files := workingFiles{
+		before: map[string]string{
+			"docs/retries.md": markdown("# Retries", "A request is retried when the transport fails.", "## Limits", "Old limits applied\nonce a day."),
+			"retry.go":        "func retry() {\n\tattempt()\n}\n",
+		},
+		after: map[string]string{
+			"docs/retries.md": markdown("# Retries", "A request is resent when the transport fails.", "## Limits"),
+			"retry.go":        "func retry() {\n\tresend()\n}\n",
+		},
+	}
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(review.Step{
+		Name:        "Notes and their code",
+		Explanation: "the agent's notes and the call they describe, read elsewhere",
+		Acknowledgements: []review.Acknowledgement{{
+			Repository: docsRepo, Files: []string{"docs/retries.md", "retry.go"}, Reason: "read in the design review",
+		}},
+	}))
+	mustAdvance(t, session)
+	return session
+}
+
+// expandedFile is what an Acknowledgement's expansion shows of one file.
+func expandedFile(views []review.ExcerptView, file string) []review.ExcerptView {
+	var out []review.ExcerptView
+	for _, view := range views {
+		if view.Excerpt.File == file {
+			out = append(out, view)
+		}
+	}
+	return out
+}
+
+func TestAnExpandedAcknowledgementOverAnEditedDocumentReadsAsTrackChanges(t *testing.T) {
+	session := acknowledgedDocumentAndCode(t)
+
+	views, err := session.ExpandAcknowledgement(1, 0)
+
+	if err != nil {
+		t.Fatalf("expected the Acknowledgement to expand, got %v", err)
+	}
+	document := expandedFile(views, "docs/retries.md")
+	if len(document) != 2 {
+		t.Fatalf("expected the Document's edit and its removal, got %d: %+v", len(document), document)
+	}
+	edited := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
+		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited}}
+	if !slices.Equal(document[0].Blocks, edited) {
+		t.Errorf("expected the paragraph edited\n%+v\ngot\n%+v", edited, document[0].Blocks)
+	}
+	runs := []review.WordRun{kept("A request is "), struck("retried"), inserted("resent"), kept(" when the transport fails.")}
+	if got := trackedRuns(document[0], 1); !slices.Equal(got, runs) {
+		t.Errorf("expected the merged flow\n%+v\ngot\n%+v", runs, got)
+	}
+	removed := []review.Block{{Kind: review.BlockParagraph, Side: review.OldSide,
+		Lines: review.LineRange{First: 7, Last: 8}, Treatment: review.TreatmentRemoved}}
+	if !slices.Equal(document[1].Blocks, removed) {
+		t.Errorf("expected the dropped paragraph removed\n%+v\ngot\n%+v", removed, document[1].Blocks)
+	}
+}
+
+func TestAParagraphEditedInTwoPlacesExpandsOnceWithBothEdits(t *testing.T) {
+	// git sees two edits, a line apart, in one paragraph. Each alone would be
+	// widened to the whole paragraph, so read apart they would show it twice.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "A request is retried\nwhen the transport\nfails badly."),
+		markdown("# Retries", "A request is resent\nwhen the transport\nfails often."),
+	)
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(review.Step{
+		Name:        "Notes",
+		Explanation: "the agent's notes, read elsewhere",
+		Acknowledgements: []review.Acknowledgement{{
+			Repository: docsRepo, Files: []string{"docs/retries.md"}, Reason: "read in the design review",
+		}},
+	}))
+	mustAdvance(t, session)
+
+	views, err := session.ExpandAcknowledgement(1, 0)
+
+	if err != nil {
+		t.Fatalf("expected the Acknowledgement to expand, got %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("expected the paragraph once, got %d Excerpts: %+v", len(views), views)
+	}
+	runs := []review.WordRun{
+		kept("A request is "), struck("retried"), inserted("resent"),
+		kept("when the transport"),
+		kept("fails "), struck("badly."), inserted("often."),
+	}
+	if got := trackedRuns(views[0], 1); !slices.Equal(got, runs) {
+		t.Errorf("expected both edits in the one paragraph\n%+v\ngot\n%+v", runs, got)
+	}
+}
+
+func TestCodeInTheSameAcknowledgementAsADocumentStillExpandsAsAUnifiedDiff(t *testing.T) {
+	session := acknowledgedDocumentAndCode(t)
+
+	views, err := session.ExpandAcknowledgement(1, 0)
+
+	if err != nil {
+		t.Fatalf("expected the Acknowledgement to expand, got %v", err)
+	}
+	code := expandedFile(views, "retry.go")
+	if len(code) != 1 {
+		t.Fatalf("expected the code's one edit, got %d: %+v", len(code), code)
+	}
+	if blocks := code[0].Blocks; len(blocks) != 0 {
+		t.Errorf("expected code to carry no blocks, got %+v", blocks)
+	}
+	assertRows(t, rowsOf(code[0]), []ackRow{
+		{review.OldSide, 2, true},
+		{review.NewSide, 2, true},
+	})
 }

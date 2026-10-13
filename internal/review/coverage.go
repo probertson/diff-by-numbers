@@ -673,7 +673,41 @@ func (l ledger) expansionExcerpts(repository, file string) []Excerpt {
 			rest = append(rest, line)
 		}
 	}
-	return append(out, excerptsForChangedLines(repository, file, rest)...)
+	return l.joinedInBlocks(append(out, excerptsForChangedLines(repository, file, rest)...))
+}
+
+// joinedInBlocks joins the after-side Excerpts of a Document that would show
+// the same block, so a paragraph git saw as two edits is read once, whole, with
+// both. Each such Excerpt is widened to the paragraphs and list items it cuts
+// into when drawn; two whose widened spans overlap become one Excerpt spanning
+// both, in the place of the first. Code, before-side Excerpts, and Documents dbn
+// could not read are left as they are.
+func (l ledger) joinedInBlocks(excerpts []Excerpt) []Excerpt {
+	var out []Excerpt
+	type joinable struct {
+		at          int
+		first, last int
+	}
+	last := map[fileRef]joinable{}
+	for _, excerpt := range excerpts {
+		ref := fileRef{excerpt.Repository, excerpt.File}
+		doc, ok := l.documents[documentSide{ref, NewSide}]
+		if excerpt.Side != NewSide || !ok {
+			out = append(out, excerpt)
+			continue
+		}
+		first, end := doc.widenedSpan(excerpt.FirstLine, excerpt.LastLine)
+		if prev, ok := last[ref]; ok && first <= prev.last && prev.first <= end {
+			joined := &out[prev.at]
+			joined.FirstLine = min(joined.FirstLine, excerpt.FirstLine)
+			joined.LastLine = max(joined.LastLine, excerpt.LastLine)
+			last[ref] = joinable{prev.at, min(prev.first, first), max(prev.last, end)}
+			continue
+		}
+		last[ref] = joinable{len(out), first, end}
+		out = append(out, excerpt)
+	}
+	return out
 }
 
 // excerptsForChangedLines groups a file's Changed Lines into the smallest set of

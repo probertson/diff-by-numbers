@@ -220,10 +220,10 @@ func widened(rows []Line, doc document, excerpt Excerpt) []Line {
 		if !b.lines.overlaps(excerpt.FirstLine, excerpt.LastLine) {
 			continue
 		}
-		switch b.kind {
-		case BlockParagraph, BlockListItem:
+		switch {
+		case isReadWhole(b.kind):
 			add(b.lines)
-		case BlockTableRow:
+		case b.kind == BlockTableRow:
 			add(doc.blocks[tableHeader(doc.blocks, i)].lines)
 		}
 	}
@@ -244,6 +244,25 @@ func widened(rows []Line, doc document, excerpt Excerpt) []Line {
 		out = slices.Insert(out, at, row)
 	}
 	return out
+}
+
+// isReadWhole reports whether an Excerpt cutting into a block of this kind is
+// widened to the whole of it.
+func isReadWhole(kind BlockKind) bool {
+	return kind == BlockParagraph || kind == BlockListItem
+}
+
+// widenedSpan is the lines from first to last, stretched over each block read
+// whole that they cut into: the span an Excerpt of them covers once widened,
+// table headers aside.
+func (d document) widenedSpan(first, last int) (int, int) {
+	from, to := first, last
+	for _, b := range d.blocks {
+		if isReadWhole(b.kind) && b.lines.overlaps(first, last) {
+			from, to = min(from, b.lines.First), max(to, b.lines.Last)
+		}
+	}
+	return from, to
 }
 
 // tableHeader is the index of the block holding the header row of the table
