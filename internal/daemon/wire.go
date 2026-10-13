@@ -29,8 +29,8 @@ type wireExcerpt struct {
 
 type wireAcknowledgement struct {
 	Repository string   `json:"repository,omitempty" jsonschema:"Root path of the repository these files are in. Must be one named in the Change Set. Optional when reviewing a single repository: leave it out and dbn uses the only one there is"`
-	Files      []string `json:"files" jsonschema:"Paths, relative to the repository root, whose entire change is mechanical. Every changed line and every binary, mode or rename change in these files is thereby accounted for"`
-	Reason     string   `json:"reason" jsonschema:"One line saying why these changes are mechanical and need not be read, e.g. 'regenerated lockfile'. The Reviewer sees this and may expand it into the real code"`
+	Files      []string `json:"files" jsonschema:"Paths, relative to the repository root, whose entire change need not be read line by line. An Acknowledgement covers whole files: every changed line and every binary, mode or rename change in these files is thereby accounted for"`
+	Reason     string   `json:"reason" jsonschema:"One line saying why these changes need not be read line by line, e.g. 'regenerated lockfile', 'follows from the reviewed requirements' or 'outside the sections you asked to see'. The Reviewer sees this, may expand it into the real changes, and a Comment there disputes this reason"`
 }
 
 type wireClassification struct {
@@ -43,7 +43,7 @@ type wireStep struct {
 	Name                  string                `json:"name" jsonschema:"The single self-contained idea this Step contains, named so the Reviewer knows what they are about to look at"`
 	Explanation           string                `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
 	Excerpts              []wireExcerpt         `json:"excerpts,omitempty" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself. A Step needs at least one Excerpt or one Acknowledgement"`
-	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes are mechanical and covered without reading, in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
+	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes need not be read line by line, for a reason the Reviewer sees, covered in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
 	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"A last resort: why this Step cannot be split below the size budget. Before giving one, split an oversized Step by idea into smaller Steps; justify only a Step whose idea genuinely does not divide. dbn never refuses a justified Step"`
 	Questions             []wireQuestion        `json:"questions,omitempty" jsonschema:"Agent Questions about this Step's code: decisions or judgments you need from the Reviewer before going on, shown after the Step's explanation and before its code, in a block of their own. Ask only what the Reviewer must decide, never 'does this look OK?', and write each so it can be answered from this Step and the Steps before it. The Reviewer answers in free text; a Round that asks anything is never concluded at Hand Off"`
 }

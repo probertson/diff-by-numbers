@@ -106,7 +106,7 @@ func validateAcknowledgement(a Acknowledgement, step, index int, changeSet Chang
 	}
 	if a.Reason == "" {
 		return reject(RejectedMalformedStep,
-			"%s gives no reason; an Acknowledgement is a claim the change is mechanical, which the Reviewer must be able to weigh", where)
+			"%s gives no reason; an Acknowledgement is a claim the change need not be read line by line, and the Reviewer must be able to weigh why", where)
 	}
 	return nil
 }

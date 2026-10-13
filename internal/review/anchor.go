@@ -56,7 +56,7 @@ type Anchor struct {
 	StepName   string
 	Lines      []Line
 	// AcknowledgementReason is set when the Anchor lies in acknowledged code: a
-	// point raised there disputes the Acknowledgement's "mechanical" claim as well
+	// point raised there disputes the Acknowledgement's reason as well
 	// as the line, so the Anchor carries the claim it disputes.
 	AcknowledgementReason string
 	// Acknowledgement is the index, within its Step, of the Acknowledgement the

@@ -304,20 +304,10 @@ func TestFetchResultsSpeaksOfRoundsNotWalkthroughs(t *testing.T) {
 func TestOversizeJustificationIsDescribedAsALastResort(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
-	ctx := context.Background()
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp"}, nil)
-	if err != nil {
-		t.Fatalf("could not connect to the daemon: %v", err)
-	}
-	defer session.Close()
 
-	tools, err := session.ListTools(ctx, nil)
+	step := postRoundStepSchema(t, server.URL)
 
-	if err != nil {
-		t.Fatalf("could not list tools: %v", err)
-	}
-	description := oversizeJustificationDescription(t, tools.Tools)
+	description := step.OversizeJustification.Description
 	for _, want := range []string{"last resort", "by idea into smaller Steps"} {
 		if !strings.Contains(description, want) {
 			t.Errorf("oversize_justification's description should say %q, got %q", want, description)
@@ -325,9 +315,72 @@ func TestOversizeJustificationIsDescribedAsALastResort(t *testing.T) {
 	}
 }
 
-func oversizeJustificationDescription(t *testing.T, tools []*mcp.Tool) string {
+// An Acknowledgement declares that changes need not be read line by line, for a
+// reason the Reviewer sees. Being mechanical is only one such reason, so the
+// schema must not leave the agent thinking it is the only honest use: Document
+// text outside the Reviewer's focus, or following from something already
+// reviewed, is Acknowledged too.
+func TestAcknowledgementIsDescribedAsNotNeedingALineByLineRead(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+
+	step := postRoundStepSchema(t, server.URL)
+
+	descriptions := map[string]string{
+		"acknowledgements": step.Acknowledgements.Description,
+		"files":            step.Acknowledgements.Items.Properties.Files.Description,
+		"reason":           step.Acknowledgements.Items.Properties.Reason.Description,
+	}
+	for name, description := range descriptions {
+		if !strings.Contains(description, "need not be read line by line") {
+			t.Errorf("%s's description should say %q, got %q", name, "need not be read line by line", description)
+		}
+	}
+	reason := descriptions["reason"]
+	for _, want := range []string{
+		"regenerated lockfile",
+		"follows from the reviewed requirements",
+		"outside the sections you asked to see",
+	} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("reason's description should give the example %q, got %q", want, reason)
+		}
+	}
+}
+
+type describedProperty struct {
+	Description string `json:"description"`
+}
+
+// stepSchema is the part of post_round's input schema that describes a Step,
+// as the agent reads it over MCP.
+type stepSchema struct {
+	OversizeJustification describedProperty `json:"oversize_justification"`
+	Acknowledgements      struct {
+		Description string `json:"description"`
+		Items       struct {
+			Properties struct {
+				Files  describedProperty `json:"files"`
+				Reason describedProperty `json:"reason"`
+			} `json:"properties"`
+		} `json:"items"`
+	} `json:"acknowledgements"`
+}
+
+func postRoundStepSchema(t *testing.T, serverURL string) stepSchema {
 	t.Helper()
-	for _, tool := range tools {
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: serverURL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("could not connect to the daemon: %v", err)
+	}
+	defer session.Close()
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("could not list tools: %v", err)
+	}
+	for _, tool := range tools.Tools {
 		if tool.Name != "post_round" {
 			continue
 		}
@@ -339,11 +392,7 @@ func oversizeJustificationDescription(t *testing.T, tools []*mcp.Tool) string {
 			Properties struct {
 				Steps struct {
 					Items struct {
-						Properties struct {
-							OversizeJustification struct {
-								Description string `json:"description"`
-							} `json:"oversize_justification"`
-						} `json:"properties"`
+						Properties stepSchema `json:"properties"`
 					} `json:"items"`
 				} `json:"steps"`
 			} `json:"properties"`
@@ -351,8 +400,8 @@ func oversizeJustificationDescription(t *testing.T, tools []*mcp.Tool) string {
 		if err := json.Unmarshal(encoded, &schema); err != nil {
 			t.Fatalf("could not decode post_round's schema: %v", err)
 		}
-		return schema.Properties.Steps.Items.Properties.OversizeJustification.Description
+		return schema.Properties.Steps.Items.Properties
 	}
 	t.Fatal("post_round is not among the tools")
-	return ""
+	return stepSchema{}
 }

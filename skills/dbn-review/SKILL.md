@@ -37,10 +37,11 @@ A Round is a **Brief** followed by ordered **Steps**. Plan it as a story told to
 someone who was not there: decide first what the reviewer needs to understand,
 and in what order, and only then fit Excerpts to that plan.
 
-**When `describe_changes` marks any file as a Document, read the document
-guidance, `documents.md` beside this file, before you plan.** It covers ordering
-and splitting prose — specs, stories, ADRs, a skill's instructions — and applies
-to the Documents alone. A Round with no Documents needs none of it.
+**When `describe_changes` marks any file as a Document, or the Change Set holds
+prose it did not mark, read the document guidance, `documents.md` beside this
+file, before you plan.** It covers ordering, sizing, splitting and acknowledging
+prose — specs, stories, ADRs, a skill's instructions — and applies to the
+Documents alone. A Round with no Documents needs none of it.
 
 ### Telling the story
 
@@ -130,25 +131,29 @@ your edit as pure additions, there is no before-side to draw, so do not call it
 "modified" and leave the reviewer looking for the old version. Describe what
 they will see, or give the before-side yourself with an `old`-side Excerpt.
 
-**Keep Steps small; oversize is a last resort.** Keep a Step to roughly 30
-changed lines, and prefer more, smaller Steps: each comprehensible at a glance,
-never two functions to hold in your head at once. An edit shows both its before
-and after, and the budget counts both sides, so a rewrite fills it faster than
-an addition. That pressure is intentional. Split by idea first;
-`oversize_justification` is only for a Step whose idea genuinely does not divide,
-never a routine alternative to splitting. dbn never refuses a justified Step. An
-unjustified one is refused as `oversized_step`, naming each such Step and the
-changed lines it counts toward the budget. That count leaves out whitespace-only
-lines and lines already shown last round, so it can be lower than the lines
-your Excerpts span. In a Revision Round, re-showing already-read context around
-a fix costs you nothing.
+**Keep Steps small; oversize is a last resort.** Keep a Step's code to roughly
+30 changed lines, and prefer more, smaller Steps: each comprehensible at a
+glance, never two functions to hold in your head at once. That budget is for
+code. Documents have one of their own, counted in words, and the document
+guidance says how to size their Steps; a Step showing both is checked against
+each. An edit shows both its before and after, and the code budget counts both
+sides, so a rewrite fills it faster than an addition. That pressure is
+intentional. Split by idea first; `oversize_justification` is only for a Step
+whose idea genuinely does not divide, never a routine alternative to splitting.
+dbn never refuses a justified Step. An unjustified one is refused as
+`oversized_step`, naming each such Step and what it counts toward the budget it
+broke: changed lines for code, words for Document text. The line count leaves
+out whitespace-only lines and lines already shown last round, so it can be
+lower than the lines your Excerpts span. In a Revision Round, re-showing
+already-read context around a fix costs you nothing.
 
 **A new file is split by meaning.** git reports a new file as one hunk; that is
 no reason to show it in one Step. Give each part of it its own place in the
 story, across as many Steps as that takes. An Acknowledgement covers a file's
-whole change, so acknowledge a new file only when all of it is mechanical — a
-generated file, a fixture — never to skip the parts of real code you did not
-excerpt.
+whole change, so acknowledge a new file of code only when all of it is
+mechanical — a generated file, a fixture — never to skip the parts of real code
+you did not excerpt. (A Document has other reasons not to be read line by line;
+the document guidance says when.)
 
 **Keep Excerpts tight.** Give each group of related changes its own Excerpt,
 rather than one wide range across unrelated ones. Unchanged lines are there to
@@ -224,7 +229,9 @@ post is checked:
 - each file's status (`renamed` files say where they came from),
 - the Changed Line ranges your Excerpts must cover,
 - the `modifications` whose removed lines ride along when you show their
-  replacement.
+  replacement,
+- for a Document, what its changes `cost` in words, block by block (see the
+  document guidance).
 
 Plan your Excerpts from these ranges, not from `git diff`, which misses what
 dbn counts (untracked files, renames) and cannot know what a Revision Round has
@@ -264,14 +271,16 @@ are `still_to_cover`.
   a signpost saying where to find it.
 - **One Step may span several files** if one idea touches several.
 
-**Acknowledgements** cover mechanical changes you should not make the reviewer
-read line by line: a regenerated lockfile, a deleted dead module, a re-exported
-binary asset. An Acknowledgement is `{repository, files, reason}` and stands in
-for Excerpts on those files. It is the **only** way to cover an Opaque Change — a
+**Acknowledgements** cover changes that need not be read line by line, with a
+one-line `reason` saying why. In code the reason is that the change is
+mechanical: a regenerated lockfile, a deleted dead module, a re-exported binary
+asset. Document text has other reasons too, which the document guidance gives.
+An Acknowledgement is `{repository, files, reason}` and stands in for Excerpts
+on those whole files. It is the **only** way to cover an Opaque Change — a
 binary file, a mode change, a pure rename — which has no lines to excerpt. Use
-one when the change is truly mechanical; do not use it to hide real code, because
-the reviewer sees the manifest and can expand it into the actual diff — and raise
-Comments against it.
+one only when its reason is true; do not use it to hide real code, because the
+reviewer sees the manifest and its reason, and can expand it into the actual
+diff — and raise Comments against it.
 
 **Coverage is enforced.** dbn derives the changed lines from git and refuses a
 Round that leaves any of them shown by neither an Excerpt nor an
@@ -454,12 +463,12 @@ are about is the natural choice. Already-read lines cost nothing against the
 budget, and dbn marks the Step as unchanged since the last round, so the
 reviewer knows there is nothing new in it.
 
-A Comment whose anchor says the code was `acknowledged in Step "…"`
-disputes that Acknowledgement as well as the line: the reviewer read code you
-called mechanical and found something to say. When you resolve it, say in that
-Comment's `response` whether the "mechanical" claim still holds. Do not
-acknowledge the same kind of change again in a later Round without saying
-why it is mechanical this time.
+A Comment whose anchor says the change was `acknowledged in Step "…"`
+disputes its reason as well as the line: the reviewer read what you said need
+not be read line by line, and found something to say. When you resolve it, say
+in that Comment's `response` whether the Acknowledgement's reason still holds.
+Do not acknowledge the same kind of change again in a later Round without
+saying why the reason holds this time.
 
 Repeat until the reviewer hands off having raised nothing — `fetch_results` will
 say the review is complete — or until you conclude after a round whose every

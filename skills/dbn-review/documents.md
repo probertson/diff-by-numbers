@@ -20,6 +20,19 @@ wait for their reply before you build the Round. Propose the default order
 below; if they leave it to you, follow it. A guess about what they care about
 can build the whole Round around the wrong parts.
 
+## Which files are Documents
+
+**Overrule dbn's classification when a file's purpose is clear to you.** dbn
+judges a Document by file type: a Markdown file is one, and nothing else is.
+You know what a file is for. Make a prose spec in a `.txt` file a Document, or
+a generated Markdown changelog code, by listing it in `classifications` with
+`document` set to true or false. Give the list to `describe_changes`, so the
+flags and costs you plan from describe what you will post, and to `post_round`,
+which records it: an overruling holds for the rest of the Review, so a Revision
+Round need not repeat it. When a file's purpose is not clear, leave dbn's
+classification as it is. A reviewer who thinks a file misclassified says so in
+a Comment; overrule it in the Revision Round that answers.
+
 ## A new Document: outline, grounding, then the rest
 
 **Without stated priorities, plan a new Document, or a large new section of
@@ -46,13 +59,37 @@ around the record.
 model". A Step shown out of the Document's own order has nothing around it to
 place it by.
 
-## Splitting and grouping
+## Sizing, splitting and grouping
 
-**Split by the Document's own sections, not by page.** A Step follows the
-Document's section boundaries: it does not run on from one section into the
-next. A section that holds more than one idea is split by idea, as code is.
-Text moved between sections is shown in both places at once, as *Show moved
-code's two places together* in SKILL.md says.
+**A Step holds about 1,000 words of Document text, split by the Document's own
+sections.** Document text has a budget of its own, apart from code's 30 changed
+lines: about 1,000 words a Step, a page of prose the reviewer can read
+comfortably. A Step follows the Document's section boundaries: it does not run
+on from one section into the next. A section within the budget is usually one
+Step; a section bigger than that is split at its sub-headings. A section that
+holds more than one idea is split by idea, as code is, whatever its size. The
+budget is a ceiling, not a target: never cut a section where 1,000 words happen
+to fall. A section too big for one Step and with no sub-headings to
+split at is split by idea between paragraphs; justify an oversized Step only
+when its idea genuinely does not divide. Text moved between sections is shown
+in both places at once, as *Show moved code's two places together* in SKILL.md
+says.
+
+**Plan sizes from `describe_changes`, not by counting.** For each Document it
+reports `cost`, what one Step showing all of the Document's changes would be
+charged, in words. It lists each block that costs anything — a paragraph, list
+item, heading or table row — in `new_blocks`, as a line range with its cost,
+and in `old_blocks` when it is removed text with no replacement, such as a
+deleted paragraph. Add up a section's blocks to see whether it fits one Step,
+or which of its sub-headings to split it at. In a Revision Round, give
+`describe_changes` the `review_id`, and the costs are net of what the reviewer
+has already read.
+
+**A block is charged whole.** An Excerpt that touches any line of a block is
+charged all of it, once: its words after the edit, plus the words the edit
+struck from it. A block whose words did not change, as in a rewrap, costs
+nothing, and neither does text the reviewer read last round. Bare Markdown
+markers, such as `#`, `-` or a table's `|`, are not words.
 
 **Carry one change across every Document it touches.** *One idea per Step* in
 SKILL.md holds for Documents, edits to existing ones included. When two changes
@@ -71,10 +108,32 @@ reviewer working out why.
 
 **An Excerpt into an existing Document includes the whole paragraph the change
 sits in**, not a line or two either side. A sentence changed in the middle of a
-paragraph means little without the rest of it. Unchanged lines cost nothing
-against a Step's budget, so the paragraph comes free. This is still *Keep
-Excerpts tight*: the paragraph gives the change its context; it does not bridge
-to the next change.
+paragraph means little without the rest of it. A changed paragraph is charged
+whole however little of it you show, so showing all of it costs nothing more.
+This is still *Keep Excerpts tight*: the paragraph gives the change its
+context; it does not bridge to the next change.
+
+## Acknowledging Document text
+
+**Acknowledge Document text the reviewer need not read line by line, with a
+reason that says why.** In a Document, a change need not be mechanical to be
+acknowledged. Text that lies outside the parts the reviewer asked to see, or
+that follows from something they have already reviewed — stories written from
+requirements they approved, say — is acknowledged on the same terms, with a
+reason that says which: "outside the sections you asked to see", "follows from
+the reviewed requirements". Never call such text mechanical: the reason is what
+the reviewer weighs when they expand it and comment.
+
+**An Acknowledgement covers whole files.** To show the sections the reviewer
+asked for and not the rest, show those sections in their Steps and acknowledge
+the file once for the rest, with a reason naming what it leaves out.
+
+**Acknowledge only text the reviewer has said they need not read, or that
+follows from what they have already reviewed.** Never acknowledge text to save
+Steps: the budget is sized so that a section fits in one Step, and you leave
+text out only as *The reviewer's priorities come first*, above, says. A
+reviewer who has to expand an Acknowledgement reads everything it held as one
+long diff, not as the Steps it should have been.
 
 ## Open questions in a Document
 

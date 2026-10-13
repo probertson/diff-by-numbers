@@ -75,7 +75,7 @@ type Excerpt struct {
 }
 
 // Acknowledgement is the Coverage Ledger's escape valve (ADR-0010): a claim that
-// a set of files changed mechanically and need not be read line by line. It
+// a set of files need not be read line by line, for a stated reason. It
 // satisfies coverage in place of an Excerpt, and is the only way to account for
 // an Opaque Change, which has no lines to excerpt. It is a claim, not a
 // dismissal: it renders as a manifest and the Reviewer may expand it on demand.
@@ -85,7 +85,9 @@ type Acknowledgement struct {
 	// this Acknowledgement claims. Every change in one of these files — Changed
 	// Lines and Opaque Changes alike — is thereby accounted for.
 	Files []string
-	// Reason is the one-line account of why these changes are mechanical.
+	// Reason is the one-line account of why these changes need not be read line
+	// by line: mechanical, following from something already reviewed, or outside
+	// the Reviewer's focus.
 	Reason string
 }
 
@@ -95,7 +97,7 @@ type Step struct {
 	Name        string
 	Explanation string
 	Excerpts    []Excerpt
-	// Acknowledgements cover mechanical changes the Step does not excerpt.
+	// Acknowledgements cover changes the Step does not excerpt.
 	Acknowledgements []Acknowledgement
 	// OversizeJustification is required only when a Step exceeds the size
 	// budget. dbn never forbids a large Step, it only demands a reason.
