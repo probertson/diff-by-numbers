@@ -234,7 +234,7 @@ func run(args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("could not find your home directory to check the dbn-review skill: %w", err)
 		}
-		skillcheck.Report(skillcheck.Config{Home: home, Embedded: skills.DbnReview}, out)
+		skillcheck.Report(skillcheck.Config{Home: home, Embedded: skills.DbnReviewFiles}, out)
 		return nil
 
 	case "wait":

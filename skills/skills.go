@@ -4,13 +4,34 @@
 // It lives here, beside the skill files, because go:embed can only reach into
 // its own directory tree — a package under cmd/ or internal/ cannot embed a
 // path above itself. Embedding from here also makes "the embedded copy matches
-// skills/dbn-review/SKILL.md" true by construction rather than by test: the
-// compiler reads the same file the repository ships.
+// skills/dbn-review/" true by construction rather than by test: the compiler
+// reads the same files the repository ships.
 package skills
 
-import _ "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 // DbnReview is skills/dbn-review/SKILL.md as of this build.
 //
 //go:embed dbn-review/SKILL.md
 var DbnReview string
+
+//go:embed dbn-review
+var dbnReview embed.FS
+
+// DbnReviewFiles is every file in skills/dbn-review as of this build — SKILL.md
+// and the reference files beside it — rooted at that directory, so a name in it
+// is the file's path within an installed copy of the skill.
+var DbnReviewFiles = mustSub(dbnReview, "dbn-review")
+
+// mustSub roots fsys at dir. fs.Sub fails only on a malformed path, and the
+// path here is a constant, so a failure is a bug caught on the first run.
+func mustSub(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}

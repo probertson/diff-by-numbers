@@ -9,9 +9,12 @@
 package skillcheck
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -21,9 +24,10 @@ type Config struct {
 	// Home is the home directory to inspect. Injectable so a test can lay out a
 	// fake one.
 	Home string
-	// Embedded is the dbn-review skill this build shipped with, which every
-	// installed copy is compared against.
-	Embedded string
+	// Embedded is the dbn-review skill this build shipped with, rooted at the
+	// skill's own directory: SKILL.md and every file beside it. Every installed
+	// copy is compared against all of it.
+	Embedded fs.FS
 }
 
 // genericReminder closes every run. dbn only knows the two locations it
@@ -63,25 +67,55 @@ func Report(cfg Config, out io.Writer) {
 // userSkillPath is where `npx skills add` puts a skill for every agent that
 // reads the user skill directory.
 func userSkillPath(home string) string {
-	return filepath.Join(home, ".claude", "skills", "dbn-review", "SKILL.md")
+	return filepath.Join(home, ".claude", "skills", "dbn-review")
 }
 
-// compare reads an installed copy and says whether it matches what shipped.
-// known is false when there is nothing to compare — no file, or one that cannot
-// be read — which is never reported as stale.
-func compare(path, embedded string) (matches, known bool) {
-	installed, err := os.ReadFile(path)
+// mainFile is the file whose presence says the skill is installed at all.
+const mainFile = "SKILL.md"
+
+// compare reads the installed copy in dir and says whether it matches what
+// shipped, file for file. A shipped file that differs or is missing makes the
+// copy stale; a file only the copy has is not dbn's to judge. known is false
+// when there is nothing to compare — no main file, so no install, or a file
+// that is there but cannot be read — which is never reported as stale.
+func compare(dir string, embedded fs.FS) (matches, known bool) {
+	if _, err := os.Stat(filepath.Join(dir, mainFile)); err != nil {
+		return false, false
+	}
+	matches = true
+	err := fs.WalkDir(embedded, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		want, err := fs.ReadFile(embedded, name)
+		if err != nil {
+			return err
+		}
+		installed, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+		if errors.Is(err, fs.ErrNotExist) {
+			matches = false
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(installed, want) {
+			matches = false
+		}
+		return nil
+	})
 	if err != nil {
 		return false, false
 	}
-	return string(installed) == embedded, true
+	return matches, true
 }
 
 // pluginName is how Claude Code keys this plugin: the plugin's own name, then
 // the marketplace it was installed from.
 const pluginName = "dbn@diff-by-numbers"
 
-// pluginSkillPaths finds where Claude Code unpacked the dbn plugin, if it did.
+// pluginSkillPaths finds where Claude Code unpacked the dbn plugin's skill
+// directory, if it did.
 //
 // installed_plugins.json is an undocumented Claude Code internal, so every step
 // here is best-effort: a missing file, an unexpected shape or an unreadable
@@ -107,7 +141,7 @@ func pluginSkillPaths(home string) []string {
 		if install.InstallPath == "" {
 			continue
 		}
-		paths = append(paths, filepath.Join(install.InstallPath, "skills", "dbn-review", "SKILL.md"))
+		paths = append(paths, filepath.Join(install.InstallPath, "skills", "dbn-review"))
 	}
 	return paths
 }
