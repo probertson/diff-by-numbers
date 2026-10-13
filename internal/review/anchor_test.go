@@ -322,3 +322,26 @@ func TestAnAnchorIntoAnExpandedAcknowledgementOverADocumentNamesTheHeadingPath(t
 		t.Errorf("expected the Re: line to start %q, got %q", want, got)
 	}
 }
+
+func TestAnAnchorOnALineAnEditReplacedNamesTheOldHeadingsAndOnItsBlockTheNew(t *testing.T) {
+	// The section's heading is renamed and its paragraph edited, so the old
+	// paragraph's line is drawn in the new paragraph's block.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "## Limits", "Each host has a cap of five."),
+		markdown("# Retries", "## Caps", "Each host has a cap of six."),
+	)
+	session := openDocumentRound(t, files, showingLines("Caps", "docs/retries.md", review.NewSide, 3, 5))
+
+	line, lineErr := session.Anchor(sideSpan(0, oldRow(5), oldRow(5)))
+	block, blockErr := session.Anchor(blocks(0, 5, 5))
+
+	if lineErr != nil || blockErr != nil {
+		t.Fatalf("expected the line and the block to anchor, got %v and %v", lineErr, blockErr)
+	}
+	if want, got := "Re: docs/retries.md › Retries › Limits — before 5 — ", reLine(line); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the replaced line's Re: line to start %q, got %q", want, got)
+	}
+	if want, got := "Re: docs/retries.md › Retries › Caps — ", reLine(block); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the edited block's Re: line to start %q, got %q", want, got)
+	}
+}

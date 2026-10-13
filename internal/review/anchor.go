@@ -134,7 +134,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		}
 		if row.line.Content() {
 			if len(lines) == 0 {
-				path = headingPathAt(view, row.at)
+				path = headingPathAt(view, row.at, target.Blocks)
 			}
 			lines = append(lines, row.line)
 			if !row.context {
@@ -225,20 +225,32 @@ func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedR
 	return rows, nil
 }
 
-// headingPathAt is the heading path of row i of an Excerpt's rendering: its
-// block's, or for a row in none, such as a blank line, the nearest block's
-// above it — below it only when there is none above — as the Reviewer's
-// surface heads it. A code Excerpt has no blocks, so no path.
-func headingPathAt(view ExcerptView, i int) []string {
-	isBlock := func(b int) bool { return b > 0 && b <= len(view.Blocks) }
+// headingPathAt is the heading path of row i of an Excerpt's rendering, as the
+// Reviewer's surface heads it: that of the row in a block nearest it, at or
+// above it — below it only when there is none above — so a row in none, such
+// as a blank line, takes the path of the block above. A selection of blocks
+// (the formatted view) takes that block's path; a selection of lines (the
+// source view) takes the row's own, which for a line an edit replaced is the
+// old Document's. A code Excerpt has no blocks, so no path.
+func headingPathAt(view ExcerptView, i int, ofBlocks bool) []string {
+	pathOf := func(at int) ([]string, bool) {
+		b := view.Lines[at].Block
+		if b < 1 || b > len(view.Blocks) {
+			return nil, false
+		}
+		if ofBlocks {
+			return view.Blocks[b-1].Path, true
+		}
+		return view.Lines[at].Path, true
+	}
 	for at := i; at >= 0; at-- {
-		if b := view.Lines[at].Block; isBlock(b) {
-			return view.Blocks[b-1].Path
+		if path, ok := pathOf(at); ok {
+			return path
 		}
 	}
-	for _, line := range view.Lines[i:] {
-		if isBlock(line.Block) {
-			return view.Blocks[line.Block-1].Path
+	for at := i + 1; at < len(view.Lines); at++ {
+		if path, ok := pathOf(at); ok {
+			return path
 		}
 	}
 	return nil
