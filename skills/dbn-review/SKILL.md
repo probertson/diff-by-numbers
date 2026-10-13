@@ -80,8 +80,9 @@ A background can open in many ways, and none of these is a template:
   or a data model goes in a Step showing the least code that demonstrates it —
   function signatures, say, or only the calls between them. It goes in
   `background` only when no code shows it.
-- **The Steps and their order.** The Overview lists the Steps; `background` is
-  context, not commentary on the Round.
+- **The Steps and their order.** The Overview lists the Steps, and a Chapter's
+  intro says why it comes where it does; `background` is context, not
+  commentary on the Round.
 - **Verification.** Test counts, lint results and the like belong in your report
   to the user, not the Review. Mention a result only where it helps explain the
   change — "these tests fail against the old code", in the Step that shows the
@@ -186,6 +187,54 @@ moved code is otherwise invisible.
   `oversize_justification` ("one move, shown whole on both sides") rather than
   splitting the pair across Steps. If the move is a file's whole change — code lifted unchanged into a new
   file, say — an Acknowledgement ("moved unchanged from …") covers it instead.
+
+### Grouping Steps into Chapters
+
+**Group a long Round into Chapters when its Steps fall into natural groups.** A
+**Chapter** is a named run of consecutive Steps, opened by an intro in your own
+words that the reviewer reads on a screen of its own, before the Chapter's first
+Step. The Overview then lists one row per Chapter instead of every Step. Use
+Chapters once a Round runs past about 15 Steps and has groups to show — a
+subsystem of a refactor, a stage of a data flow, a Document or a few closely
+related ones — in any Review, code or Documents. A shorter Round, or one with
+no natural seams, stays a flat list: Chapters wrapped around a handful of Steps
+only add stops.
+
+**The name is what the reviewer will know the Chapter by:** a story's key and
+title ("EL-7 Pack holds"), a subsystem, a stage. dbn shows it with the
+Chapter's number on the intro and on the header of every Step inside it, so
+number nothing yourself, and leave the Chapter's name out of its Steps' names.
+
+**The intro says what the Chapter covers and why it comes where it does.** It
+grounds the Steps inside it as the Brief grounds the whole Round: what this
+stretch of the change is about, and why it sits here — the storage layer before
+its callers, say, because every later Chapter calls it. It is not a restatement
+of the Step names: the intro screen lists the Steps beneath it. It asks nothing
+either; an Agent Question goes on the Round or on a Step.
+
+**The grounding is the Chapter's first Step.** An intro carries no Excerpts, so
+whatever the rest of the Chapter is judged against — a story's summary or
+acceptance criteria, the interface a subsystem implements — is shown in the
+Chapter's first Step, where it is covered and can be commented on like any
+other text.
+
+**An opening outline gets a Chapter of its own.** Once a Round has Chapters,
+every Step is in one, and a Step that shows the whole before any of it — the
+change's overall shape, a set of Documents at a glance — belongs to none of the
+Chapters after it. Give it its own: "The epic at a glance", say.
+
+**Give `chapters` in place of `steps`, never both.** Each Chapter is `{name,
+intro, steps}`, holding its own Steps in order, and Chapters never nest. dbn
+numbers the Steps straight through the Round, so Step 37 is Step 37 whichever
+Chapter holds it, and Comments, Answers and `dispositions` refer to Steps by
+number as they always do. A Chapter with no Steps, or with an empty name or
+intro, is refused, along with anything else wrong in the post.
+
+**Each Round declares its own Chapters, or none.** Nothing carries forward: a
+Revision Round or a Replacement groups its Steps afresh, by the same test, so a
+four-fix Revision Round is a flat list even when the Round it revises had
+Chapters. Chapters change nothing about coverage, the budgets or Agent
+Questions.
 
 ### Asking the reviewer a question
 
@@ -310,7 +359,8 @@ commit", the base is `HEAD~1`.
 
 Call `post_round` once, complete. Name every repository under review in
 `repositories` (each with its own `base` ref, e.g. the default branch), then the
-`brief` and the ordered `steps`. `label` is **required** on a new review — a
+`brief` and the ordered `steps`, or the `chapters` that hold them (see
+*Grouping Steps into Chapters*). `label` is **required** on a new review — a
 short name like "auth refactor", which is how the reviewer tells several reviews
 apart.
 
