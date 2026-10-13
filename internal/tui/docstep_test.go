@@ -327,6 +327,137 @@ func TestSelectingABlockSelectsItsSourceLines(t *testing.T) {
 	}
 }
 
+// widenedParagraph is a six-line paragraph of which the Excerpt names only the
+// middle two lines; dbn widened it to the rest, which it marks as context. Each
+// source line is exactly eleven cells, so at a prose width of eleven each is a
+// row of its own.
+func widenedParagraph() daemon.ExcerptWire {
+	excerpt := documentExcerpt("docs/retries.md", para(
+		"ctx1a ctx1b", "ctx2a ctx2b", "new3a new3b", "new4a new4b", "ctx5a ctx5b", "ctx6a ctx6b",
+	))
+	for i := range excerpt.Lines {
+		if strings.HasPrefix(excerpt.Lines[i].Text, "ctx") {
+			excerpt.Lines[i].Changed, excerpt.Lines[i].Widened = false, true
+		}
+	}
+	return excerpt
+}
+
+// signOf is the gutter sign drawn before a Document row's text.
+func signOf(row, firstWord string) string {
+	plain := ansi.Strip(row)
+	return strings.TrimSpace(strings.Trim(plain[:strings.Index(plain, firstWord)], "▸ 0123456789–●"))
+}
+
+func TestAWidenedParagraphsExtraLinesAreDimmedAndUnsignedOnTheCursorsBlock(t *testing.T) {
+	inColour(t)
+	m := stepModel(t, documentStep(widenedParagraph()))
+	m.proseWidth = 11
+
+	out := drawnStep(m)
+
+	for _, word := range []string{"ctx1a", "ctx2a", "ctx5a", "ctx6a"} {
+		row := lineWith(t, out, word)
+		if !drawnWith(t, row, word, faintSGR) {
+			t.Errorf("expected the widened line dimmed though its block is the cursor's: %q", row)
+		}
+		if sign := signOf(row, word); sign != "" {
+			t.Errorf("expected the widened line unsigned, got %q: %q", sign, row)
+		}
+	}
+	for _, word := range []string{"new3a", "new4a"} {
+		row := lineWith(t, out, word)
+		if drawnWith(t, row, word, faintSGR) {
+			t.Errorf("expected the Excerpt's own line bright: %q", row)
+		}
+		if sign := signOf(row, word); sign != "+" {
+			t.Errorf("expected the Excerpt's own line signed +, got %q: %q", sign, row)
+		}
+	}
+}
+
+// tableRowExcerpt is one row of a table, line 7, as dbn gives an Excerpt that
+// cuts into the table: with the header row and divider, lines 3-4, widened in
+// as context. The row is far wider than the pane.
+func tableRowExcerpt() daemon.ExcerptWire {
+	wide := "| 3 | " + strings.Repeat("backoff ", 15) + "| lastcell |"
+	return daemon.ExcerptWire{File: "docs/retries.md", Side: "new", FirstLine: 7, LastLine: 7,
+		Lines: []daemon.LineWire{
+			{Number: 3, Text: "| Attempt | Delay | Note |", Side: "new", Block: 1, Widened: true},
+			{Number: 4, Text: "| ------- | ----- | ---- |", Side: "new", Block: 1, Widened: true},
+			{Number: 7, Text: wide, Side: "new", Changed: true, Block: 2},
+		},
+		Blocks: []daemon.BlockWire{
+			{Kind: "table-row", Side: "new", FirstLine: 3, LastLine: 4, Treatment: "context"},
+			{Kind: "table-row", Side: "new", FirstLine: 7, LastLine: 7, Treatment: "new"},
+		},
+	}
+}
+
+func TestATableRowIsDrawnAsItsSourceWrappedWhenWideWithItsPipesMuted(t *testing.T) {
+	inColour(t)
+	m := stepModel(t, documentStep(tableRowExcerpt()))
+	m.width = 60
+	m = press(m, "down") // onto the row
+
+	out := drawnStep(m)
+
+	if strings.Contains(ansi.Strip(out), "…") {
+		t.Errorf("expected the wide row wrapped, not clipped:\n%s", ansi.Strip(out))
+	}
+	last := lineWith(t, out, "lastcell")
+	if strings.Contains(ansi.Strip(last), "| 3 |") {
+		t.Errorf("expected the row's end on a row of its own:\n%s", ansi.Strip(out))
+	}
+	if !drawnWith(t, last, "|", brightBlackSGR) {
+		t.Errorf("expected the pipes on a wrapped row muted: %q", last)
+	}
+	if !drawnWith(t, lineWith(t, out, " 3 "), "|", brightBlackSGR) {
+		t.Errorf("expected the row's pipes muted:\n%s", out)
+	}
+}
+
+func TestATableRowsHeaderIsDrawnAboveItAsContext(t *testing.T) {
+	inColour(t)
+	m := stepModel(t, documentStep(tableRowExcerpt()))
+	m.width = 60
+	m = press(m, "down") // onto the row
+
+	out := drawnStep(m)
+
+	header, divider := lineWith(t, out, "Attempt"), lineWith(t, out, "-------")
+	if plain := ansi.Strip(out); strings.Index(plain, "Attempt") > strings.Index(plain, "| 3 |") {
+		t.Errorf("expected the header row above the row:\n%s", ansi.Strip(out))
+	}
+	if !drawnWith(t, header, "Attempt", faintSGR) || signOf(header, "|") != "" || signOf(divider, "|") != "" {
+		t.Errorf("expected the header row and divider dimmed and unsigned:\n%s", out)
+	}
+}
+
+func TestProseThatIsNotMarkdownIsDrawnWithoutMarkdownStyling(t *testing.T) {
+	inColour(t)
+	excerpt := documentExcerpt("docs/spec.txt",
+		para("# not a heading, and", "**not bold** either"),
+		para("- not a list item"),
+	)
+	excerpt.Plain = true
+	m := stepModel(t, documentStep(excerpt))
+
+	out := drawnStep(m)
+
+	first := lineWith(t, out, "not a heading")
+	if !strings.Contains(first, "**not bold**") || drawnWith(t, first, "#", brightBlackSGR) || drawnWith(t, first, "not bold", boldSGR) {
+		t.Errorf("expected the paragraph reflowed with nothing taken for Markdown: %q", first)
+	}
+	if drawnWith(t, lineWith(t, out, "not a list"), "-", brightBlackSGR) {
+		t.Errorf("expected no list bullet in plain prose:\n%s", out)
+	}
+	m = press(m, "down")
+	if !strings.Contains(ansi.Strip(lineWith(t, drawnStep(m), "▸")), "not a list item") {
+		t.Errorf("expected the cursor to move by paragraph:\n%s", ansi.Strip(drawnStep(m)))
+	}
+}
+
 // tallDocument is a paragraph far taller than a short pane, then a heading.
 func tallDocument() *daemon.StepWire {
 	words := []string{"opening"}
