@@ -103,7 +103,7 @@ func (s *Session) withRemovedBlocks(view ExcerptView) ExcerptView {
 		if blocks[n-1].Treatment != treatment {
 			return view
 		}
-		lines[i].Block = n
+		lines[i].Block, lines[i].Path = n, blocks[n-1].Path
 	}
 	return withDocumentBlocks(view, lines, blocks)
 }
@@ -190,23 +190,26 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		}
 		if row.Side == NewSide {
 			n := node - len(t.before.blocks)
-			lines[i].Block = number(afterBlock(n))
+			lines[i].Block, lines[i].Path = number(afterBlock(n)), t.after.blocks[n].path
 			if blocks[lines[i].Block-1].Treatment == TreatmentEdited && !row.Widened {
 				lines[i].Runs = t.runs[row.Number]
 			}
 			continue
 		}
+		// The row sits under the other side's headings, whichever block it is
+		// drawn in.
+		path := t.before.blocks[node].path
 		group := t.group[node]
 		if afters := t.afterBlocksOf(group); len(afters) > 0 {
 			for _, n := range afters {
 				if shown[n] {
-					lines[i].Block = number(afterBlock(n))
+					lines[i].Block, lines[i].Path = number(afterBlock(n)), path
 					break
 				}
 			}
 			continue
 		}
-		lines[i].Block = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved))
+		lines[i].Block, lines[i].Path = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved)), path
 	}
 	return withDocumentBlocks(view, lines, blocks)
 }

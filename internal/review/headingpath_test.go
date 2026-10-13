@@ -172,3 +172,63 @@ func TestAnExpandedAcknowledgementOverADocumentCarriesHeadingPaths(t *testing.T)
 		t.Errorf("expected the expansion's heading path %q, got %q", want, got)
 	}
 }
+
+// rowPathOf is the heading path a row of an Excerpt carries itself: that of its
+// text on its own side, which for a row an edit replaced is not its block's.
+func rowPathOf(t *testing.T, view review.ExcerptView, side review.Side, number int) []string {
+	t.Helper()
+	for _, line := range view.Lines {
+		if line.Side == side && line.Number == number {
+			if line.Block == 0 {
+				t.Fatalf("expected %v line %d in a block", side, number)
+			}
+			return line.Path
+		}
+	}
+	t.Fatalf("expected the Excerpt to show %v line %d", side, number)
+	return nil
+}
+
+func TestTheRowsAnEditReplacedCarryTheOldHeadings(t *testing.T) {
+	// The section's heading is renamed and its paragraph edited, so the old
+	// paragraph's row is drawn in the new paragraph's block, as track changes.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "## Limits", "Each host has a cap of five."),
+		markdown("# Retries", "## Caps", "Each host has a cap of six."),
+	)
+
+	step := viewingStep(t, files, showingLines("Caps", "docs/retries.md", review.NewSide, 3, 5))
+
+	view := step.Excerpts[0]
+	if got, want := rowPathOf(t, view, review.OldSide, 5), []string{"Retries", "Limits"}; !slices.Equal(got, want) {
+		t.Errorf("expected the replaced row under the old heading %q, got %q", want, got)
+	}
+	if got, want := rowPathOf(t, view, review.NewSide, 5), []string{"Retries", "Caps"}; !slices.Equal(got, want) {
+		t.Errorf("expected the row that replaced it under the new heading %q, got %q", want, got)
+	}
+}
+
+func TestSinceThePreviousRoundReplacedRowsCarryThePreviousRoundsHeadings(t *testing.T) {
+	// A Document added in Round 1 has its section renamed and its paragraph
+	// edited for Round 2.
+	files := newDocumentRounds(adding("docs/retries.md",
+		markdown("# Retries", "## Limits", "Each host has a cap of five.")))
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(showingWhole("Retries", files.workingFiles, review.NewSide, "docs/retries.md")))
+	handOffWithAComment(t, session)
+	files.after["docs/retries.md"] = markdown("# Retries", "## Caps", "Each host has a cap of six.")
+	if err := session.Revise(session.ReviewID(), revising(documentRound(
+		showingWhole("Retries, capped", files.workingFiles, review.NewSide, "docs/retries.md")))); err != nil {
+		t.Fatal(err)
+	}
+
+	mustAdvance(t, session)
+	since := session.View().Step.Excerpts[0]
+
+	if got, want := rowPathOf(t, since, review.PreviousSide, 5), []string{"Retries", "Limits"}; !slices.Equal(got, want) {
+		t.Errorf("expected the row Round 1 had under its heading %q, got %q", want, got)
+	}
+	if got, want := rowPathOf(t, since, review.NewSide, 5), []string{"Retries", "Caps"}; !slices.Equal(got, want) {
+		t.Errorf("expected the row that replaced it under the new heading %q, got %q", want, got)
+	}
+}

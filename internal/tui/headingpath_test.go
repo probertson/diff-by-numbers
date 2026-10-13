@@ -16,10 +16,16 @@ import (
 // reading: the file, then the heading path of the block at the top of the pane,
 // as dbn's Step view gives it (#145). Code's headers are as they were.
 
-// withPaths gives an Excerpt's blocks their heading paths, in order.
+// withPaths gives an Excerpt's blocks their heading paths, in order, and each
+// row in a block its block's, as dbn's view does for rows on their block's side.
 func withPaths(excerpt daemon.ExcerptWire, paths ...[]string) daemon.ExcerptWire {
 	for i, path := range paths {
 		excerpt.Blocks[i].Path = path
+	}
+	for i, line := range excerpt.Lines {
+		if line.Block > 0 {
+			excerpt.Lines[i].Path = excerpt.Blocks[line.Block-1].Path
+		}
 	}
 	return excerpt
 }
@@ -139,8 +145,25 @@ func TestTheSourceViewShowsTheSameHeader(t *testing.T) {
 	}
 }
 
-func TestAnExpandedAcknowledgementOverADocumentShowsTheSameHeader(t *testing.T) {
-	expansion := []daemon.ExcerptWire{limitsSection()}
+func TestTheSourceViewsStuckHeaderChangesPastAHeading(t *testing.T) {
+	m := press(stepModel(t, documentStep(sectionedDocument())), "s")
+	m.height = 16
+
+	inRetries := downTo(t, m, "retry 5")
+	inLimits := downTo(t, inRetries, "limit 5")
+
+	if got, want := fileHeaderOf(t, drawnStep(inRetries), "docs/retries.md"), "── docs/retries.md › Retries"; got != want {
+		t.Errorf("expected the stuck header %q in the first section, got %q:\n%s", want, got, ansi.Strip(drawnStep(inRetries)))
+	}
+	if got, want := fileHeaderOf(t, drawnStep(inLimits), "docs/retries.md"), "── docs/retries.md › Retries › Limits"; got != want {
+		t.Errorf("expected the stuck header %q past the Limits heading, got %q:\n%s", want, got, ansi.Strip(drawnStep(inLimits)))
+	}
+}
+
+// expandingInto is a model of docAndCodeStep whose daemon expands the
+// Acknowledgement into the given Excerpts.
+func expandingInto(t *testing.T, expansion ...daemon.ExcerptWire) model {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/expand/") {
 			http.NotFound(w, r)
@@ -151,11 +174,83 @@ func TestAnExpandedAcknowledgementOverADocumentShowsTheSameHeader(t *testing.T) 
 	t.Cleanup(server.Close)
 	m := stepModel(t, docAndCodeStep())
 	m.client = client{base: server.URL, review: "a1"}
+	return m
+}
 
-	m = press(press(m, "down"), "x")
+func TestAnExpandedAcknowledgementOverADocumentShowsTheSameHeader(t *testing.T) {
+	m := expandingInto(t, limitsSection())
 
-	if got, want := fileHeaderOf(t, drawnStep(m), "docs/retries.md"), "── docs/retries.md › Retries › Limits"; got != want {
+	formatted := press(press(m, "down"), "x")
+	source := press(formatted, "s")
+
+	want := "── docs/retries.md › Retries › Limits"
+	if got := fileHeaderOf(t, drawnStep(formatted), "docs/retries.md"); got != want {
 		t.Errorf("expected the header %q over the expansion, got %q", want, got)
+	}
+	if got := fileHeaderOf(t, drawnStep(source), "docs/retries.md"); got != want {
+		t.Errorf("expected the header %q over the expansion's source, got %q", want, got)
+	}
+}
+
+// renamedSection is an Excerpt whose section "Limits" was renamed "Caps": its
+// one paragraph was removed and a new one added in its place.
+func renamedSection() daemon.ExcerptWire {
+	old, renamed := []string{"Retries", "Limits"}, []string{"Retries", "Caps"}
+	return daemon.ExcerptWire{File: "docs/retries.md", Side: "new", FirstLine: 5, LastLine: 5,
+		Lines: []daemon.LineWire{
+			{Number: 5, Text: "Old limits applied once.", Side: "old", Changed: true, Block: 1, Path: old},
+			{Number: 5, Text: "Brand new caps hold.", Side: "new", Changed: true, Block: 2, Path: renamed},
+		},
+		Blocks: []daemon.BlockWire{
+			{Kind: "paragraph", Side: "old", FirstLine: 5, LastLine: 5, Treatment: "removed", Path: old},
+			{Kind: "paragraph", Side: "new", FirstLine: 5, LastLine: 5, Treatment: "new", Path: renamed},
+		},
+	}
+}
+
+func TestARemovedBlockShowsTheOldHeadingsInEitherView(t *testing.T) {
+	formatted := stepModel(t, documentStep(renamedSection()))
+	source := press(formatted, "s")
+
+	want := "── docs/retries.md › Retries › Limits"
+	if got := fileHeaderOf(t, drawnStep(formatted), "docs/retries.md"); got != want {
+		t.Errorf("expected the header %q over the removed block, got %q", want, got)
+	}
+	if got := fileHeaderOf(t, drawnStep(source), "docs/retries.md"); got != want {
+		t.Errorf("expected the header %q over the removed block's source, got %q", want, got)
+	}
+}
+
+// editedInRenamedSection is an Excerpt whose section "Limits" was renamed
+// "Caps" and whose paragraph was edited: the row the edit replaced is drawn in
+// the paragraph's block but sits under the old heading.
+func editedInRenamedSection() daemon.ExcerptWire {
+	renamed := []string{"Retries", "Caps"}
+	return daemon.ExcerptWire{File: "docs/retries.md", Side: "new", FirstLine: 5, LastLine: 5,
+		Lines: []daemon.LineWire{
+			{Number: 5, Text: "Each host has a cap of five.", Side: "old", Changed: true, Block: 1, Path: []string{"Retries", "Limits"}},
+			{Number: 5, Text: "Each host has a cap of six.", Side: "new", Changed: true, Block: 1, Path: renamed, Runs: []daemon.RunWire{
+				{Text: "Each host has a cap of ", Change: "kept"},
+				{Text: "five", Change: "removed"},
+				{Text: "six", Change: "added"},
+				{Text: ".", Change: "kept"},
+			}},
+		},
+		Blocks: []daemon.BlockWire{
+			{Kind: "paragraph", Side: "new", FirstLine: 5, LastLine: 5, Treatment: "edited", Path: renamed},
+		},
+	}
+}
+
+func TestTheSourceViewShowsTheOldHeadingsOverARowAnEditReplaced(t *testing.T) {
+	formatted := stepModel(t, documentStep(editedInRenamedSection()))
+	source := press(formatted, "s")
+
+	if got, want := fileHeaderOf(t, drawnStep(source), "docs/retries.md"), "── docs/retries.md › Retries › Limits"; got != want {
+		t.Errorf("expected the header %q over the replaced row's source, got %q", want, got)
+	}
+	if got, want := fileHeaderOf(t, drawnStep(formatted), "docs/retries.md"), "── docs/retries.md › Retries › Caps"; got != want {
+		t.Errorf("expected the header %q over the edited block, as it now stands, got %q", want, got)
 	}
 }
 

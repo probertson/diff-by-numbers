@@ -26,6 +26,10 @@ type LineWire struct {
 	// Block is the block of a Document Excerpt the row belongs to, numbered from
 	// 1 among the Excerpt's Blocks; 0 for a row in none.
 	Block int `json:"block,omitempty"`
+	// Path is the heading path of a row in a block, on its own side: its
+	// block's, except for a row an edit replaced, which sits under the old
+	// headings. The TUI draws it over the source view's rows (#145).
+	Path []string `json:"path,omitempty"`
 	// Runs are a row of an edited Document block as track changes: its text cut
 	// into what the edit kept and added, with the words it struck there put
 	// back. The TUI only lays them out and styles them.
@@ -72,6 +76,7 @@ func toLineWire(line review.Line) LineWire {
 		Signpost: line.Signpost,
 		Emphasis: toEmphasisWire(line.Emphasis),
 		Block:    line.Block,
+		Path:     line.Path,
 		Runs:     toRunWires(line.Runs),
 		Widened:  line.Widened,
 	}

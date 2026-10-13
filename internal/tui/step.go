@@ -188,17 +188,26 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 // blockNear is the block row i of a Document lies in or, for a row in none, the
 // nearest block above it, or else below it; 0 when there are no blocks at all.
 func blockNear(excerpt daemon.ExcerptWire, i int) int {
-	for at := i; at >= 0; at-- {
-		if b := excerpt.Lines[at].Block; b > 0 {
-			return b
-		}
-	}
-	for _, line := range excerpt.Lines[i:] {
-		if line.Block > 0 {
-			return line.Block
-		}
+	if at := rowNear(excerpt, i); at >= 0 {
+		return excerpt.Lines[at].Block
 	}
 	return 0
+}
+
+// rowNear is the index of the row of a Document nearest row i, at or above it,
+// that is in a block, or else the nearest below it; -1 when no row is.
+func rowNear(excerpt daemon.ExcerptWire, i int) int {
+	for at := i; at >= 0; at-- {
+		if excerpt.Lines[at].Block > 0 {
+			return at
+		}
+	}
+	for at := i + 1; at < len(excerpt.Lines); at++ {
+		if excerpt.Lines[at].Block > 0 {
+			return at
+		}
+	}
+	return -1
 }
 
 // rowFor turns one rendered line into a cursor row, keeping a signpost out of

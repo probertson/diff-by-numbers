@@ -49,25 +49,25 @@ func fileHeaderText(label string, path []string, width int) string {
 	return prefix + strings.TrimRight(ansi.Truncate(innermost, room-1, ""), " ") + "…"
 }
 
-// headingPathOf is the heading path of what a cursor line shows of an Excerpt:
-// that of its block or, for a row of a Document in no block (a blank line, or a
-// line drawn as code), that of the block nearest above it, or else below it.
-// Code has none.
+// headingPathOf is the heading path of what a cursor line shows of an Excerpt.
+// A block's is its own. A row's (a line of the source view, or a row of a
+// Document in no block) is that of the row in a block nearest above it, or else
+// below it, read on the row's own side: a row an edit replaced is drawn in the
+// block that replaced it, but sits under the old headings. Code has none.
 func headingPathOf(excerpt daemon.ExcerptWire, line codeLine) []string {
-	b := line.block
-	if b == 0 {
-		b = line.inBlock
+	if line.block > 0 && line.block <= len(excerpt.Blocks) {
+		return excerpt.Blocks[line.block-1].Path
 	}
-	if b == 0 && len(excerpt.Blocks) > 0 {
-		for i, row := range excerpt.Lines {
-			if row.Number == line.number && lineSide(row, excerpt) == line.side {
-				b = blockNear(excerpt, i)
-				break
-			}
-		}
-	}
-	if b < 1 || b > len(excerpt.Blocks) {
+	if len(excerpt.Blocks) == 0 {
 		return nil
 	}
-	return excerpt.Blocks[b-1].Path
+	for i, row := range excerpt.Lines {
+		if row.Number == line.number && lineSide(row, excerpt) == line.side {
+			if near := rowNear(excerpt, i); near >= 0 {
+				return excerpt.Lines[near].Path
+			}
+			return nil
+		}
+	}
+	return nil
 }

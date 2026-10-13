@@ -97,6 +97,17 @@ func TestARowOfAnEditedBlockCarriesItsTrackChanges(t *testing.T) {
 	}
 }
 
+func TestARowCarriesItsOwnHeadingPath(t *testing.T) {
+	line := review.Line{Number: 5, Text: "Each host has a cap of five.", Side: review.OldSide, Changed: true, Block: 2,
+		Path: []string{"Retries", "Limits"}}
+
+	wire := toLineWire(line)
+
+	if want := []string{"Retries", "Limits"}; !slices.Equal(wire.Path, want) {
+		t.Errorf("expected the row's heading path %q, got %q", want, wire.Path)
+	}
+}
+
 func TestAWidenedRowAndAPlainDocumentReachTheTUI(t *testing.T) {
 	views := []review.ExcerptView{{
 		Excerpt: review.Excerpt{File: "docs/spec.txt", Side: review.NewSide, FirstLine: 2, LastLine: 2},
