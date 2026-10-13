@@ -73,6 +73,9 @@ type Session struct {
 	// (#81). The round's content is fixed, so it holds for as long as the round
 	// is on screen.
 	editChanges map[string]changesWithin
+	// trackedDocuments remembers each Document's changes as its formatted
+	// view shows them, by what they are compared with, for the same reason.
+	trackedDocuments map[string]trackedDocument
 	// dispositions accounts for the previous round's Comments in a Revision
 	// Round, for display before any code, and accountedQuestions for its Agent
 	// Questions.
@@ -391,6 +394,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.settle(s.previous)
 	s.showAll = false
 	s.editChanges = map[string]changesWithin{}
+	s.trackedDocuments = map[string]trackedDocument{}
 
 	// A replacement keeps the Reviewer's Comments: each quotes its own code, so
 	// it stands without the Step it was raised on, which the replacement no

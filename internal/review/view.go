@@ -39,6 +39,11 @@ type Line struct {
 	// 1 among the Excerpt's Blocks; 0 for a row in none, such as a blank line
 	// between blocks or any row of code.
 	Block int
+	// Runs are what an edit did to the row, when it is a row of an edited block
+	// of a Document: its text cut into what the edit kept and added, with the
+	// words it struck there put back, as track changes. The block's rows on the
+	// other side carry none; their words are among these.
+	Runs []WordRun
 }
 
 // Content reports whether a row is code, rather than a stand-in drawn in its
@@ -305,10 +310,10 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	if excerpt.Side == NewSide {
 		if rows, ok := s.sinceRows(excerpt, in, lines); ok {
 			view.Lines = rows
-			return s.withBlocks(view)
+			return s.withBlocks(view, true)
 		}
 		view.Lines = s.interleaveBefore(excerpt, in, lines)
-		return s.withBlocks(view)
+		return s.withBlocks(view, false)
 	}
 	// An old-side Excerpt that assigns a rewrite's before-side has already been
 	// drawn, interleaved above the after-side it replaced. Drawing it again as a
@@ -336,7 +341,7 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 		kept = append(kept, line)
 	}
 	view.Lines = kept
-	return view
+	return s.withRemovedBlocks(view)
 }
 
 // fileLine identifies one before-side line of one file, so a Step can be asked

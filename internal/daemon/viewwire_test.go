@@ -78,3 +78,19 @@ func TestADocumentExcerptCarriesItsBlocksAndEachRowsBlock(t *testing.T) {
 		t.Errorf("expected each row to name its block, got %v", got)
 	}
 }
+
+func TestARowOfAnEditedBlockCarriesItsTrackChanges(t *testing.T) {
+	line := review.Line{Number: 3, Text: "A request is resent.", Side: review.NewSide, Changed: true, Block: 1, Runs: []review.WordRun{
+		{Text: "A request is ", Change: review.WordsKept},
+		{Text: "retried", Change: review.WordsRemoved},
+		{Text: "resent", Change: review.WordsAdded},
+		{Text: ".", Change: review.WordsKept},
+	}}
+
+	wire := toLineWire(line)
+
+	want := []RunWire{{"A request is ", "kept"}, {"retried", "removed"}, {"resent", "added"}, {".", "kept"}}
+	if !slices.Equal(wire.Runs, want) {
+		t.Errorf("expected the runs %+v, got %+v", want, wire.Runs)
+	}
+}

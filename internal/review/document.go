@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/probertson/diff-by-numbers/internal/intraline"
 )
 
 // isMarkdown is dbn's own classification of a file: whether its content is
@@ -100,20 +98,6 @@ func (d document) nodeOfLine(first int) []int {
 	return out
 }
 
-// wordsOn is the words of the given lines in order, each with the node of the
-// block it falls in.
-func (d document) wordsOn(lines, nodes []int) ([]string, []int) {
-	var words []string
-	var of []int
-	for _, line := range lines {
-		for _, word := range wordsIn(d.lines[line-1]) {
-			words = append(words, word)
-			of = append(of, nodes[line-1])
-		}
-	}
-	return words, of
-}
-
 // linesExcept is the numbers of the lines not in the set, in order.
 func (d document) linesExcept(set map[int]bool) []int {
 	var out []int
@@ -197,131 +181,66 @@ func (l ledger) costedBlocks() []costedBlock {
 	return out
 }
 
-// costsOf diffs one Document's two sides and costs the changed blocks the given
-// counted Changed Lines fall in.
-//
-// Every block on either side is a node, the before-side's first, and a block is
-// joined to each block on the other side it shares text with. A line nothing
-// changed is shared whole, and pairs with the line it was, since the lines
-// nothing changed stand in the same order on both sides. Between two of them,
-// the changed lines' words are diffed as one passage each, as intraline reads one
-// edit, so a word is never paired with a like one in some other part of the
-// Document. What that diff struck or added is what changed.
+// costsOf diffs one Document's two sides (see documentDiff) and costs the
+// changed blocks the given counted Changed Lines fall in.
 func (l ledger) costsOf(ref fileRef, lines []ChangedLine) []costedBlock {
-	before := l.documents[documentSide{ref, OldSide}]
-	after := l.documents[documentSide{ref, NewSide}]
-	beforeNode := before.nodeOfLine(0)
-	afterNode := after.nodeOfLine(len(before.blocks))
+	d := l.baseDiff(ref)
+	before, after := d.before, d.after
 
-	parent := make([]int, len(before.blocks)+len(after.blocks))
-	for n := range parent {
-		parent[n] = n
-	}
-	var find func(int) int
-	find = func(n int) int {
-		if parent[n] != n {
-			parent[n] = find(parent[n])
-		}
-		return parent[n]
-	}
-	join := func(a, b int) {
-		if a >= 0 && b >= 0 {
-			parent[find(a)] = find(b)
-		}
-	}
-
-	struck := make([]int, len(before.blocks)) // words struck, by before-side block
-	changedNode := map[int]bool{}
-	diff := func(oldLines, newLines []int) {
-		beforeWords, beforeNodes := before.wordsOn(oldLines, beforeNode)
-		afterWords, afterNodes := after.wordsOn(newLines, afterNode)
-		added := make([]bool, len(afterWords))
-		for j := range added {
-			added[j] = true
-		}
-		for i, j := range intraline.Matched(beforeWords, afterWords) {
-			if j < 0 {
-				struck[beforeNodes[i]]++
-				changedNode[beforeNodes[i]] = true
-				continue
-			}
-			added[j] = false
-			join(beforeNodes[i], afterNodes[j])
-		}
-		for j, isAdded := range added {
-			if isAdded {
-				changedNode[afterNodes[j]] = true
-			}
-		}
-	}
-
-	changedOn := map[Side]map[int]bool{OldSide: {}, NewSide: {}}
-	for _, line := range l.lines {
-		if line.Repository == ref.repository && line.File == ref.file {
-			changedOn[line.Side][line.Line] = true
-		}
-	}
-	unchangedBefore := before.linesExcept(changedOn[OldSide])
-	unchangedAfter := after.linesExcept(changedOn[NewSide])
-	if len(unchangedBefore) != len(unchangedAfter) {
-		// The sides cannot be lined up, as when one could not be read: diff
-		// them whole.
-		diff(before.linesExcept(nil), after.linesExcept(nil))
-	} else {
-		nextBefore, nextAfter := 1, 1
-		for k := range unchangedBefore {
-			diff(lineNumbers(nextBefore, unchangedBefore[k]-1), lineNumbers(nextAfter, unchangedAfter[k]-1))
-			join(beforeNode[unchangedBefore[k]-1], afterNode[unchangedAfter[k]-1])
-			nextBefore, nextAfter = unchangedBefore[k]+1, unchangedAfter[k]+1
-		}
-		diff(lineNumbers(nextBefore, len(before.lines)), lineNumbers(nextAfter, len(after.lines)))
-	}
-
-	costs := map[int]*costedBlock{} // by the node each is found by
+	costs := map[int]*costedBlock{} // by the group each is in
 	costOf := func(node int) *costedBlock {
-		root := find(node)
-		if costs[root] == nil {
-			costs[root] = &costedBlock{fileRef: ref}
+		group := d.group[node]
+		if costs[group] == nil {
+			costs[group] = &costedBlock{fileRef: ref}
 		}
-		return costs[root]
+		return costs[group]
 	}
 	for n, b := range before.blocks {
 		c := costOf(n)
 		c.before = append(c.before, b.lines)
-		c.words += struck[n]
+		c.words += d.struck[n]
 	}
 	for n, b := range after.blocks {
 		c := costOf(len(before.blocks) + n)
 		c.after = append(c.after, b.lines)
 		c.words += len(b.words)
 	}
-	changed := map[int]bool{}
-	for n := range changedNode {
-		changed[find(n)] = true
-	}
 
 	counted := map[int]bool{}
 	for _, line := range lines {
-		nodes := afterNode
+		nodes := d.afterNode
 		if line.Side == OldSide {
-			nodes = beforeNode
+			nodes = d.beforeNode
 		}
 		if line.Line < 1 || line.Line > len(nodes) || nodes[line.Line-1] < 0 {
 			continue
 		}
-		root := find(nodes[line.Line-1])
-		counted[root] = true
+		group := d.group[nodes[line.Line-1]]
+		counted[group] = true
 		if line.Side == OldSide {
-			costs[root].removed = append(costs[root].removed, line)
+			costs[group].removed = append(costs[group].removed, line)
 		}
 	}
 	var out []costedBlock
-	for root, c := range costs {
-		if counted[root] && changed[root] && c.words > 0 {
+	for group, c := range costs {
+		if counted[group] && d.wordsChanged[group] && c.words > 0 {
 			out = append(out, *c)
 		}
 	}
 	return out
+}
+
+// baseDiff diffs one Document's merge-base side against the side the round
+// holds, by its Changed Lines.
+func (l ledger) baseDiff(ref fileRef) documentDiff {
+	changedOn := map[Side]map[int]bool{OldSide: {}, NewSide: {}}
+	for _, line := range l.lines {
+		if line.Repository == ref.repository && line.File == ref.file {
+			changedOn[line.Side][line.Line] = true
+		}
+	}
+	return diffDocument(l.documents[documentSide{ref, OldSide}], l.documents[documentSide{ref, NewSide}],
+		changedOn[OldSide], changedOn[NewSide])
 }
 
 // lineNumbers is the line numbers first to last, none when last is before first.

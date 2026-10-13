@@ -142,28 +142,54 @@ func Emphasis(removed, added []string) ([][]Range, [][]Range) {
 // sharing none: every word struck and every word added.
 func Matched(before, after []string) []int {
 	out := make([]int, len(before))
-	for i := range out {
-		out[i] = -1
+	for _, p := range Aligned(before, after) {
+		if p.Before >= 0 {
+			out[p.Before] = p.After
+		}
 	}
+	return out
+}
+
+// Pair is one step of a word diff: a word of before kept as a word of after, a
+// word of before the edit struck (After is -1), or a word of after it added
+// (Before is -1).
+type Pair struct{ Before, After int }
+
+// Aligned is the same diff as Matched, step by step in the order a reader meets
+// them: every word of both sequences once, a struck word where it stood among
+// the words around it and an added word where it was put. It is what an edit
+// to a Document is drawn from, as track changes.
+//
+// Two sequences with too many distinct words to diff faithfully share none:
+// every word of before struck, then every word of after added.
+func Aligned(before, after []string) []Pair {
+	var out []Pair
 	encoded := encoder{}
 	beforeRunes, afterRunes := encoded.encode(before), encoded.encode(after)
 	if encoded.overflowed() {
+		for i := range before {
+			out = append(out, Pair{i, -1})
+		}
+		for j := range after {
+			out = append(out, Pair{-1, j})
+		}
 		return out
 	}
 	var i, j int
 	for _, d := range diffmatchpatch.New().DiffMainRunes(beforeRunes, afterRunes, false) {
-		n := len([]rune(d.Text))
-		switch d.Type {
-		case diffmatchpatch.DiffEqual:
-			for k := range n {
-				out[i+k] = j + k
+		for range len([]rune(d.Text)) {
+			switch d.Type {
+			case diffmatchpatch.DiffEqual:
+				out = append(out, Pair{i, j})
+				i++
+				j++
+			case diffmatchpatch.DiffDelete:
+				out = append(out, Pair{i, -1})
+				i++
+			case diffmatchpatch.DiffInsert:
+				out = append(out, Pair{-1, j})
+				j++
 			}
-			i += n
-			j += n
-		case diffmatchpatch.DiffDelete:
-			i += n
-		case diffmatchpatch.DiffInsert:
-			j += n
 		}
 	}
 	return out
