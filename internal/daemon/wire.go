@@ -48,6 +48,12 @@ type wireStep struct {
 	Questions             []wireQuestion        `json:"questions,omitempty" jsonschema:"Agent Questions about this Step's code: decisions or judgments you need from the Reviewer before going on, shown after the Step's explanation and before its code, in a block of their own. Ask only what the Reviewer must decide, never 'does this look OK?', and write each so it can be answered from this Step and the Steps before it. The Reviewer answers in free text; a Round that asks anything is never concluded at Hand Off"`
 }
 
+type wireChapter struct {
+	Name  string     `json:"name" jsonschema:"What the Chapter is about, as the Reviewer will know it, e.g. 'EL-7 Pack holds'. Shown with the Chapter's number on its intro and on every Step header inside it"`
+	Intro string     `json:"intro" jsonschema:"What the Chapter covers and why it comes where it does, in your own words, read before its first Step. It carries no Excerpts, so make the Chapter's grounding (a summary, acceptance criteria) its first Step"`
+	Steps []wireStep `json:"steps" jsonschema:"The Chapter's Steps, at least one, ordered so each is comprehensible given only the Steps before it"`
+}
+
 type wireQuestion struct {
 	Text      string `json:"text" jsonschema:"The question, answerable from its Step and the Steps before it"`
 	AsksAgain int    `json:"asks_again,omitempty" jsonschema:"In a Revision Round, the id of the previous round's Agent Question this one asks again, which you give the status 'asked_again'. The Reviewer sees the earlier wording and Answer with it, so word it to say what is still open rather than starting over. Place it where it now belongs: on the Step whose code it concerns, or on the Round"`
@@ -73,7 +79,8 @@ type wireQuestionStatus struct {
 type wireRound struct {
 	Brief        wireBrief         `json:"brief"`
 	Repositories []wireRepository  `json:"repositories" jsonschema:"Every repository this Round covers. A Round may span several"`
-	Steps        []wireStep        `json:"steps" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it"`
+	Steps        []wireStep        `json:"steps,omitempty" jsonschema:"The Steps, ordered so each is comprehensible given only the Steps before it. Give either steps or chapters, never both"`
+	Chapters     []wireChapter     `json:"chapters,omitempty" jsonschema:"The Steps grouped into Chapters, in place of steps: named runs of consecutive Steps, each opened by an intro the Reviewer reads on a screen of its own before the Chapter's first Step. Every Step belongs to a Chapter, and dbn numbers the Steps straight through the Round across Chapters, so Step 7 is Step 7 wherever it sits. Each Round declares its own Chapters or none; nothing carries forward from an earlier one. Give either steps or chapters, never both"`
 	Dispositions []wireDisposition `json:"dispositions,omitempty" jsonschema:"When this is a Revision Round posted after a hand-off, or a replacement of one, one entry per Comment the previous round raised, saying whether you addressed, answered or declined it. Omit in round 1"`
 	Label        string            `json:"label,omitempty" jsonschema:"A short human-readable name for this review, shown to the Reviewer to tell several reviews apart, e.g. 'auth refactor'. Required on a new review. It is not the review's id — dbn mints that — only a display aid. On a Revision Round or a replacement, leave it out to keep the one you first gave"`
 	Revises      string            `json:"revises,omitempty" jsonschema:"The id of the Review this Round continues, making it a Revision Round. Give it once the Reviewer has handed off with Comments or Agent Questions, alongside the dispositions and question statuses accounting for them. Leave it out and this post starts a new Review"`
@@ -254,9 +261,10 @@ type fetchResult struct {
 	OpenReviews []openReviewWire `json:"open_reviews,omitempty" jsonschema:"The reviews dbn is holding, when you called without a review_id. Find yours and call again with its id"`
 }
 
-func (w wireRound) toDomain() review.Round {
-	steps := make([]review.Step, 0, len(w.Steps))
-	for _, s := range w.Steps {
+// toSteps reads a list of Steps off the wire, a Round's own or a Chapter's.
+func toSteps(wires []wireStep) []review.Step {
+	steps := make([]review.Step, 0, len(wires))
+	for _, s := range wires {
 		excerpts := make([]review.Excerpt, 0, len(s.Excerpts))
 		for _, e := range s.Excerpts {
 			excerpts = append(excerpts, review.Excerpt{
@@ -284,6 +292,25 @@ func (w wireRound) toDomain() review.Round {
 			Questions:             toQuestions(s.Questions),
 		})
 	}
+	return steps
+}
+
+// toChapters reads a Round's Chapters off the wire, each with its own Steps.
+func toChapters(wires []wireChapter) []review.Chapter {
+	var chapters []review.Chapter
+	for _, c := range wires {
+		chapters = append(chapters, review.Chapter{Name: c.Name, Intro: c.Intro, Steps: toSteps(c.Steps)})
+	}
+	return chapters
+}
+
+func (w wireRound) toDomain() review.Round {
+	// A Round without a flat list of Steps gives none, rather than an empty one,
+	// so a Round in Chapters is not read as giving both.
+	var steps []review.Step
+	if len(w.Steps) > 0 {
+		steps = toSteps(w.Steps)
+	}
 
 	dispositions := make([]review.Disposition, 0, len(w.Dispositions))
 	for _, d := range w.Dispositions {
@@ -310,6 +337,7 @@ func (w wireRound) toDomain() review.Round {
 		},
 		ChangeSet:    toChangeSet(w.Repositories),
 		Steps:        steps,
+		Chapters:     toChapters(w.Chapters),
 		Dispositions: dispositions,
 		Label:        w.Label,
 		Questions:    toQuestions(w.Questions),

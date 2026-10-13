@@ -153,7 +153,7 @@ func (m model) questionsHere() []daemon.QuestionWire {
 	switch {
 	case m.inStep():
 		return m.view.Step.Questions
-	case m.view != nil && m.view.Posted && m.view.Position == 0:
+	case m.onOverview():
 		return append(append([]daemon.QuestionWire{}, m.view.RoundQuestions...), carriedQuestions(m.view.Questions)...)
 	}
 	return nil

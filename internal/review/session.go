@@ -40,10 +40,18 @@ type Session struct {
 	// position is where the Reviewer is: 0 for the Brief, 1..len(Steps) for a
 	// Step. It lives here rather than in any UI so that a reattaching surface
 	// finds the review where it was left.
+	//
+	// On a Chapter's intro, position is the Step before the Chapter's first (0
+	// for the first Chapter), so it still says how far through the Steps the
+	// Reviewer has come, and intro names the Chapter; intro is 0 anywhere else.
 	position int
+	intro    int
 	// seen records which Steps the Reviewer has visited. A Step becomes seen the
 	// moment it is in view, whether reached by advancing, going back, or jumping.
-	seen          map[int]bool
+	seen map[int]bool
+	// chapters are where the Round on screen's Chapters sit among its Steps,
+	// none for a Round without them.
+	chapters      []chapterSpan
 	comments      []Comment
 	nextCommentID int
 	questions     []AgentQuestion // the Round's Agent Questions, with what the Reviewer answered
@@ -298,8 +306,17 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	if w.Brief.Goal == "" && (earlier != nil || replacing) {
 		w.Brief.Goal = s.current.Brief.Goal
 	}
+	// A Chapter's faults leave the rest of the post readable, so they lead
+	// whatever else is reported rather than stopping it. The checks after this
+	// read the Steps as one list; when a Round gives both shapes, that is its
+	// flat Steps followed by its Chapters', so every Step sent is checked.
+	chapterProblems := validateChapters(w)
+	w, chapters := w.flattened()
+	withChapterProblems := func(rejection *Rejection) *Rejection {
+		return rejectAll(append(append([]Problem(nil), chapterProblems...), rejection.Problems...))
+	}
 	if rejection := validate(w, earlier == nil); rejection != nil {
-		return rejection
+		return withChapterProblems(rejection)
 	}
 
 	// Stage 1 stops at the first failure. Derivation needs a well-formed
@@ -310,7 +327,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	overruled := s.overruled.with(w.ChangeSet, w.Overrulings)
 	ledger, round, rejection := s.scopedLedger(w.ChangeSet, earlier, overruled, true)
 	if rejection != nil {
-		return rejection
+		return withChapterProblems(rejection)
 	}
 
 	// Normalisation rewrites the Excerpts into the ranges dbn will use, before
@@ -321,7 +338,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	// Stage 2: every check runs, and every one that fails is reported. They are
 	// independent of each other, so stopping at the first only hides what the
 	// agent would have to come back for.
-	var problems []Problem
+	problems := chapterProblems
 	add := func(rejection *Rejection) {
 		if rejection != nil {
 			problems = append(problems, rejection.Problems...)
@@ -374,7 +391,9 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.current = &w
 	s.ledger = ledger
 	s.position = 0
+	s.intro = 0
 	s.seen = map[int]bool{}
+	s.chapters = chapters
 	s.finished = false
 	s.dispositions = dispositions
 	s.answering = earlier
@@ -463,9 +482,11 @@ func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, overruled o
 }
 
 // moveTo places the Reviewer at a position and records a Step as seen. It is the
-// single path every navigation goes through, so seen-tracking cannot be skipped.
+// single path every navigation to the Brief or a Step goes through, so
+// seen-tracking cannot be skipped. A Chapter's intro is reached by toIntro.
 func (s *Session) moveTo(position int) {
 	s.position = position
+	s.intro = 0
 	if position > 0 {
 		if s.seen == nil {
 			s.seen = map[int]bool{}
@@ -553,28 +574,87 @@ func (s *Session) Results() (Results, error) {
 }
 
 // Advance moves the Reviewer one position forward: from the Brief to Step 1, or
-// from a Step to the next. At the last Step it stays put — running out of road
-// is not an error.
+// from a Step to the next. In a Round with Chapters, a Chapter's intro comes
+// before its first Step, so the Reviewer is grounded before each new stretch.
+// At the last Step it stays put — running out of road is not an error.
 func (s *Session) Advance() error {
 	if s.current == nil {
 		return reject(RejectedNoRound, "there is no Round to advance through")
 	}
-	if s.position < len(s.current.Steps) {
+	switch {
+	case s.intro > 0:
+		// An intro's position is the Step before its Chapter's first.
+		s.moveTo(s.position + 1)
+	case s.position < len(s.current.Steps):
+		if chapter := s.chapterOpenedBy(s.position + 1); chapter > 0 {
+			s.toIntro(chapter)
+			return nil
+		}
 		s.moveTo(s.position + 1)
 	}
 	return nil
 }
 
 // Back moves the Reviewer one position toward the Brief, so an earlier change
-// can be revisited once a later one has given it meaning. At the Brief it stays.
+// can be revisited once a later one has given it meaning. Going back from a
+// Chapter's first Step lands on its own intro, so its grounding can be reread.
+// At the Brief it stays.
 func (s *Session) Back() error {
 	if s.current == nil {
 		return reject(RejectedNoRound, "there is no Round to move back through")
 	}
-	if s.position > 0 {
+	switch {
+	case s.intro > 0:
+		s.moveTo(s.position)
+	case s.position > 0:
+		if chapter := s.chapterOpenedBy(s.position); chapter > 0 {
+			s.toIntro(chapter)
+			return nil
+		}
 		s.moveTo(s.position - 1)
 	}
 	return nil
+}
+
+// GoToChapter jumps straight to a Chapter's intro, numbered from 1. The intro
+// is where a Chapter is entered: the Reviewer moves on through its Steps in
+// order from there.
+func (s *Session) GoToChapter(chapter int) error {
+	if s.current == nil {
+		return reject(RejectedNoRound, "there is no Round to navigate")
+	}
+	if chapter < 1 || chapter > len(s.chapters) {
+		return reject(RejectedNoSuchChapter,
+			"there is no Chapter %d; this Round has %d", chapter, len(s.chapters))
+	}
+	s.toIntro(chapter)
+	return nil
+}
+
+// toIntro places the Reviewer on a Chapter's intro. An intro is a stop, not a
+// Step, so nothing becomes seen by reaching it.
+func (s *Session) toIntro(chapter int) {
+	s.position = s.chapters[chapter-1].first - 1
+	s.intro = chapter
+}
+
+// chapterOpenedBy is the Chapter whose first Step is step, numbered from 1, or 0
+// when step opens none.
+func (s *Session) chapterOpenedBy(step int) int {
+	for i, span := range s.chapters {
+		if span.first == step {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// stepInView is the Step on screen, or 0 on the Brief or a Chapter's intro.
+func (s *Session) stepInView() int {
+	if s.intro > 0 {
+		return 0
+	}
+	return s.position
 }
 
 // GoTo jumps straight to a position: 0 for the Brief, 1..len(Steps) for a Step.

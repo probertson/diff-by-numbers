@@ -126,7 +126,12 @@ type ChangeSet struct {
 type Round struct {
 	Brief     Brief
 	ChangeSet ChangeSet
-	Steps     []Step
+	// Steps is the Round's flat list of Steps, for a Round without Chapters. A
+	// Round gives either Steps or Chapters, never both.
+	Steps []Step
+	// Chapters group the Round's Steps behind intros of their own, each Chapter
+	// holding its own Steps. dbn numbers the Steps straight through the Round.
+	Chapters []Chapter
 	// Dispositions accounts for the previous round's Comments when this
 	// Round is a Revision Round. It is empty for a first Round.
 	Dispositions []Disposition

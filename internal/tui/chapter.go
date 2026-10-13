@@ -1,0 +1,74 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/probertson/diff-by-numbers/internal/daemon"
+)
+
+// onIntro reports whether a Chapter's intro is on screen. The first Chapter's
+// intro shares the Overview's position, before any Step, so the position alone
+// cannot tell the two apart.
+func (m model) onIntro() bool {
+	return m.view != nil && m.view.Posted && m.view.ChapterIntro > 0
+}
+
+// onOverview reports whether the Overview is on screen.
+func (m model) onOverview() bool {
+	return m.view != nil && m.view.Posted && m.view.Position == 0 && m.view.ChapterIntro == 0
+}
+
+// chapter is the Round's Chapter numbered n, from 1, and whether there is one.
+func (m model) chapter(n int) (daemon.ChapterWire, bool) {
+	if m.view == nil || n < 1 || n > len(m.view.Chapters) {
+		return daemon.ChapterWire{}, false
+	}
+	return m.view.Chapters[n-1], true
+}
+
+// chapterHeading names a Chapter by number and name, e.g. "3 · EL-7 Pack
+// holds". Numbers and names do the work, so the word "Chapter" is left out.
+func chapterHeading(chapter daemon.ChapterWire) string {
+	return fmt.Sprintf("%d · %s", chapter.Number, chapter.Name)
+}
+
+// chapterSpan places a Chapter among the Round's Steps, for the header line.
+func (m model) chapterSpan(chapter daemon.ChapterWire) string {
+	if chapter.FirstStep == chapter.LastStep {
+		return fmt.Sprintf("Step %d of %d", chapter.FirstStep, m.view.StepCount)
+	}
+	return fmt.Sprintf("Steps %d–%d of %d", chapter.FirstStep, chapter.LastStep, m.view.StepCount)
+}
+
+// stepChapterHeading names the Chapter of the Step in view, or "" in a Round
+// without Chapters.
+func (m model) stepChapterHeading() string {
+	if !m.inStep() {
+		return ""
+	}
+	chapter, ok := m.chapter(m.view.Step.Chapter)
+	if !ok {
+		return ""
+	}
+	return chapterHeading(chapter)
+}
+
+// intro draws a Chapter's intro: its number and name, the agent's intro, and
+// the Chapter's Steps, marking those that ask the Reviewer something. It is for
+// reading, not picking: the Reviewer moves on through the Steps in order.
+func (m model) intro() string {
+	chapter, ok := m.chapter(m.view.ChapterIntro)
+	if !ok {
+		return ""
+	}
+	width := proseWidthFor(m.viewport.Width, m.proseWidth)
+
+	var b strings.Builder
+	b.WriteString(labelSt.Render(chapterHeading(chapter)) + "\n\n")
+	b.WriteString(wrapTo(chapter.Intro, width) + "\n\n")
+	for step := chapter.FirstStep; step <= chapter.LastStep && step <= len(m.view.StepNames); step++ {
+		b.WriteString(fmt.Sprintf("  %2d. %s%s\n", step, m.view.StepNames[step-1], m.asksMark(step)))
+	}
+	return b.String()
+}

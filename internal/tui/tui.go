@@ -481,7 +481,7 @@ func (m *model) tallBlock() (height, page int, tall bool) {
 // paneInputs is the Step's pane as the model draws it now.
 func (m model) paneInputs() paneInputs {
 	return paneInputs{
-		step: m.view.Step, cur: m.cursor,
+		step: m.view.Step, chapter: m.stepChapterHeading(), cur: m.cursor,
 		commented: m.commentedLines(), ackCommentCounts: m.ackComments(),
 		width: m.width, height: m.bodyHeight(),
 		showRepo: m.multiRepo(), wrapAll: m.wrapAll, proseWidth: m.proseWidth,
@@ -970,7 +970,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		} else {
-			if m.view != nil && msg.view != nil && m.view.Position != msg.view.Position {
+			// A Chapter's intro sits at the position of the Step before it, so
+			// moving between the two changes the stop but not the position.
+			if m.view != nil && msg.view != nil &&
+				(m.view.Position != msg.view.Position || m.view.ChapterIntro != msg.view.ChapterIntro) {
 				positionChanged = true
 			}
 			// How the Reviewer left each Step belongs to one Round: a new
@@ -1270,8 +1273,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	// Only the Brief scrolls through the viewport; a Step is cursor-driven.
-	if m.view == nil || m.view.Position == 0 {
+	// Only the Brief and a Chapter's intro scroll through the viewport; a Step
+	// is cursor-driven.
+	if m.view == nil || m.view.Position == 0 || m.onIntro() {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
@@ -1829,6 +1833,9 @@ func (m model) inboxKeys() string {
 func (m model) modeKeys() string {
 	if m.view == nil || !m.view.Posted {
 		return ""
+	}
+	if m.onIntro() {
+		return keybar("enter continue", "↑/↓ scroll")
 	}
 	if m.view.Position == 0 {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
@@ -2541,6 +2548,9 @@ func (m model) headerLine() string {
 		return headerSt.Render("dbn — Before you hand off") + dimSt.Render(m.coverageSuffix())
 	case m.pastTheLastStep():
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
+	case m.onIntro():
+		chapter, _ := m.chapter(m.view.ChapterIntro)
+		return headerSt.Render("dbn — "+m.chapterSpan(chapter)) + dimSt.Render(m.coverageSuffix())
 	case m.view.Position == 0:
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
@@ -2643,6 +2653,9 @@ func (m model) content() string {
 	}
 	if m.view == nil || !m.view.Posted {
 		return dimSt.Render("An Authoring Agent posts a Round over MCP; it will appear here.")
+	}
+	if m.onIntro() {
+		return m.intro()
 	}
 	if m.view.Position == 0 {
 		return m.brief()

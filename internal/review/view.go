@@ -166,6 +166,9 @@ type StepView struct {
 	Acknowledgements      []AcknowledgementView
 	// Questions are the Agent Questions asked about this Step's code.
 	Questions []AgentQuestion
+	// Chapter is the Chapter the Step is in, numbered from 1, or 0 in a Round
+	// without Chapters.
+	Chapter int
 }
 
 // Coverage is the live progress the Reviewer sees: how many Changed Lines the
@@ -196,6 +199,13 @@ type ViewModel struct {
 	Step         *StepView
 	Coverage     Coverage
 	Repositories []Repository
+	// Chapters are the Round's Chapters, in order; none for a Round without them.
+	Chapters []ChapterView
+	// ChapterIntro is the Chapter whose intro is on screen, numbered from 1, or 0
+	// when none is. On an intro Position is the Step before the Chapter's first,
+	// so it still says how far through the Steps the Reviewer has come, and Step
+	// is nil.
+	ChapterIntro int
 	// Seen[i] reports whether Step i+1 has been visited.
 	Seen []bool
 	// StepStatuses[i] is the derived disposition of Step i+1.
@@ -257,6 +267,8 @@ func (s *Session) View() ViewModel {
 		StepCount:    len(w.Steps),
 		Position:     s.position,
 		Repositories: w.ChangeSet.Repositories,
+		Chapters:     s.chapterViews(),
+		ChapterIntro: s.intro,
 		Coverage: Coverage{
 			Seen:  s.ledger.seenBy(w.Steps, s.position),
 			Total: s.ledger.total(),
@@ -281,8 +293,8 @@ func (s *Session) View() ViewModel {
 		RoundQuestions:     s.questionsOnStep(0),
 		AccountedQuestions: s.AccountedQuestions(),
 	}
-	if s.position > 0 {
-		view.Step = s.stepView(s.position)
+	if step := s.stepInView(); step > 0 {
+		view.Step = s.stepView(step)
 	}
 	return view
 }
@@ -305,6 +317,7 @@ func (s *Session) stepView(position int) *StepView {
 		Excerpts:              excerpts,
 		Acknowledgements:      acknowledgements,
 		Questions:             s.questionsOnStep(position),
+		Chapter:               s.chapterOf(position),
 	}
 }
 

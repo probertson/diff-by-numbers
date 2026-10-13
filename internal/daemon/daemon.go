@@ -639,6 +639,20 @@ func (d *Daemon) Handler() http.Handler {
 		fmt.Fprintln(w, "ok")
 	}))
 
+	// Going to a Chapter lands on its intro, where the Chapter is entered.
+	mux.HandleFunc("POST /reviews/{review}/chapter/{n}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.PathValue("n"))
+		if err != nil {
+			http.Error(w, "chapter must be a number", http.StatusBadRequest)
+			return
+		}
+		if err := d.locked(func() error { return session.GoToChapter(n) }); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}))
+
 	// Dismissal is the Reviewer's act, so it is theirs to reach and not exposed
 	// as an MCP tool: an agent cannot dismiss a review of its own work. The
 	// review stays held as its own tombstone until the agent has been told.
@@ -823,7 +837,8 @@ func (d *Daemon) mcpServer() *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "post_round",
-		Description: "Post a Round of your changes for the Reviewer to work through: a Brief and ordered Steps. " +
+		Description: "Post a Round of your changes for the Reviewer to work through: a Brief and ordered Steps, " +
+			"given as a flat list or grouped into Chapters. " +
 			"Send it once and completely: the Reviewer navigates it without involving you. " +
 			"Order Steps so each is comprehensible given only the Steps before it, and send " +
 			"line ranges rather than code — dbn reads the working tree itself. " +

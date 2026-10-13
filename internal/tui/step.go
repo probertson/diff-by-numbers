@@ -612,7 +612,10 @@ func runesForRow(r []rune, width, nextWidth int) int {
 // formatted) wraps at proseWidth where that is narrower than the pane (0 for no
 // maximum); code keeps the pane's width.
 type paneInputs struct {
-	step             *daemon.StepWire
+	step *daemon.StepWire
+	// chapter names the Step's Chapter by number and name, "" in a Round
+	// without Chapters.
+	chapter          string
 	cur              stepCursor
 	commented        map[string]bool
 	ackCommentCounts []int
@@ -813,6 +816,9 @@ func (in paneInputs) header() string {
 	wrap := func(text string) string { return wrapTo(text, width) }
 	prose := proseWidthFor(width, in.proseWidth)
 	var b bytes.Buffer
+	if in.chapter != "" {
+		fmt.Fprint(&b, dimSt.Render(in.chapter)+"\n")
+	}
 	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrapTo(step.Explanation, prose)+"\n")
 	if step.OversizeJustification != "" {
 		// The label goes on its own line above the wrapped justification. Inlining it

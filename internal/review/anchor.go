@@ -92,11 +92,11 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	if s.current == nil {
 		return Anchor{}, reject(RejectedNoRound, "there is no Round to anchor into")
 	}
-	if s.position == 0 {
-		return Anchor{}, reject(RejectedNoSuchStep, "you can only anchor within a Step, not the Brief")
+	if s.stepInView() == 0 {
+		return Anchor{}, reject(RejectedNoSuchStep, "you can only anchor within a Step, not the Brief or a Chapter's intro")
 	}
 
-	step := s.current.Steps[s.position-1]
+	step := s.current.Steps[s.stepInView()-1]
 	excerpt, in, reason, err := s.anchoredExcerpt(step, target)
 	if err != nil {
 		return Anchor{}, err

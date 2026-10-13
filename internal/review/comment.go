@@ -34,7 +34,7 @@ func (s *Session) RaiseComment(target AnchorTarget, note string) (Comment, error
 		return Comment{}, err
 	}
 	s.nextCommentID++
-	comment := Comment{ID: s.nextCommentID, Step: s.position, Anchor: anchor, Note: note}
+	comment := Comment{ID: s.nextCommentID, Step: s.stepInView(), Anchor: anchor, Note: note}
 	s.comments = append(s.comments, comment)
 	return comment, nil
 }

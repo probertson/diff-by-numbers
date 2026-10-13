@@ -152,6 +152,19 @@ type StepWire struct {
 	Excerpts              []ExcerptWire         `json:"excerpts"`
 	Acknowledgements      []AcknowledgementWire `json:"acknowledgements,omitempty"`
 	Questions             []QuestionWire        `json:"questions,omitempty"`
+	// Chapter is the Chapter the Step is in, numbered from 1, or 0 in a Round
+	// without Chapters.
+	Chapter int `json:"chapter,omitempty"`
+}
+
+// ChapterWire is one Chapter of the Round on screen, with the Steps it holds
+// named by their numbers in the Round.
+type ChapterWire struct {
+	Number    int    `json:"number"`
+	Name      string `json:"name"`
+	Intro     string `json:"intro"`
+	FirstStep int    `json:"first_step"`
+	LastStep  int    `json:"last_step"`
 }
 
 // QuestionWire is an Agent Question as the TUI draws it, with the Reviewer's
@@ -236,14 +249,20 @@ type DispositionWire struct {
 }
 
 type ViewWire struct {
-	Posted       bool              `json:"posted"`
-	Posting      int               `json:"posting"`
-	ReviewID     string            `json:"review_id,omitempty"`
-	Brief        BriefWire         `json:"brief"`
-	StepNames    []string          `json:"step_names"`
-	StepCount    int               `json:"step_count"`
-	Position     int               `json:"position"`
-	Step         *StepWire         `json:"step,omitempty"`
+	Posted    bool      `json:"posted"`
+	Posting   int       `json:"posting"`
+	ReviewID  string    `json:"review_id,omitempty"`
+	Brief     BriefWire `json:"brief"`
+	StepNames []string  `json:"step_names"`
+	StepCount int       `json:"step_count"`
+	Position  int       `json:"position"`
+	Step      *StepWire `json:"step,omitempty"`
+	// Chapters are the Round's Chapters, none for a Round without them.
+	Chapters []ChapterWire `json:"chapters,omitempty"`
+	// ChapterIntro is the Chapter whose intro is on screen, numbered from 1, or
+	// 0 when none is. On an intro, Position is the Step before the Chapter's
+	// first and Step is absent.
+	ChapterIntro int               `json:"chapter_intro,omitempty"`
 	Coverage     CoverageWire      `json:"coverage"`
 	Repositories []RepositoryWire  `json:"repositories"`
 	Seen         []bool            `json:"seen"`
@@ -378,15 +397,16 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Goal:       v.Brief.Goal,
 			Background: v.Brief.Background,
 		},
-		StepNames: v.StepNames,
-		StepCount: v.StepCount,
-		Position:  v.Position,
-		Coverage:  CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
-		Seen:      v.Seen,
-		Finished:  v.Finished,
-		Concluded: v.Concluded,
-		Dismissed: v.Dismissed,
-		Replaced:  v.Replaced,
+		StepNames:    v.StepNames,
+		StepCount:    v.StepCount,
+		Position:     v.Position,
+		ChapterIntro: v.ChapterIntro,
+		Coverage:     CoverageWire{Seen: v.Coverage.Seen, Total: v.Coverage.Total},
+		Seen:         v.Seen,
+		Finished:     v.Finished,
+		Concluded:    v.Concluded,
+		Dismissed:    v.Dismissed,
+		Replaced:     v.Replaced,
 
 		Questions:      toQuestionWires(v.Questions),
 		RoundQuestions: toQuestionWires(v.RoundQuestions),
@@ -395,6 +415,12 @@ func toViewWire(v review.ViewModel) ViewWire {
 		PreviousRound:          v.PreviousRound,
 		SincePreviousRound:     v.SincePreviousRound,
 		UnchangedSincePrevious: v.UnchangedSincePrevious,
+	}
+	for _, chapter := range v.Chapters {
+		wire.Chapters = append(wire.Chapters, ChapterWire{
+			Number: chapter.Number, Name: chapter.Name, Intro: chapter.Intro,
+			FirstStep: chapter.FirstStep, LastStep: chapter.LastStep,
+		})
 	}
 	for _, st := range v.StepStatuses {
 		wire.StepStatuses = append(wire.StepStatuses, string(st))
@@ -452,6 +478,7 @@ func toViewWire(v review.ViewModel) ViewWire {
 			Explanation:           v.Step.Explanation,
 			OversizeJustification: v.Step.OversizeJustification,
 			Questions:             toQuestionWires(v.Step.Questions),
+			Chapter:               v.Step.Chapter,
 		}
 		if len(v.Step.Excerpts) > 0 {
 			step.Excerpts = toExcerptWires(v.Step.Excerpts)

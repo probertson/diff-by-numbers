@@ -93,6 +93,17 @@ const (
 	// file outside the Change Set or one already classified, or makes a binary
 	// file a Document.
 	RejectedMalformedClassification RejectionReason = "malformed_classification"
+	// RejectedStepsAndChapters means a Round gave both a flat list of Steps and
+	// Chapters, so which it meant is ambiguous.
+	RejectedStepsAndChapters RejectionReason = "steps_and_chapters"
+	// RejectedEmptyChapter means a Chapter holds no Steps, so it has nothing to
+	// show.
+	RejectedEmptyChapter RejectionReason = "empty_chapter"
+	// RejectedMalformedChapter means a Chapter has no name or no intro.
+	RejectedMalformedChapter RejectionReason = "malformed_chapter"
+	// RejectedNoSuchChapter means a navigation names a Chapter the Round does
+	// not have.
+	RejectedNoSuchChapter RejectionReason = "no_such_chapter"
 )
 
 // Problem is one thing wrong with a post: what kind, and what specifically.
