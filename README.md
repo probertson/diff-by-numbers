@@ -1,53 +1,33 @@
-# diff-by-numbers
+# diff-by-numbers (`dbn`)
 
 Agent-driven diff review with paint-by-numbers simplicity.
 
-Reviewing an agent's code changes is the most time-consuming human-in-the-loop
-step in agent-assisted development, and the one most often skipped — because the
-reviewer is handed a diff in the tool's arbitrary order, with no explanation, and
-has to reconstruct *why* from *what*. dbn is a channel for the agent that wrote
-the code to walk you through it: a narrated, semantically-ordered **Round** you
-navigate yourself, comment on in place, and hand back as a list of Comments —
-which the agent works and puts through review again, Round by Round, until you
-hand off having raised nothing.
+(Screenshot to be placed here =)
 
-dbn holds no opinion about the code (it never decides what is shown) and enforces
-one thing against the agent's account of its own work: every changed line must be
-shown (the **Coverage Ledger**, derived from git — not from the agent). The agent
-that wrote the changes is the one that posts them, because the point is to hear
-the story from the one who knows it.
+## Contents
 
-See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions behind it.
+1. [What is this and why would I want to use it](#the-why)
+2. [Installation](#installation)
+3. [One-time setup](#one-time-setup)
+4. [Using dbn](#using-dbn)
+5. [Contributing](#contributing)
 
-## The end-to-end flow
+## The _Why_
 
-1. **A daemon owns the review state**, exposing an MCP server on
-   `127.0.0.1:7373`, separate from any agent session so closing a window loses
-   nothing. It starts on demand the first time an agent session connects and lets
-   go of itself once no review needs it — you never run it by hand.
-2. **Your agent posts a Round** over MCP — a Brief plus ordered Steps, each
-   a self-contained idea built from line ranges it chose for comprehension. It
-   posts once and ends its turn; it does not wait on you.
-3. **You review in a terminal** beside your agent session: `dbn` opens the TUI,
-   attaches to the daemon, and draws the Round. You move through Steps,
-   select a line range to copy a self-contained **Anchor** into your agent chat,
-   or raise a **Comment** in place: a change you want, or a question. Where the
-   agent needs a decision from you, it asks an **Agent Question**, set apart from
-   its narration, and you answer it where it is asked.
-4. **You hand off, the agent collects the Comments and your Answers** with a
-   second MCP call, responds to them, and posts a **Revision Round** — the full
-   change set again, scoped by dbn to just what moved, with each of your Comments
-   marked addressed, answered or declined, and each question given a status.
-   Repeat until you hand off having raised nothing.
+**TL;dr:** speed up the human part of agentic coding while also improving the quality of the experience and the quality of the output.
+
+[The long version](./docs/WHY.md)
 
 ## Installation
 
-One line downloads the right prebuilt binary for your machine and puts it on your
-PATH — no Go toolchain needed:
+Run this command to download a prebuilt binary for your machine and put it on your
+PATH:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/probertson/diff-by-numbers/main/install.sh | sh
 ```
+
+### What it does:
 
 It installs to `~/.local/bin` and verifies the download against the published
 SHA-256 checksum. There are two options you can specify as environment variables:
@@ -57,90 +37,45 @@ SHA-256 checksum. There are two options you can specify as environment variables
 
 Note the variables go on the `sh` side of the pipe, since that is the process that reads it.
 
-Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the
-Linux build). `dbn version` confirms the install.
+Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the Linux build). `dbn version` confirms the install.
 
-dbn shells out to `git`, and needs **git 2.25 or newer** (January 2020) — it derives the Change Set
-with pathspec files, which older git does not read. `git --version` confirms yours.
+### Additional Requirements
 
-### Updating
-
-dbn checks once a day whether a newer release has been published, and says so in
-the TUI header and under `dbn version`. To update:
-
-```sh
-dbn update
-```
-
-It downloads the release for your platform, verifies it against the published
-SHA-256 checksums, and replaces the binary in place. Nothing is downloaded or
-replaced unless you run it.
-
-A few things worth knowing:
-
-- **The daemon.** If one is running and no review is in progress, `dbn update`
-  stops it so it comes back on the new build (launchd/systemd restart it; an
-  on-demand one starts next time your agent needs it). If a review *is* in
-  progress the daemon is left alone — its review lives in memory — and dbn
-  tells you to run the update again once you are done. `dbn update --force`
-  restarts it anyway, losing the review. Agent sessions reconnect on their own.
-- **If the binary's directory is not writable** (say you installed to
-  `/usr/local/bin`), dbn will not use sudo for you. It points you at reinstalling
-  somewhere you own with the installer above, or at `sudo dbn update`.
-- **Turning the check off.** `update-check = false` in the [config
-  file](#configuration), or `DBN_NO_UPDATE_CHECK=1`, disables it entirely — no
-  network call is made. `dbn update` still works when you ask for it.
-- Builds you compiled yourself never check, and never update themselves.
-
-### ... or build from source
-
-```sh
-go build -o /usr/local/bin/dbn ./cmd/dbn
-```
+dbn shells out to `git`, and needs **git 2.25 or newer** (January 2020) — it derives the Change Set with pathspec files, which older git does not read. `git --version` confirms yours.
 
 (Anywhere on your `PATH` is fine; `dbn version` confirms the build.)
 
-## One-time setup
+## One-time setup: Connect dbn to your agent
 
-### 1. Connect dbn to your agent
+You need to set up two things for your agent:
 
-Your agent needs two things: the dbn MCP server, which gives it the review tools,
-and the review skill, which teaches it to use them. The skill covers Step sizing
-and narrative ordering, what goes in the Brief, when an Acknowledgement is
-appropriate, and how to run the collect-and-revise loop.
+- the dbn MCP server, which gives it access to dbn
+- the review skill, which teaches it to use dbn
 
-The agent launches the MCP server per session, and that starts the shared dbn
-daemon on demand, so the review tools are always there with nothing to start by
-hand first. Whichever way you set it up, `dbn` must be on your PATH for your
-agent to launch it.
+The agent launches the MCP server per session, and that starts the dbn backend on demand, so the review tools are always there with nothing to start by hand first. In order for this to work, `dbn` must be on your PATH for your agent to launch it. The skill includes instructions on how to call the tool, and _also_ guidelines on how to structure a review. If you want to give your agent custom instructions (e.g. "always put section X first" or "I don't care about seeing changes of type Y") you can create your own skill with those extra instructions, and your agent will pick it up and use it.
+
+To get them:
+
+- Claude Code (via plugin): [install the plugin](#claude-code-install-the-plugin)
+- Other: [manual setup](#manual-setup)
 
 #### Claude Code: install the plugin
 
 The plugin brings both the skill and the MCP server. In a Claude Code session:
+
 ```
 /plugin marketplace add probertson/diff-by-numbers
 /plugin install dbn@diff-by-numbers
 ```
-(`/plugin install` opens the plugin panel on dbn, where you choose a scope to install it.
-The user scope makes dbn available in every project.)
+
+(`/plugin install` opens the plugin panel on dbn, where you choose a scope to install it. The user scope makes dbn available in every project.)
 
 Or from a terminal:
+
 ```sh
 claude plugin marketplace add probertson/diff-by-numbers
 claude plugin install dbn@diff-by-numbers
 ```
-
-**If you registered dbn by hand** (with `claude mcp add … dbn -- dbn mcp`), you can
-leave that in place: Claude Code skips a plugin's server when you have already
-registered the same command yourself. Or remove it and let the plugin own it:
-
-```sh
-claude mcp remove -s user dbn
-```
-
-(Use the scope you registered it at: drop `-s user` if you ran `claude mcp add`
-without it.) The plugin's tools are named `mcp__plugin_dbn_dbn__…` rather than
-`mcp__dbn__…`, so update any permission rules that name the old ones.
 
 ##### Optional: auto-update the plugin
 
@@ -156,115 +91,48 @@ diff-by-numbers plugin/skill:
 Otherwise, `dbn update` will tell you when your skill is out of date with the
 dbn you installed, and how to update it.
 
-#### Without the plugin: add the skill, then register the server
+#### Manual setup
 
-Copy the review skill with `npx skills`:
+For non-Claude setups, or to set up dbn without installing the plugin:
+
+1. add the skill
+2. register the MCP server
+
+Install the review skill, for example with `npx skills`:
+
 ```sh
 npx skills add probertson/diff-by-numbers/skills/dbn-review
 ```
 
-Then register `dbn mcp` as a stdio MCP server with your agent. For Claude Code
-without the plugin, register it for every project:
+Then register `dbn mcp` as a stdio MCP server with your agent:
+
+- Claude Code: without the plugin:
+
+  ```sh
+  claude mcp add -s user dbn -- dbn mcp
+  ```
+
+- Codex (untested): from the Codex desktop app, add a "stdio" MCP server with command `dbn mcp`, or from your terminal:
+
+  ```sh
+  codex mcp add dbn -- dbn mcp
+  ```
+
+## Updating
+
+See [UPDATING.md](./docs/UPDATING.md)
+
+TL;dr: dbn checks once a day whether a newer release has been published, and says so in the TUI header and under `dbn version`. To update, run:
 
 ```sh
-claude mcp add -s user dbn -- dbn mcp
-```
-
-Without `-s user`, `claude mcp add` uses its default scope, `local`: dbn is
-registered only for the project you ran the command in, so it is missing
-everywhere else. To register it for just one project, run this from that
-project's directory:
-
-```sh
-claude mcp add dbn -- dbn mcp
-```
-
-### 2. (Optional) Keep the daemon always running
-
-You do not need this: the shim starts the daemon on demand, and it stops itself
-once no review needs it. But if you would rather the daemon be permanently warm —
-so the first review of a session has nothing to start — run it on login/startup.
-This is purely a pre-warm; the shim simply finds and shares a daemon that is
-already running.
-
-**NOTE:** `dbn` needs to be on your PATH for these. Both commands below write
-the absolute path of your dbn (`$(command -v dbn)` — normally
-`~/.local/bin/dbn`, where the installer puts it) into the service definition,
-because neither launchd nor systemd expands `~`. `dbn update` replaces that
-binary in place, so the path stays good across updates; if you move dbn
-elsewhere, rewrite the definition.
-
-#### macOS
-```sh
-cat > ~/Library/LaunchAgents/com.probertson.dbn.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.probertson.dbn</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$(command -v dbn)</string>
-    <string>serve</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>/tmp/dbn.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/dbn.err.log</string>
-</dict>
-</plist>
-EOF
-
-launchctl load ~/Library/LaunchAgents/com.probertson.dbn.plist
-```
-
-It starts at login and is restarted if it exits. To stop it:
-
-```sh
-launchctl unload ~/Library/LaunchAgents/com.probertson.dbn.plist
-```
-
-#### Linux/Unix (via systemd): install as a user service
-
-```sh
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/dbn.service <<EOF
-[Unit]
-Description=dbn review daemon (MCP server on 127.0.0.1:7373)
-
-[Service]
-ExecStart=$(command -v dbn) serve
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user enable --now dbn.service
-```
-
-To stop it:
-```sh
-systemctl --user disable --now dbn.service
-```
-
-To read its logs:
-```sh
-journalctl --user -u dbn
+dbn update
 ```
 
 ## Using dbn
 
-1. Ask your agent to "review [describe set of changes, for example 'the last
-two commits'] with dbn." The daemon starts automatically the first time your
-agent uses dbn — you do not need to start anything.
+1. Ask your agent to "review \[describe set of changes, for example 'the last
+   two commits'] with dbn." The daemon starts automatically the first time your
+   agent uses dbn.
 
 2. In a separate terminal, open the TUI:
 
@@ -272,156 +140,25 @@ agent uses dbn — you do not need to start anything.
 dbn
 ```
 
-You can open it before your agent is ready: with no daemon yet, the TUI waits for
-one and fills in the moment the Round is posted.
+You can open it before your agent is ready: with no daemon yet, the TUI waits for one and fills in the moment the Round is posted.
 
-dbn opens on the **Inbox**: every review the daemon is holding, with what each
-one is waiting on — you, or the agent. Move with the arrows, `enter` opens the
-one under the cursor where you left it, and `i` puts it back down again without
-handing it off, so several agent sessions can have reviews waiting at once. `d`
-dismisses a review you don't want, after a y/n confirmation — it discards the
-Comments you raised, and the agent is told you dismissed it.
+dbn opens on the "Inbox": every review that has been posted to dbn, and whether it's waiting on you or the agent. Move with the arrows, `enter` opens the one under the cursor where you left it, and `i` returns you to the inbox, leaving your review as-is. `d` dismisses a review you don't want, after a y/n confirmation — it discards the comments you raised, and the agent is told you dismissed it.
 
-Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate
-through screens. Select lines to copy-by-reference (for pasting to your agent, if you want
-to ask questions mid-review) or to add a Comment. Press `a` to answer an Agent Question
-where the agent asked it. When you're done, press `h` to hand the review off; if a
-question is still unanswered, dbn lists it first and lets you answer it or hand off anyway. If your agent's harness can wait on a background command (Claude Code can), the
-agent is told directly and the screen says so; otherwise it tells you to let the agent
-know. Either way, it then retrieves your Comments. Allowing `Bash(dbn wait:*)` saves being
-asked each round. Handing off is not leaving: `q` exits the viewer at any time without
-losing anything, and `dbn` reopens to the same Inbox.
+Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate through screens. Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions mid-review) or to add a comment. Press `a` to answer an agent question where the agent asked it. When you're done, press `h` to hand off the review.
 
-Other subcommands: `dbn wait <review_id>` blocks until you hand that review off or dismiss
-it (the agent runs it in the background, from the command dbn gives it), `dbn dump` prints
-every review the daemon holds as text, `dbn version` reports the build, `dbn update`
-installs a newer one (see [Updating](#updating)), and `dbn config` shows your settings (see
-[Configuration](#configuration)).
+If your agent's harness can wait on a background command, the agent is told directly and the screen says so; otherwise it tells you to let the agent know. Either way, the agent then retrieves your comments.
 
-## Configuration
+Handing off is not leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the inbox.
 
-dbn reads an optional config file at `$XDG_CONFIG_HOME/dbn/config.toml`, or
-`~/.config/dbn/config.toml` when `XDG_CONFIG_HOME` isn't set (on macOS too). Without one,
-everything has its default.
+### Other subcommands
 
-```toml
-port = 7373           # the daemon's port
-update-check = true   # false turns the update check off
-background = "auto"   # your terminal's background: auto | dark | light
+- `dbn wait <review_id>` blocks until you hand that review off or dismiss it (the agent runs it in the background, from the command dbn gives it)
 
-[diff]
-preset = "medium"     # subtle | medium | strong: applies to both backgrounds
+- `dbn dump` prints every review the daemon holds as text
+- `dbn version` reports the current version
+- `dbn update` installs a newer version if one is available (see [Updating](./docs/UPDATING.md))
+- `dbn config` shows your settings (see [Configuration](./docs/CONFIG.md))
 
-[diff.dark]           # optional; each key replaces one of the preset's colours on a dark background
-removed-change = "#8a3535"
+## Contributing
 
-[diff.light]          # optional; the same for a light background
-added-line = "#e8f7e8"
-```
-
-Each setting can also come from somewhere else. The order of precedence, highest first:
-
-| Setting | Flag | Environment variable | Config file | Default |
-|---|---|---|---|---|
-| Port | `-port N` | `DBN_PORT=N` | `port = N` | `7373` |
-| Update check | — | `DBN_NO_UPDATE_CHECK=1` | `update-check = false` | on |
-
-Note that the environment variable is the opposite way round from the key:
-`DBN_NO_UPDATE_CHECK=1` means `update-check = false`. It can only turn the check off: `0`,
-`false`, `no` and an empty value count as unset, and the config file decides.
-
-`background` and `[diff]` are set in the file only.
-
-`dbn config` prints where the file is, checks it, and lists each setting with where its value
-came from, including all eight diff colours.
-
-- **An invalid setting stops dbn.** A file that isn't valid TOML, a bad value, or an
-  unparseable `DBN_PORT` makes every command exit with an error saying where the problem
-  is: the file, line and key, or the variable. Your agent's dbn tools report the same
-  error when called. Once you fix the file, the next call works without restarting
-  anything.
-- **An unknown key only warns** (on stderr, as a notice in the TUI, and in `dbn config`), so a
-  file written for a newer dbn still works with an older one.
-- **The file is read at launch.** Relaunch the TUI after editing it.
-
-### Diff colours
-
-A changed line is tinted across its width, and the characters that changed within it get a
-stronger tint of the same colour. Each background has four colours: `added-line`,
-`added-change`, `removed-line` and `removed-change`. The `-line` colour is the tint across
-the whole line, and the `-change` colour is the stronger one. Each is a `#rrggbb` background
-colour.
-
-| Preset | Background | added-line | added-change | removed-line | removed-change |
-|---|---|---|---|---|---|
-| `subtle` | dark | `#1f2b1f` | `#2f4a2f` | `#2e1f1f` | `#4f2d2d` |
-| `medium` (default) | dark | `#213a21` | `#2f6b2f` | `#3f2222` | `#7a2f2f` |
-| `strong` | dark | `#1d4a1d` | `#2e8b2e` | `#5a1f1f` | `#a33a3a` |
-| `subtle` | light | `#f0f9f0` | `#c9ecc9` | `#fbf0f0` | `#f3c9c9` |
-| `medium` (default) | light | `#e3f5e3` | `#abe2ab` | `#fae3e3` | `#f0a8a8` |
-| `strong` | light | `#cdeecd` | `#8fd68f` | `#f6cccc` | `#e88a8a` |
-
-`background` describes your terminal; it doesn't change it. dbn draws on the terminal's own
-background and in its own text colour, and picks the rest of its colours, the diff's
-included, to suit them. It asks the terminal whether that background is dark or light. Some
-terminals and multiplexers don't answer, and dbn then assumes dark. If yours is light and
-dbn's colours look meant for a dark one, set `background = "light"` (or the reverse). Setting
-it to the opposite of your terminal makes dbn pick colours for a background you don't have,
-which leaves text unreadable on the tints.
-
-## Development
-
-```sh
-go test ./...      # the review core and git adapter are the tested seams
-go vet ./...
-```
-
-The review core (`internal/review`) owns the whole life of a Review and
-knows nothing of MCP, git, or the terminal. The git adapter (`internal/git`)
-derives changed lines; the working-tree adapter (`internal/workingtree`) reads
-and fingerprints files. The daemon and TUI are deliberately thin.
-
-### Trying a development build
-
-A development build can run beside the released dbn without replacing it. Build
-it at the repository root, then register it once as a second MCP server on its
-own port, from the repository root:
-
-```sh
-go build -o ./dbn ./cmd/dbn
-claude mcp add dbn-local -s user -- "$PWD/dbn" mcp -port 7374
-```
-
-Every agent session then has both servers: the release's `dbn` (on 7373) and
-`dbn-local` (this build, on 7374). Open the Reviewer's side with `./dbn -port
-7374`.
-
-There is no need to run `./dbn serve -port 7374`: each session's `dbn-local`
-shim starts a daemon on 7374 from `./dbn` if none is running, which is why a
-hand-run one may find the port already in use. That daemon lets itself go once
-no review needs it and nothing has talked to it for a minute, and the next
-session to need it starts another from whatever `./dbn` is then.
-
-The installed `dbn-review` skill is the released one, and the `wait_command` a
-post returns runs whichever `dbn` is on your PATH, which is also the release. So
-tell the test session to use the development copies of both, e.g.:
-
-> Use the `dbn-local` tools and follow `<repo>/skills/dbn-review/SKILL.md`
-> rather than the installed `dbn-review` skill. When you run `wait_command`,
-> replace the leading `dbn` with `<repo>/dbn`.
-
-where `<repo>` is the absolute path of this checkout. The command already
-carries `-port 7374`, so it reaches the development daemon. To skip the
-permission prompt each round, allow `Bash(<repo>/dbn wait:*)`.
-
-### Cutting a release
-
-```sh
-scripts/release.sh v0.1.0   # an explicit version
-scripts/release.sh MINOR    # or bump the latest tag: MAJOR, MINOR or PATCH
-```
-
-A bump keyword reads the latest `vX.Y.Z` tag (after fetching tags from origin)
-and bumps it, resetting the lower parts: `MINOR` takes v0.2.0 to v0.3.0. It validates (clean tree, on `main`, tag unused, tests pass), pushes `main` if
-needed, then tags and pushes the tag — which triggers the release workflow that
-builds and publishes the binaries. Pass `SKIP_TESTS=1` to skip the test gate.
+See [DEVELOPING.md](./docs/DEVELOPING.md)
