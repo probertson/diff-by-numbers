@@ -79,6 +79,22 @@ func TestADocumentExcerptCarriesItsBlocksAndEachRowsBlock(t *testing.T) {
 	}
 }
 
+func TestARowOfAnEditedBlockCarriesItsTrackChanges(t *testing.T) {
+	line := review.Line{Number: 3, Text: "A request is resent.", Side: review.NewSide, Changed: true, Block: 1, Runs: []review.WordRun{
+		{Text: "A request is ", Change: review.WordsKept},
+		{Text: "retried", Change: review.WordsRemoved},
+		{Text: "resent", Change: review.WordsAdded},
+		{Text: ".", Change: review.WordsKept},
+	}}
+
+	wire := toLineWire(line)
+
+	want := []RunWire{{"A request is ", "kept"}, {"retried", "removed"}, {"resent", "added"}, {".", "kept"}}
+	if !slices.Equal(wire.Runs, want) {
+		t.Errorf("expected the runs %+v, got %+v", want, wire.Runs)
+	}
+}
+
 func TestAWidenedRowAndAPlainDocumentReachTheTUI(t *testing.T) {
 	views := []review.ExcerptView{{
 		Excerpt: review.Excerpt{File: "docs/spec.txt", Side: review.NewSide, FirstLine: 2, LastLine: 2},

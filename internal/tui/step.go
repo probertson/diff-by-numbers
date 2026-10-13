@@ -154,8 +154,13 @@ func newStepCursorShowing(step *daemon.StepWire, expanded map[int][]daemon.Excer
 // a Document, on each block, which is the unit prose is read in. The blank lines
 // between blocks are no stop; a row of a Document in no block is a line. A
 // Document shown as source stops on every line, as code does.
+//
+// A block's rows are one stop even where they are not together: the lines an
+// edit replaced are drawn above the lines that replaced them, and a block an
+// edit removed outright may sit between the two.
 func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 	var stops []codeLine
+	stopOf := map[int]int{} // by block
 	for i, line := range excerpt.Lines {
 		if source && len(excerpt.Blocks) > 0 {
 			stop := rowFor(line, excerpt, ack, ei)
@@ -171,11 +176,12 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 			continue
 		}
 		last := rowRef{side: lineSide(line, excerpt), line: line.Number}
-		if n := len(stops); n > 0 && stops[n-1].block == line.Block {
-			stops[n-1].rows = append(stops[n-1].rows, i)
-			stops[n-1].lastRow = last
+		if n, ok := stopOf[line.Block]; ok {
+			stops[n].rows = append(stops[n].rows, i)
+			stops[n].lastRow = last
 			continue
 		}
+		stopOf[line.Block] = len(stops)
 		stop := rowFor(line, excerpt, ack, ei)
 		stop.block, stop.rows, stop.lastRow = line.Block, []int{i}, last
 		stops = append(stops, stop)
@@ -966,7 +972,7 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 	labelWidth := 0
 	for _, line := range cur.lines {
 		if line.block > 0 {
-			labelWidth = max(labelWidth, ansi.StringWidth(blockLabel(line)))
+			labelWidth = max(labelWidth, ansi.StringWidth(blockLabel(line, cur.excerptOf(step, line))))
 		}
 	}
 	decor := func(text, fileHeader, ackHeader string) {

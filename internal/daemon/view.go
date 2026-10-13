@@ -26,9 +26,20 @@ type LineWire struct {
 	// Block is the block of a Document Excerpt the row belongs to, numbered from
 	// 1 among the Excerpt's Blocks; 0 for a row in none.
 	Block int `json:"block,omitempty"`
+	// Runs are a row of an edited Document block as track changes: its text cut
+	// into what the edit kept and added, with the words it struck there put
+	// back. The TUI only lays them out and styles them.
+	Runs []RunWire `json:"runs,omitempty"`
 	// Widened marks a row of a Document Excerpt shown so that no block is read
 	// in part, though the Excerpt does not name it: context, dimmed and unsigned.
 	Widened bool `json:"widened,omitempty"`
+}
+
+// RunWire is one run of an edited row: text the edit kept, struck ("removed")
+// or added.
+type RunWire struct {
+	Text   string `json:"text"`
+	Change string `json:"change"`
 }
 
 // BlockWire is one block of a Document Excerpt: what kind it is, where it is in
@@ -55,8 +66,17 @@ func toLineWire(line review.Line) LineWire {
 		Signpost: line.Signpost,
 		Emphasis: toEmphasisWire(line.Emphasis),
 		Block:    line.Block,
+		Runs:     toRunWires(line.Runs),
 		Widened:  line.Widened,
 	}
+}
+
+func toRunWires(runs []review.WordRun) []RunWire {
+	var out []RunWire
+	for _, r := range runs {
+		out = append(out, RunWire{Text: r.Text, Change: string(r.Change)})
+	}
+	return out
 }
 
 func toBlockWires(blocks []review.Block) []BlockWire {

@@ -39,10 +39,16 @@ type Line struct {
 	// 1 among the Excerpt's Blocks; 0 for a row in none, such as a blank line
 	// between blocks or any row of code.
 	Block int
+	// Runs are what an edit did to the row, when it is a row of an edited block
+	// of a Document: its text cut into what the edit kept and added, with the
+	// words it struck there put back, as track changes. The block's rows on the
+	// other side carry none; their words are among these.
+	Runs []WordRun
 	// Widened marks a row of a Document Excerpt that the Excerpt does not name
 	// but is shown so that no block is read in part: the rest of a paragraph or
 	// list item it cuts into, or the header row of a table it cuts into. It is
-	// context whatever happened to the line, so it is never Changed.
+	// context whatever happened to the line, so it is never Changed and carries
+	// no Runs.
 	Widened bool
 }
 
@@ -314,10 +320,10 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	if excerpt.Side == NewSide {
 		if rows, ok := s.sinceRows(excerpt, in, lines); ok {
 			view.Lines = rows
-			return s.withBlocks(view)
+			return s.withBlocks(view, true)
 		}
 		view.Lines = s.interleaveBefore(excerpt, in, lines)
-		return s.withBlocks(view)
+		return s.withBlocks(view, false)
 	}
 	// An old-side Excerpt that assigns a rewrite's before-side has already been
 	// drawn, interleaved above the after-side it replaced. Drawing it again as a
@@ -345,7 +351,7 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 		kept = append(kept, line)
 	}
 	view.Lines = kept
-	return view
+	return s.withRemovedBlocks(view)
 }
 
 // fileLine identifies one before-side line of one file, so a Step can be asked
