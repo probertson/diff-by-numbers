@@ -10,30 +10,15 @@ import (
 	"github.com/probertson/diff-by-numbers/skills"
 )
 
-// Embedding from inside skills/ already makes this true by construction — the
-// compiler reads the very file the repository ships. The test is here for the
-// one way it could stop being true: someone repoints the //go:embed directive,
-// or moves the skill and leaves a stale copy behind for it to find. Neither
-// shows up as a build failure, and both would ship a binary that quietly
-// compares every install against the wrong text.
-func TestTheEmbeddedSkillIsTheOneTheRepositoryShips(t *testing.T) {
-	onDisk, err := os.ReadFile(filepath.Join("dbn-review", "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if skills.DbnReview != string(onDisk) {
-		t.Errorf("the embedded dbn-review skill is not skills/dbn-review/SKILL.md\n"+
-			"embedded %d bytes, on disk %d bytes", len(skills.DbnReview), len(onDisk))
-	}
-}
-
-// The stale-skill check compares an install against every embedded file, so a
-// file the embed misses is one no install is ever checked for. go:embed skips
-// names starting with "_" without a word, so a file named that way fails here
-// rather than going unchecked. Names starting with "." are skipped on both
-// sides: they are an editor's or the OS's, not the skill's.
-func TestTheEmbeddedSkillCarriesEveryFileInItsDirectory(t *testing.T) {
+// The stale-skill check compares an install against every embedded file, so the
+// embed must hold exactly what skills/dbn-review/ ships, file for file. Nothing
+// in the build checks that. go:embed skips names starting with "_" without a
+// word, so a file named that way would ship unchecked; and a repointed
+// //go:embed directive, or a skill moved with a stale copy left behind, would
+// compare every install against the wrong text. Each fails here. go:embed skips
+// names starting with "." too, and so does this test: they are an editor's or
+// the OS's, not the skill's.
+func TestTheEmbeddedSkillIsExactlyItsDirectory(t *testing.T) {
 	onDisk := map[string]string{}
 	err := filepath.WalkDir("dbn-review", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

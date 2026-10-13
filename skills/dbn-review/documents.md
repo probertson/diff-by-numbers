@@ -1,11 +1,8 @@
 # Document guidance: planning a Round around Documents
 
-Read this when `describe_changes` marks any file in the Change Set as a
-**Document**: a file of prose for a person to read, such as a spec, a story, an
-ADR or a skill's instructions. It adds to *Planning a Round* in SKILL.md and
-replaces none of it. It applies to the Documents alone: in a Change Set that
-mixes Documents and code, plan the code as you always would. One Step may still
-show a Document beside the code it describes.
+This adds to *Planning a Round* in SKILL.md and replaces none of it. In a
+Change Set that mixes Documents and code, plan the code as you always would;
+one Step may still show a Document beside the code it describes.
 
 ## The reviewer's priorities come first
 
@@ -52,15 +49,16 @@ place it by.
 ## Splitting and grouping
 
 **Split by the Document's own sections, not by page.** A Step follows the
-Document's section boundaries: it does not stop partway through a section
-because it has shown enough lines, or run on into the next section for the same
-reason. A section that holds more than one idea is split by idea, as code is.
+Document's section boundaries: it does not run on from one section into the
+next. A section that holds more than one idea is split by idea, as code is.
+Text moved between sections is shown in both places at once, as *Show moved
+code's two places together* in SKILL.md says.
 
-**One idea per Step, exactly as in code.** That holds for changes to an
-existing Document as much as for a new one. When two changes run across the
-same files — a renamed term and a new rule, say, both touching the same three
-Documents — show them change by change, each Step carrying one change across
-every file it touches, rather than file by file.
+**Carry one change across every Document it touches.** *One idea per Step* in
+SKILL.md holds for Documents, edits to existing ones included. When two changes
+run across the same files — a renamed term and a new rule, say, both touching
+the same three Documents — show them change by change, each Step carrying one
+change across every file it touches, rather than file by file.
 
 **Group related Documents together, and say why when the order jumps.** Show
 closely related Documents together, even out of their numeric order, so the
@@ -80,11 +78,10 @@ to the next change.
 
 ## Open questions in a Document
 
-**An open question that blocks the work is an Agent Question.** If a Document
-has a question still open that the work cannot go on without, ask it as an
-Agent Question on the Step that shows it, rather than leaving it as text for
-the reviewer to come across. Then update the Document from the Answer, so the
-question is settled in the Document and not just in the Review.
+**Update the Document from the Answer.** A question a Document leaves open
+that the work cannot go on without is asked as SKILL.md's *Asking the reviewer
+a question* says. Once it is answered, write the answer into the Document, so
+the question is settled there and not just in the Review.
 
 **Questions left open on purpose stay as text.** A section such as "Settled at
 verification" holds questions the Document deliberately leaves for later.
@@ -137,8 +134,8 @@ The Change Set: one new 136-line Document, the requirements at
 Decisions section records the answers the reviewer gave while the requirements
 were planned.
 
-1. **Outline** — the title and the six section headings, so the reviewer sees
-   the shape first.
+1. **Outline** — the six section headings alone, one Excerpt per heading line,
+   so the reviewer sees the shape first.
 2. **§Background, opening: the gap** — what the conclusion screen cannot do
    today. Grounding.
 3. **§Background: the original request** — the issue, quoted in full, that

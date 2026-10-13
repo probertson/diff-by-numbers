@@ -3,20 +3,13 @@
 //
 // It lives here, beside the skill files, because go:embed can only reach into
 // its own directory tree — a package under cmd/ or internal/ cannot embed a
-// path above itself. Embedding from here also makes "the embedded copy matches
-// skills/dbn-review/" true by construction rather than by test: the compiler
-// reads the same files the repository ships.
+// path above itself.
 package skills
 
 import (
 	"embed"
 	"io/fs"
 )
-
-// DbnReview is skills/dbn-review/SKILL.md as of this build.
-//
-//go:embed dbn-review/SKILL.md
-var DbnReview string
 
 //go:embed dbn-review
 var dbnReview embed.FS

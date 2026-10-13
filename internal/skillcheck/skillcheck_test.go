@@ -208,6 +208,36 @@ func TestExtraFilesInAnInstalledCopyDoNotMakeItOutOfDate(t *testing.T) {
 	}
 }
 
+// A file that is there but cannot be read hides only what it holds. A copy
+// already known stale by another file is still out of date.
+func TestAStaleCopyIsOutOfDateEvenWithAnUnreadableFile(t *testing.T) {
+	home := t.TempDir()
+	skills := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, skills, stale)
+	unreadable(t, filepath.Join(skills, "dbn-review", "documents.md"))
+
+	out := reportShipping(t, home, withReference())
+
+	if !strings.Contains(out, "is out of date: run `npx skills add probertson/diff-by-numbers/skills/dbn-review`\n") {
+		t.Errorf("a stale SKILL.md should be reported whatever another file holds:\n%s", out)
+	}
+}
+
+// With nothing known stale, an unreadable file might be the one that differs,
+// or might not, so dbn says nothing rather than guess.
+func TestACopyWithAnUnreadableFileAndNothingStaleIsNotMentioned(t *testing.T) {
+	home := t.TempDir()
+	skills := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, skills, shipped)
+	unreadable(t, filepath.Join(skills, "dbn-review", "documents.md"))
+
+	out := reportShipping(t, home, withReference())
+
+	if strings.Contains(out, "out of date") {
+		t.Errorf("a copy that cannot be fully read should not be guessed at:\n%s", out)
+	}
+}
+
 // report runs the check over a fake home, against a shipped skill of just its
 // main file, and returns everything it printed.
 func report(t *testing.T, home string) string {
@@ -247,6 +277,15 @@ func writeSkillFile(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// unreadable puts something at path that exists but cannot be read as a file.
+// A directory does that on every platform, and for any user, root included.
+func unreadable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

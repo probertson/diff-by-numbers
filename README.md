@@ -169,7 +169,7 @@ description: My preferences for how a dbn review is structured. Use alongside db
 ---
 
 - For story documents, show the acceptance criteria first, then the scope.
-- Acknowledge a story's background rather than showing it line by line.
+- Acknowledge a story's Background section rather than showing it line by line.
 - For ADRs, show the rejected options right after the decision.
 ```
 

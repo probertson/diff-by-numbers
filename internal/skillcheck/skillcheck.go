@@ -49,24 +49,24 @@ func Report(cfg Config, out io.Writer) {
 	// panel (#127). Updated from a terminal, a session already open is not told
 	// its skill changed, so it needs /reload-plugins; a new one loads it anyway.
 	// Every command printed here is in backticks, so it reads as one to copy.
-	for _, path := range pluginSkillPaths(cfg.Home) {
-		if matches, known := compare(path, cfg.Embedded); known && !matches {
+	for _, dir := range pluginSkillDirs(cfg.Home) {
+		if matches, known := compare(dir, cfg.Embedded); known && !matches {
 			fmt.Fprintln(out, "Your dbn-review skill (Claude Code plugin) is out of date: "+
 				"run `claude plugin update dbn@diff-by-numbers`, "+
 				"then `/reload-plugins` in any Claude Code session that's already open.")
 			break
 		}
 	}
-	if matches, known := compare(userSkillPath(cfg.Home), cfg.Embedded); known && !matches {
+	if matches, known := compare(userSkillDir(cfg.Home), cfg.Embedded); known && !matches {
 		fmt.Fprintln(out, "Your dbn-review skill (~/.claude/skills) is out of date: "+
 			"run `npx skills add probertson/diff-by-numbers/skills/dbn-review`")
 	}
 	fmt.Fprintln(out, genericReminder)
 }
 
-// userSkillPath is where `npx skills add` puts a skill for every agent that
-// reads the user skill directory.
-func userSkillPath(home string) string {
+// userSkillDir is the directory `npx skills add` puts the skill in for every
+// agent that reads the user skill directory.
+func userSkillDir(home string) string {
 	return filepath.Join(home, ".claude", "skills", "dbn-review")
 }
 
@@ -76,13 +76,14 @@ const mainFile = "SKILL.md"
 // compare reads the installed copy in dir and says whether it matches what
 // shipped, file for file. A shipped file that differs or is missing makes the
 // copy stale; a file only the copy has is not dbn's to judge. known is false
-// when there is nothing to compare — no main file, so no install, or a file
-// that is there but cannot be read — which is never reported as stale.
+// when there is nothing to compare — no main file, so no install — or when no
+// file read was stale but one that is there could not be read, since it might
+// be the one that differs. Such a copy is never reported as stale.
 func compare(dir string, embedded fs.FS) (matches, known bool) {
 	if _, err := os.Stat(filepath.Join(dir, mainFile)); err != nil {
 		return false, false
 	}
-	matches = true
+	stale, unreadable := false, false
 	err := fs.WalkDir(embedded, ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
@@ -92,37 +93,43 @@ func compare(dir string, embedded fs.FS) (matches, known bool) {
 			return err
 		}
 		installed, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
-		if errors.Is(err, fs.ErrNotExist) {
-			matches = false
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(installed, want) {
-			matches = false
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			stale = true
+		case err != nil:
+			// Keep going: a later file may still show the copy is stale.
+			unreadable = true
+		case !bytes.Equal(installed, want):
+			stale = true
 		}
 		return nil
 	})
-	if err != nil {
+	switch {
+	case err != nil:
+		// The embedded skill itself could not be read: nothing to compare against.
 		return false, false
+	case stale:
+		return false, true
+	case unreadable:
+		return false, false
+	default:
+		return true, true
 	}
-	return matches, true
 }
 
 // pluginName is how Claude Code keys this plugin: the plugin's own name, then
 // the marketplace it was installed from.
 const pluginName = "dbn@diff-by-numbers"
 
-// pluginSkillPaths finds where Claude Code unpacked the dbn plugin's skill
+// pluginSkillDirs finds where Claude Code unpacked the dbn plugin's skill
 // directory, if it did.
 //
 // installed_plugins.json is an undocumented Claude Code internal, so every step
 // here is best-effort: a missing file, an unexpected shape or an unreadable
-// path yields no paths rather than an error. A plugin can be installed at more
-// than one scope, so this returns every copy it finds and leaves the caller to
-// decide how much to say about them.
-func pluginSkillPaths(home string) []string {
+// path yields no directories rather than an error. A plugin can be installed at
+// more than one scope, so this returns every copy it finds and leaves the
+// caller to decide how much to say about them.
+func pluginSkillDirs(home string) []string {
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
 	if err != nil {
 		return nil
@@ -136,12 +143,12 @@ func pluginSkillPaths(home string) []string {
 		return nil
 	}
 
-	var paths []string
+	var dirs []string
 	for _, install := range doc.Plugins[pluginName] {
 		if install.InstallPath == "" {
 			continue
 		}
-		paths = append(paths, filepath.Join(install.InstallPath, "skills", "dbn-review"))
+		dirs = append(dirs, filepath.Join(install.InstallPath, "skills", "dbn-review"))
 	}
-	return paths
+	return dirs
 }

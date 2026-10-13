@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -476,7 +477,11 @@ func TestAWaitRetriesUntilTheDaemonAnswers(t *testing.T) {
 // with the review id elided. A reworded line the skill still quotes the old way
 // leaves the agent matching a line it will never see.
 func TestTheSkillQuotesTheWaitLinesForAgentQuestions(t *testing.T) {
-	skill := strings.Join(strings.Fields(skills.DbnReview), " ")
+	raw, err := fs.ReadFile(skills.DbnReviewFiles, "SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := strings.Join(strings.Fields(string(raw)), " ")
 	for _, answer := range []daemon.WaitWire{
 		{Event: "handed_off", ReviewID: "ID", Comments: 1, Answers: 2, Unanswered: 1},
 		{Event: "handed_off", ReviewID: "ID", Answers: 2, MayConclude: true},
