@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,15 +19,18 @@ import (
 // as dbn's Step view gives it (#145). Code's headers are as they were.
 
 // withPaths gives an Excerpt's blocks their heading paths, in order, and each
-// row in a block its block's, as dbn's view does for rows on their block's side.
+// row its own, as dbn's view does for rows on their block's side: a row in a
+// block its block's, and a blank line between blocks that of the block above.
 func withPaths(excerpt daemon.ExcerptWire, paths ...[]string) daemon.ExcerptWire {
 	for i, path := range paths {
 		excerpt.Blocks[i].Path = path
 	}
+	var above []string
 	for i, line := range excerpt.Lines {
 		if line.Block > 0 {
-			excerpt.Lines[i].Path = excerpt.Blocks[line.Block-1].Path
+			above = excerpt.Blocks[line.Block-1].Path
 		}
+		excerpt.Lines[i].Path = above
 	}
 	return excerpt
 }
@@ -285,4 +290,99 @@ func TestCodeHeadersAreUnchanged(t *testing.T) {
 	if got, want := fileHeaderOf(t, drawnStep(m), "retry.go"), "── retry.go"; got != want {
 		t.Errorf("expected the code's header %q, got %q", want, got)
 	}
+}
+
+func TestTheStuckHeaderCannotBeSelectedCopiedOrAnchored(t *testing.T) {
+	var copied []string
+	was := copyText
+	copyText = func(text string) bool { copied = append(copied, text); return true }
+	t.Cleanup(func() { copyText = was })
+	for _, source := range []bool{false, true} {
+		m := stepModel(t, documentStep(sectionedDocument()))
+		if source {
+			m = press(m, "s")
+		}
+		m.height = 16
+		m = downTo(t, m, "limit 5")
+		asked := anchorServer(t, &m, "Re: docs/retries.md — after 1-25")
+		m = press(m, "v")
+		for range 40 {
+			m = press(m, "up")
+		}
+
+		press(m, "y")
+
+		if len(*asked) != 1 {
+			t.Fatalf("expected one Anchor asked for, got %v", *asked)
+		}
+		if start := (*asked)[0]["start"]; !reflect.DeepEqual(start, map[string]any{"side": "new", "line": float64(1)}) {
+			t.Errorf("expected the selection to start on the Document's first line, not its header (source view %v), got %v", source, start)
+		}
+	}
+	if want := []string{"Re: docs/retries.md — after 1-25", "Re: docs/retries.md — after 1-25"}; !slices.Equal(copied, want) {
+		t.Errorf("expected only dbn's Anchor copied, with nothing of the header, got %q", copied)
+	}
+}
+
+// headerOverCursor is the file and heading path the file header names over the
+// cursor's row: what stands at the top of the pane when that row does.
+func headerOverCursor(t *testing.T, m model) string {
+	t.Helper()
+	for _, row := range m.pane().rows {
+		if row.line == m.cursor.cursor {
+			return strings.TrimPrefix(ansi.Strip(row.fileHeader), "── ")
+		}
+	}
+	t.Fatalf("expected a row drawn for the cursor %d", m.cursor.cursor)
+	return ""
+}
+
+// anchoredPath is the file and heading path an Anchor's Re: line names.
+func anchoredPath(anchor string) string {
+	re, _, _ := strings.Cut(strings.TrimPrefix(anchor, "Re: "), " — ")
+	return re
+}
+
+// The heading path is decided once, by dbn, for every row: the header over a
+// row and an Anchor from it name the same one in either view, a row in no
+// block among the rows an edit replaced included.
+func TestTheHeaderAndAnAnchorNameTheSamePathOnEveryRow(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	t.Cleanup(server.Close)
+	// The section "Limits" is renamed "Caps", its first paragraph edited and
+	// its second removed.
+	root := repoChanging(t, "retries.md",
+		"# Retries\n\n## Limits\n\nEach host has a cap of five.\n\nOld words vanish here.\n\nKept para.\n",
+		"# Retries\n\n## Caps\n\nEach host has a cap of six.\n\nKept para.\n")
+	reviewID := postedRound(t, server.URL, root, map[string]any{"name": "caps", "explanation": "why",
+		"excerpts": []any{map[string]any{"file": "retries.md", "side": "new", "first_line": 1, "last_line": 7}}})
+	formatted := openedOn(t, server.URL, reviewID)
+	source := press(formatted, "s")
+
+	for _, view := range []model{formatted, source} {
+		for i, line := range view.cursor.lines {
+			at := view
+			at.cursor.cursor = i
+
+			header, anchor := headerOverCursor(t, at), press(at, "c").pendingCode
+
+			if got := anchoredPath(anchor); got != header {
+				t.Errorf("expected an Anchor on %q (source view %v) to name the header's %q, got %q",
+					line.text, view.cursor.source, header, got)
+			}
+		}
+	}
+	// The blank line between the edited paragraph's replaced row and the
+	// removed paragraph reads with the old text around it.
+	for i, line := range source.cursor.lines {
+		if line.side == "old" && line.number == 6 {
+			at := source
+			at.cursor.cursor = i
+			if got, want := headerOverCursor(t, at), "retries.md › Retries › Limits"; got != want {
+				t.Errorf("expected the header %q over the blank line among the old rows, got %q", want, got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected the source view to show the old blank line 6")
 }

@@ -39,10 +39,14 @@ type Line struct {
 	// 1 among the Excerpt's Blocks; 0 for a row in none, such as a blank line
 	// between blocks or any row of code.
 	Block int
-	// Path is the heading path of a row in a block: that of its text on its own
-	// side (Block.Path). It is its block's, except for a row an edit replaced,
-	// which is drawn in the block that replaced it but sits under the old
-	// Document's headings (#145). A row in no block has none.
+	// Path is the heading path of a row of a Document Excerpt, the one place a
+	// Reviewer's surface and an Anchor read it from (#145). A row of the
+	// Document's text has that of its text on its own side: its block's
+	// (Block.Path), except for a row an edit replaced, which is drawn in the
+	// block that replaced it but sits under the old Document's headings. A row
+	// with no text of its own, such as a blank line between blocks, has that of
+	// the nearest row above it that has, or else below it. A row of code has
+	// none.
 	Path []string
 	// Runs are what an edit did to the row, when it is a row of an edited block
 	// of a Document: its text cut into what the edit kept and added, with the

@@ -26,9 +26,11 @@ type LineWire struct {
 	// Block is the block of a Document Excerpt the row belongs to, numbered from
 	// 1 among the Excerpt's Blocks; 0 for a row in none.
 	Block int `json:"block,omitempty"`
-	// Path is the heading path of a row in a block, on its own side: its
-	// block's, except for a row an edit replaced, which sits under the old
-	// headings. The TUI draws it over the source view's rows (#145).
+	// Path is the heading path of a row of a Document Excerpt, as dbn decides
+	// it (review.Line.Path): on the row's own side, so a row an edit replaced
+	// sits under the old headings, and for a row in no block that of the text
+	// beside it. The TUI draws it over the row as it is, never working one out
+	// (#145).
 	Path []string `json:"path,omitempty"`
 	// Runs are a row of an edited Document block as track changes: its text cut
 	// into what the edit kept and added, with the words it struck there put

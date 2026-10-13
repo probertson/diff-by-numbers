@@ -20,17 +20,8 @@ import (
 // left out of every block or counted in two; blank lines between blocks belong
 // to none.
 type block struct {
-	// lines is the source lines the block spans, inclusive, blank lines inside
-	// it (as in a fenced code block) included.
-	lines LineRange
-	// kind is what the block is, and level a heading's level (0 for any other
-	// kind): what a Reviewer's surface needs to lay the block out.
-	kind  BlockKind
-	level int
-	// section and title are a parsedBlock's: whether the block is a heading
-	// that opens a section of the Document, and its text.
-	section bool
-	title   string
+	// parsedBlock is where the block is and what kind it is, as parsed.
+	parsedBlock
 	// path is the texts of the headings the block sits under, outermost first:
 	// for a heading, those of the headings it sits under itself. It is nil
 	// outside every heading, and in a Document that is not Markdown.
@@ -136,7 +127,11 @@ func frontmatterEnd(source []string) (int, bool) {
 // parsedBlock is where a block is in the source and what kind it is, before its
 // words are read.
 type parsedBlock struct {
+	// lines is the source lines the block spans, inclusive, blank lines inside
+	// it (as in a fenced code block) included.
 	lines LineRange
+	// kind is what the block is, and level a heading's level (0 for any other
+	// kind): what a Reviewer's surface needs to lay the block out.
 	kind  BlockKind
 	level int
 	// section marks a heading of the Document's own, which opens a section,
@@ -362,7 +357,7 @@ func orphans(first, last int, blank func(int) bool) []LineRange {
 func blocksOver(source []string, parsed []parsedBlock) []block {
 	blocks := make([]block, 0, len(parsed))
 	for _, p := range parsed {
-		b := block{lines: p.lines, kind: p.kind, level: p.level, section: p.section, title: p.title}
+		b := block{parsedBlock: p}
 		for _, line := range source[p.lines.First-1 : p.lines.Last] {
 			b.words = append(b.words, wordsIn(line)...)
 		}

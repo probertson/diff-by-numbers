@@ -78,6 +78,9 @@ type codeLine struct {
 	// Document is formatted again. A blank line between blocks belongs to the
 	// one above it, which it ends.
 	inBlock int
+	// path is the heading path the Excerpt's file header names over this row,
+	// as dbn gives it: a block's own, or a line's (#145). Code has none.
+	path []string
 }
 
 // sameExcerpt reports whether two rows lie in the same Excerpt — a narrated one,
@@ -180,6 +183,11 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 		stopOf[line.Block] = len(stops)
 		stop := rowFor(line, excerpt, ack, ei)
 		stop.block, stop.rows, stop.lastRow = line.Block, []int{i}, last
+		if line.Block <= len(excerpt.Blocks) {
+			// A block is headed by its own path, though a row an edit replaced
+			// within it sits under the old headings.
+			stop.path = excerpt.Blocks[line.Block-1].Path
+		}
 		stops = append(stops, stop)
 	}
 	return stops
@@ -188,26 +196,17 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 // blockNear is the block row i of a Document lies in or, for a row in none, the
 // nearest block above it, or else below it; 0 when there are no blocks at all.
 func blockNear(excerpt daemon.ExcerptWire, i int) int {
-	if at := rowNear(excerpt, i); at >= 0 {
-		return excerpt.Lines[at].Block
+	for at := i; at >= 0; at-- {
+		if b := excerpt.Lines[at].Block; b > 0 {
+			return b
+		}
+	}
+	for _, line := range excerpt.Lines[i:] {
+		if line.Block > 0 {
+			return line.Block
+		}
 	}
 	return 0
-}
-
-// rowNear is the index of the row of a Document nearest row i, at or above it,
-// that is in a block, or else the nearest below it; -1 when no row is.
-func rowNear(excerpt daemon.ExcerptWire, i int) int {
-	for at := i; at >= 0; at-- {
-		if excerpt.Lines[at].Block > 0 {
-			return at
-		}
-	}
-	for at := i + 1; at < len(excerpt.Lines); at++ {
-		if excerpt.Lines[at].Block > 0 {
-			return at
-		}
-	}
-	return -1
 }
 
 // rowFor turns one rendered line into a cursor row, keeping a signpost out of
@@ -220,7 +219,7 @@ func rowFor(line daemon.LineWire, excerpt daemon.ExcerptWire, ack, ei int) codeL
 	return codeLine{
 		kind: kind, ack: ack, excerpt: ei,
 		number: line.Number, side: lineSide(line, excerpt), text: line.Text, changed: line.Changed,
-		emphasis: line.Emphasis,
+		emphasis: line.Emphasis, path: line.Path,
 	}
 }
 
@@ -1014,10 +1013,10 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 	// A Document's file header names the heading path of the row it stands
 	// over, so it changes within an Excerpt as the rows pass a heading.
 	label, headerPath := "", []string(nil)
-	headerOver := func(excerpt daemon.ExcerptWire, line codeLine) {
-		if path := headingPathOf(excerpt, line); !slices.Equal(path, headerPath) {
-			headerPath = path
-			fileHeader = dimSt.Render(fileHeaderText(label, path, width))
+	headerOver := func(line codeLine) {
+		if !slices.Equal(line.path, headerPath) {
+			headerPath = line.path
+			fileHeader = dimSt.Render(fileHeaderText(label, headerPath, width))
 		}
 	}
 	// warned records each expanded file already warned about, per Acknowledgement:
@@ -1065,7 +1064,7 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 			e := cur.excerptOf(step, line)
 			// No side in the header: a new-side Excerpt renders as a unified diff, so
 			// the -/+ signs carry before/after per line, not the file header.
-			label, headerPath = fileLabel(e.Repository, e.File, showRepo), headingPathOf(e, line)
+			label, headerPath = fileLabel(e.Repository, e.File, showRepo), line.path
 			fileHeader = dimSt.Render(fileHeaderText(label, headerPath, width))
 			decor("", "", ackHeader)
 			rows = append(rows, paneRow{text: fileHeader, line: -1, fileHeader: fileHeader, isFileHeader: true, ackHeader: ackHeader})
@@ -1101,13 +1100,13 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 					decor("", fileHeader, ackHeader)
 				}
 			}
-			headerOver(excerpt, line)
+			headerOver(line)
 			for _, text := range in.blockRows(i, excerpt, blockCommented(excerpt, line, commented), labelWidth) {
 				rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 			}
 			continue
 		}
-		headerOver(excerpt, line)
+		headerOver(line)
 		hasComment := commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)]
 		draw := codeRows
 		if cur.source && len(excerpt.Blocks) > 0 {

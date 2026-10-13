@@ -217,12 +217,14 @@ by design, so it survives being pasted into a chat whose context has since been 
 It exists because the expensive part of raising a point during review is the pointing, not
 the saying. In a Document's formatted view the Reviewer selects whole blocks rather than
 lines, but the Anchor still carries those blocks' source lines, so the agent always gets
-lines it can act on, and it names the heading path the blocks sit under. Its extent may
-cross from the before-side to the after-side, because a new-side Excerpt renders as a
-unified diff and a point is often about the removal and its replacement together; it may not
-cross an Excerpt, which is one file's range. An Anchor into an expanded Acknowledgement
-names that Acknowledgement and its reason, because a point raised there disputes the claim
-that the change need not be read, not just the line.
+lines it can act on, and it names the heading path the blocks sit under. A selection of
+lines, in the source view, names the heading path of its first line on that line's own side,
+so a line an edit replaced names the old headings. Its extent may cross from the before-side
+to the after-side, because a new-side Excerpt renders as a unified diff and a point is often
+about the removal and its replacement together; it may not cross an Excerpt, which is one
+file's range. An Anchor into an expanded Acknowledgement names that Acknowledgement and its
+reason, because a point raised there disputes the claim that the change need not be read,
+not just the line.
 _Avoid_: reference, citation, pointer, location
 
 **Comment**:

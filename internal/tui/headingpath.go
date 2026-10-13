@@ -4,10 +4,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// headingSeparator sets each heading of a heading path apart in a file header.
+// headingSeparator sets the file and each heading of a heading path apart in a
+// file header. It is review's headingSeparator, which names the same path in
+// an Anchor's Re: line; no package both import could hold it once, so a change
+// to one is a change to both.
 const headingSeparator = " › "
 
 // fileHeaderText is the file header that opens an Excerpt and sticks at the top
@@ -47,27 +49,4 @@ func fileHeaderText(label string, path []string, width int) string {
 		return ansi.Truncate(prefix+innermost, width, "…")
 	}
 	return prefix + strings.TrimRight(ansi.Truncate(innermost, room-1, ""), " ") + "…"
-}
-
-// headingPathOf is the heading path of what a cursor line shows of an Excerpt.
-// A block's is its own. A row's (a line of the source view, or a row of a
-// Document in no block) is that of the row in a block nearest above it, or else
-// below it, read on the row's own side: a row an edit replaced is drawn in the
-// block that replaced it, but sits under the old headings. Code has none.
-func headingPathOf(excerpt daemon.ExcerptWire, line codeLine) []string {
-	if line.block > 0 && line.block <= len(excerpt.Blocks) {
-		return excerpt.Blocks[line.block-1].Path
-	}
-	if len(excerpt.Blocks) == 0 {
-		return nil
-	}
-	for i, row := range excerpt.Lines {
-		if row.Number == line.number && lineSide(row, excerpt) == line.side {
-			if near := rowNear(excerpt, i); near >= 0 {
-				return excerpt.Lines[near].Path
-			}
-			return nil
-		}
-	}
-	return nil
 }

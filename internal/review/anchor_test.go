@@ -239,7 +239,7 @@ func TestASelectionOfBlocksMustEndInBlocks(t *testing.T) {
 
 // An Anchor into a Document names the heading path of its first line in its
 // Re: line, so the agent knows which section a Comment is about without the
-// Round having to say (#177).
+// Round having to say (#145).
 
 // reLine is the first line of a rendered Anchor: where it points.
 func reLine(anchor review.Anchor) string {

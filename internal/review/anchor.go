@@ -64,7 +64,7 @@ type Anchor struct {
 	// in a Document: the headings that line sits under, outermost first. It
 	// says which section a point is about, so neither the Round nor the
 	// Reviewer has to; a selection that crosses into the next section quotes
-	// that section's heading among its lines (#177).
+	// that section's heading among its lines (#145).
 	HeadingPath []string
 	// AcknowledgementReason is set when the Anchor lies in acknowledged code: a
 	// point raised there disputes the Acknowledgement's reason as well
@@ -133,11 +133,11 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 			return Anchor{}, fmt.Errorf("could not read the selected code: %s", row.line.Text)
 		}
 		if row.line.Content() {
-			if len(lines) == 0 {
-				path = headingPathAt(view, row.at, target.Blocks)
-			}
 			lines = append(lines, row.line)
 			if !row.context {
+				if len(pointed) == 0 {
+					path = headingPathOf(view, row.line, target.Blocks)
+				}
 				pointed = append(pointed, row.line)
 			}
 		}
@@ -161,7 +161,6 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 // rows selected can be read: a table's header row, above a row of the table.
 type quotedRow struct {
 	line    Line
-	at      int
 	context bool
 }
 
@@ -184,8 +183,8 @@ func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedR
 	}
 	if !target.Blocks {
 		var rows []quotedRow
-		for i := start; i <= end; i++ {
-			rows = append(rows, quotedRow{line: view.Lines[i], at: i})
+		for _, line := range view.Lines[start : end+1] {
+			rows = append(rows, quotedRow{line: line})
 		}
 		return rows, nil
 	}
@@ -217,43 +216,25 @@ func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedR
 	for i, line := range view.Lines {
 		switch {
 		case headers[line.Block]:
-			rows = append(rows, quotedRow{line: line, at: i, context: true})
+			rows = append(rows, quotedRow{line: line, context: true})
 		case selected(line.Block), line.Block == 0 && i > lo && i < hi:
-			rows = append(rows, quotedRow{line: line, at: i})
+			rows = append(rows, quotedRow{line: line})
 		}
 	}
 	return rows, nil
 }
 
-// headingPathAt is the heading path of row i of an Excerpt's rendering, as the
-// Reviewer's surface heads it: that of the row in a block nearest it, at or
-// above it — below it only when there is none above — so a row in none, such
-// as a blank line, takes the path of the block above. A selection of blocks
-// (the formatted view) takes that block's path; a selection of lines (the
-// source view) takes the row's own, which for a line an edit replaced is the
-// old Document's. A code Excerpt has no blocks, so no path.
-func headingPathAt(view ExcerptView, i int, ofBlocks bool) []string {
-	pathOf := func(at int) ([]string, bool) {
-		b := view.Lines[at].Block
-		if b < 1 || b > len(view.Blocks) {
-			return nil, false
-		}
-		if ofBlocks {
-			return view.Blocks[b-1].Path, true
-		}
-		return view.Lines[at].Path, true
+// headingPathOf is the heading path an Anchor names, read from the first row
+// it points at as the Reviewer's surface heads that row: for a selection of
+// blocks (the formatted view), the path of the block the row is in; for a
+// selection of lines (the source view), the row's own, which for a line an edit
+// replaced is the old Document's, and for a blank line that of the text above
+// it. A row of code has none.
+func headingPathOf(view ExcerptView, first Line, ofBlocks bool) []string {
+	if ofBlocks && first.Block > 0 && first.Block <= len(view.Blocks) {
+		return view.Blocks[first.Block-1].Path
 	}
-	for at := i; at >= 0; at-- {
-		if path, ok := pathOf(at); ok {
-			return path
-		}
-	}
-	for at := i + 1; at < len(view.Lines); at++ {
-		if path, ok := pathOf(at); ok {
-			return path
-		}
-	}
-	return nil
+	return first.Path
 }
 
 // anchoredExcerpt finds the Excerpt a selection lies in — one of the Step's own,
@@ -393,6 +374,12 @@ func rangesOn(segments []AnchorSegment, side Side) string {
 	return strings.Join(out, ", ")
 }
 
+// headingSeparator sets the file and each heading of a heading path apart in
+// an Anchor's Re: line. It is the TUI's headingSeparator, which draws the
+// Excerpt's file header the same way; no package both import could hold it
+// once, so a change to one is a change to both.
+const headingSeparator = " › "
+
 // Render produces the paste-ready text. It leads with a line the agent can read
 // at a glance and follows with the code, each line numbered and marked so a
 // changed line is unambiguous even stripped of colour. The marker comes from the
@@ -405,7 +392,7 @@ func (a Anchor) Render() string {
 	}
 	// The heading path follows the file as it does in the Excerpt's header, so
 	// the agent reads the place the way the Reviewer saw it.
-	file := strings.Join(append([]string{a.File}, a.HeadingPath...), " › ")
+	file := strings.Join(append([]string{a.File}, a.HeadingPath...), headingSeparator)
 	fmt.Fprintf(&b, "Re: %s — %s in %s", a.location(file), where, filepath.Base(a.Repository))
 	if a.ChangedOnDisk {
 		b.WriteString(" (file changed since this round was posted; line numbers are from the posted version)")

@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -216,7 +217,7 @@ func TestAnExpandedAcknowledgementOverAnEditedDocumentReadsAsTrackChanges(t *tes
 	}
 	edited := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
 		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited, Path: []string{"Retries"}}}
-	if !sameBlocks(document[0].Blocks, edited) {
+	if !reflect.DeepEqual(document[0].Blocks, edited) {
 		t.Errorf("expected the paragraph edited\n%+v\ngot\n%+v", edited, document[0].Blocks)
 	}
 	runs := []review.WordRun{kept("A request is "), struck("retried"), inserted("resent"), kept(" when the transport fails.")}
@@ -226,7 +227,7 @@ func TestAnExpandedAcknowledgementOverAnEditedDocumentReadsAsTrackChanges(t *tes
 	removed := []review.Block{{Kind: review.BlockParagraph, Side: review.OldSide,
 		Lines: review.LineRange{First: 7, Last: 8}, Treatment: review.TreatmentRemoved,
 		Path: []string{"Retries", "Limits"}}}
-	if !sameBlocks(document[1].Blocks, removed) {
+	if !reflect.DeepEqual(document[1].Blocks, removed) {
 		t.Errorf("expected the dropped paragraph removed\n%+v\ngot\n%+v", removed, document[1].Blocks)
 	}
 }

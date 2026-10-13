@@ -54,10 +54,6 @@ func viewingStep(t *testing.T, files workingFiles, steps ...review.Step) *review
 	return openDocumentRound(t, files, steps...).View().Step
 }
 
-// sameBlocks reports whether two Excerpts' blocks are the same, heading paths
-// and all.
-func sameBlocks(a, b []review.Block) bool { return reflect.DeepEqual(a, b) }
-
 func TestANewDocumentsExcerptCarriesItsBlocksWithTheirKindsRangesAndTreatment(t *testing.T) {
 	files := adding("docs/retries.md", retriesDocument)
 
@@ -77,7 +73,7 @@ func TestANewDocumentsExcerptCarriesItsBlocksWithTheirKindsRangesAndTreatment(t 
 		newBlock(review.BlockTableRow, 0, 15, 15, "Retries"),
 		newBlock(review.BlockCode, 0, 17, 19, "Retries"),
 	}
-	if got := step.Excerpts[0].Blocks; !sameBlocks(got, want) {
+	if got := step.Excerpts[0].Blocks; !reflect.DeepEqual(got, want) {
 		t.Errorf("expected the Document's blocks\n%+v\ngot\n%+v", want, got)
 	}
 }
@@ -180,7 +176,7 @@ func TestAnExcerptCuttingIntoAParagraphIsWidenedToItWithTheExtraLinesAsContext(t
 	}
 	wantBlocks := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
 		Lines: review.LineRange{First: 3, Last: 8}, Treatment: review.TreatmentNew, Path: []string{"Retries"}}}
-	if !sameBlocks(excerpt.Blocks, wantBlocks) {
+	if !reflect.DeepEqual(excerpt.Blocks, wantBlocks) {
 		t.Errorf("expected the paragraph new, as the lines the Excerpt names are\n%+v\ngot\n%+v", wantBlocks, excerpt.Blocks)
 	}
 }
@@ -226,7 +222,7 @@ func TestAnExcerptCuttingIntoATableKeepsItsRowsAndGainsTheHeaderRowAsContext(t *
 			Lines: review.LineRange{First: first, Last: last}, Treatment: treatment, Path: []string{"Retries"}}
 	}
 	wantBlocks := []review.Block{row(3, 4, review.TreatmentContext), row(7, 7, review.TreatmentNew), row(8, 8, review.TreatmentNew)}
-	if !sameBlocks(excerpt.Blocks, wantBlocks) {
+	if !reflect.DeepEqual(excerpt.Blocks, wantBlocks) {
 		t.Errorf("expected the header row as a block of context before the rows\n%+v\ngot\n%+v", wantBlocks, excerpt.Blocks)
 	}
 }

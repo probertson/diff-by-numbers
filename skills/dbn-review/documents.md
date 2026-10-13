@@ -57,9 +57,9 @@ around the record.
 
 **Mention a Step's position only when it matters to the change**, such as a
 section that moved or a rule now placed before what it governs. dbn shows each
-Excerpt's heading path above it, and includes it in every Anchor the reviewer
-comments from, so you need not name the section a Step sits in, and a Comment
-reaches you with its section.
+Document Excerpt's heading path above it, and includes it in every Anchor the
+reviewer comments from, so you need not name the section a Step sits in, and a
+Comment reaches you with its section.
 
 ## Sizing, splitting and grouping
 

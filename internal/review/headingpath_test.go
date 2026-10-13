@@ -179,9 +179,6 @@ func rowPathOf(t *testing.T, view review.ExcerptView, side review.Side, number i
 	t.Helper()
 	for _, line := range view.Lines {
 		if line.Side == side && line.Number == number {
-			if line.Block == 0 {
-				t.Fatalf("expected %v line %d in a block", side, number)
-			}
 			return line.Path
 		}
 	}
@@ -205,6 +202,36 @@ func TestTheRowsAnEditReplacedCarryTheOldHeadings(t *testing.T) {
 	}
 	if got, want := rowPathOf(t, view, review.NewSide, 5), []string{"Retries", "Caps"}; !slices.Equal(got, want) {
 		t.Errorf("expected the row that replaced it under the new heading %q, got %q", want, got)
+	}
+}
+
+func TestARowInNoBlockCarriesThePathOfTheTextAboveItOrElseBelowIt(t *testing.T) {
+	// The section's heading is renamed, its first paragraph edited and its
+	// second removed, so the old heading's rows, the blank line after it
+	// among them, are drawn above the new heading. The Excerpt opens on a
+	// blank line with nothing above it.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "## Limits", "Each host has a cap of five.", "Old words vanish here.", "Kept para."),
+		markdown("# Retries", "## Caps", "Each host has a cap of six.", "Kept para."),
+	)
+
+	step := viewingStep(t, files, showingLines("Caps", "docs/retries.md", review.NewSide, 2, 7))
+
+	view := step.Excerpts[0]
+	cases := []struct {
+		name   string
+		side   review.Side
+		number int
+		want   []string
+	}{
+		{"the blank line the Excerpt opens on, as the old heading below it", review.NewSide, 2, []string{"Retries"}},
+		{"the old blank line after the old heading, as that heading", review.OldSide, 4, []string{"Retries"}},
+		{"the blank line after the edited paragraph, as that paragraph", review.NewSide, 6, []string{"Retries", "Caps"}},
+	}
+	for _, c := range cases {
+		if got := rowPathOf(t, view, c.side, c.number); !slices.Equal(got, c.want) {
+			t.Errorf("expected %s to carry %q, got %q", c.name, c.want, got)
+		}
 	}
 }
 

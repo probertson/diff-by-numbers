@@ -63,12 +63,32 @@ func (b block) shown(side Side, treatment Treatment) Block {
 }
 
 // withDocumentBlocks is view drawn as a Document: its rows, tagged with their
-// blocks, the blocks, and whether the Document is plain prose rather than
-// Markdown.
-func withDocumentBlocks(view ExcerptView, lines []Line, blocks []Block) ExcerptView {
+// blocks and heading paths, the blocks, and whether the Document is plain prose
+// rather than Markdown. own reports which rows already carry the heading path
+// of their own text; every other row is given its neighbour's (withNearPaths).
+func withDocumentBlocks(view ExcerptView, lines []Line, own []bool, blocks []Block) ExcerptView {
+	withNearPaths(lines, own)
 	view.Lines, view.Blocks = lines, blocks
 	view.Plain = !isMarkdown(view.Excerpt.File)
 	return view
+}
+
+// withNearPaths gives each row with no heading path of its own, such as a blank
+// line between blocks, that of the nearest row above it that has one, or else
+// below it: the text it is read with. A blank line ends the block above it.
+func withNearPaths(lines []Line, own []bool) {
+	first := slices.Index(own, true)
+	if first < 0 {
+		return
+	}
+	near := first
+	for i := range lines {
+		if own[i] {
+			near = i
+			continue
+		}
+		lines[i].Path = lines[near].Path
+	}
 }
 
 // withRemovedBlocks gives a Document's old-side Excerpt, a deletion shown on its
@@ -83,6 +103,7 @@ func (s *Session) withRemovedBlocks(view ExcerptView) ExcerptView {
 	}
 	nodes := doc.nodeOfLine(0)
 	lines := slices.Clone(view.Lines)
+	own := make([]bool, len(lines))
 	var blocks []Block
 	numbered := map[int]int{} // by node
 	for i, row := range lines {
@@ -103,9 +124,9 @@ func (s *Session) withRemovedBlocks(view ExcerptView) ExcerptView {
 		if blocks[n-1].Treatment != treatment {
 			return view
 		}
-		lines[i].Block, lines[i].Path = n, blocks[n-1].Path
+		lines[i].Block, lines[i].Path, own[i] = n, blocks[n-1].Path, true
 	}
-	return withDocumentBlocks(view, lines, blocks)
+	return withDocumentBlocks(view, lines, own, blocks)
 }
 
 // withBlocks gives a Document Excerpt its blocks, widens it so that none is
@@ -183,11 +204,13 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		return t.after.blocks[n].shown(NewSide, treatment)
 	}
 
+	own := make([]bool, len(lines))
 	for i, row := range lines {
 		node := nodeAt(row)
 		if node < 0 {
 			continue
 		}
+		own[i] = true
 		if row.Side == NewSide {
 			n := node - len(t.before.blocks)
 			lines[i].Block, lines[i].Path = number(afterBlock(n)), t.after.blocks[n].path
@@ -197,21 +220,21 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 			continue
 		}
 		// The row sits under the other side's headings, whichever block it is
-		// drawn in.
-		path := t.before.blocks[node].path
+		// drawn in, or none.
+		lines[i].Path = t.before.blocks[node].path
 		group := t.group[node]
 		if afters := t.afterBlocksOf(group); len(afters) > 0 {
 			for _, n := range afters {
 				if shown[n] {
-					lines[i].Block, lines[i].Path = number(afterBlock(n)), path
+					lines[i].Block = number(afterBlock(n))
 					break
 				}
 			}
 			continue
 		}
-		lines[i].Block, lines[i].Path = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved)), path
+		lines[i].Block = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved))
 	}
-	return withDocumentBlocks(view, lines, blocks)
+	return withDocumentBlocks(view, lines, own, blocks)
 }
 
 // widened is an Excerpt's rows with the rows it needs so that no block is read
