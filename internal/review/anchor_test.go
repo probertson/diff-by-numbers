@@ -40,6 +40,10 @@ func TestAnAnchorCarriesEverythingNeededToPasteIntoChat(t *testing.T) {
 			t.Errorf("expected the rendered Anchor to contain %q\n---\n%s", want, rendered)
 		}
 	}
+	// Code has no headings, so its Re: line names the file alone.
+	if got, want := reLine(anchor), `Re: src/fetch.ts — after 20-22 — Step "Add the retrier" in argus-portal`; got != want {
+		t.Errorf("expected the Re: line %q, got %q", want, got)
+	}
 }
 
 func TestAnchoringAtTheBriefIsRejected(t *testing.T) {
@@ -231,4 +235,90 @@ func TestASelectionOfBlocksMustEndInBlocks(t *testing.T) {
 	_, err := session.Anchor(blocks(0, 2, 3)) // line 2 is the blank line
 
 	assertRejected(t, err, review.RejectedBadSelection)
+}
+
+// An Anchor into a Document names the heading path of its first line in its
+// Re: line, so the agent knows which section a Comment is about without the
+// Round having to say (#177).
+
+// reLine is the first line of a rendered Anchor: where it points.
+func reLine(anchor review.Anchor) string {
+	first, _, _ := strings.Cut(anchor.Render(), "\n")
+	return first
+}
+
+func TestAnAnchorOnBlocksNamesTheirHeadingPath(t *testing.T) {
+	files := adding("docs/retries.md", limitsDocument)
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	anchor, err := session.Anchor(blocks(0, 9, 9))
+
+	if err != nil {
+		t.Fatalf("expected the paragraph to anchor, got %v", err)
+	}
+	want := `Re: docs/retries.md › Retries › Limits › Per host — after 9 — Step "Retries" in `
+	if got := reLine(anchor); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the Re: line to start %q, got %q", want, got)
+	}
+}
+
+func TestAnAnchorOnSourceLinesNamesTheHeadingPathOfTheBlockAboveABlankFirstLine(t *testing.T) {
+	// Line 6 is the blank line that ends the "Limits" section, before the next
+	// one's heading; it reads as the end of the block above, as on screen.
+	files := adding("docs/retries.md", markdown(
+		"# Retries",            // 1
+		"## Limits",            // 3
+		"Each host has a cap.", // 5
+		"## Backoff",           // 7
+		"Waits double.",        // 9
+	))
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	anchor, err := session.Anchor(span(0, 6, 7))
+
+	if err != nil {
+		t.Fatalf("expected the lines to anchor, got %v", err)
+	}
+	want := "Re: docs/retries.md › Retries › Limits — after 6-7 — "
+	if got := reLine(anchor); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the Re: line to start %q, got %q", want, got)
+	}
+}
+
+func TestAnAnchorCrossingIntoTheNextSectionNamesTheFirstLinesPathAndQuotesTheHeading(t *testing.T) {
+	files := adding("docs/retries.md", limitsDocument)
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+
+	anchor, err := session.Anchor(blocks(0, 3, 5))
+
+	if err != nil {
+		t.Fatalf("expected the paragraph and heading to anchor, got %v", err)
+	}
+	want := "Re: docs/retries.md › Retries — after 3-5 — "
+	if got := reLine(anchor); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the Re: line to start %q, got %q", want, got)
+	}
+	if rendered := anchor.Render(); !strings.Contains(rendered, "+     5 | ## Limits") {
+		t.Errorf("expected the next section's heading quoted among the lines:\n%s", rendered)
+	}
+}
+
+func TestAnAnchorIntoAnExpandedAcknowledgementOverADocumentNamesTheHeadingPath(t *testing.T) {
+	files := adding("docs/retries.md", limitsDocument, "retry.go", code(3))
+	step := showingWhole("The code", files, review.NewSide, "retry.go")
+	step.Acknowledgements = []review.Acknowledgement{{
+		Repository: docsRepo, Files: []string{"docs/retries.md"}, Reason: "the agent's notes, read elsewhere",
+	}}
+	session := openDocumentRound(t, files, step)
+	ack := 0
+
+	anchor, err := session.Anchor(review.AnchorTarget{Acknowledgement: &ack, Start: newRow(11), End: newRow(11)})
+
+	if err != nil {
+		t.Fatalf("expected the acknowledged paragraph to anchor, got %v", err)
+	}
+	want := `Re: docs/retries.md › Retries › Limits › Per host — after 11 — acknowledged in Step "The code" (the agent's notes, read elsewhere) in `
+	if got := reLine(anchor); !strings.HasPrefix(got, want) {
+		t.Errorf("expected the Re: line to start %q, got %q", want, got)
+	}
 }

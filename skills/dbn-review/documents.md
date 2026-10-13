@@ -55,9 +55,11 @@ them is text they have already reviewed. What needs their attention is how
 those decisions were turned into content, so build the Round around that, not
 around the record.
 
-**Say in each Step where it sits in its Document** — "§4, after the data
-model". A Step shown out of the Document's own order has nothing around it to
-place it by.
+**Mention a Step's position only when it matters to the change**, such as a
+section that moved or a rule now placed before what it governs. dbn shows each
+Excerpt's heading path above it, and includes it in every Anchor the reviewer
+comments from, so you need not name the section a Step sits in, and a Comment
+reaches you with its section.
 
 ## Sizing, splitting and grouping
 
