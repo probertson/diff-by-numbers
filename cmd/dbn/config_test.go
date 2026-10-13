@@ -198,6 +198,30 @@ func TestConfigListsTheBackgroundAndTheDiffColours(t *testing.T) {
 	}
 }
 
+func TestConfigListsTheProseWidth(t *testing.T) {
+	cases := []struct {
+		contents string
+		row      []string
+	}{
+		{"", []string{"prose-width", "100", "default"}},
+		{"prose-width = 72\n", []string{"prose-width", "72", "config", "file"}},
+		{"prose-width = 0\n", []string{"prose-width", "0", "(no", "maximum)", "config", "file"}},
+	}
+	for _, c := range cases {
+		withConfig(t, c.contents)
+		var out bytes.Buffer
+
+		err := run([]string{"config"}, &out, &bytes.Buffer{})
+
+		if err != nil {
+			t.Fatalf("dbn config: %v", err)
+		}
+		if !hasRow(out.String(), c.row...) {
+			t.Errorf("dbn config has no row %v:\n%s", c.row, out.String())
+		}
+	}
+}
+
 func TestConfigShowsTheDefaultColours(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	var out bytes.Buffer

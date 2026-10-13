@@ -50,7 +50,7 @@ func TestWrappingEveryLineShowsTwoLongLinesAtOnce(t *testing.T) {
 	cur := newStepCursor(step, nil) // on the removal, not the addition
 	const width, height = 50, 30
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true, 0)
 
 	if !strings.Contains(out, "OLDTAIL") || !strings.Contains(out, "NEWTAIL") {
 		t.Errorf("both long lines should be readable in full at once, got:\n%s", out)
@@ -83,7 +83,7 @@ func TestWrappingEveryLineKeepsTheCursorLineOnScreen(t *testing.T) {
 	cur := newStepCursor(step, nil)
 	cur.cursor = 30
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 20, false, true)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 20, false, true, 0)
 
 	if !strings.Contains(out, "code line 31") {
 		t.Errorf("the cursor's own line must stay visible, got:\n%s", out)
@@ -102,7 +102,7 @@ func TestWrappingEveryLineClipsALineTallerThanThePane(t *testing.T) {
 	const width, height = 40, 16
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true, 0)
 
 	if h := lipgloss.Height(out); h > height {
 		t.Errorf("an oversized wrapped line blew the height: %d rows over the %d given:\n%s", h, height, out)
@@ -135,7 +135,7 @@ func TestTheStepPaneSurvivesAPaneTooShortForItsHeaders(t *testing.T) {
 				for i := range cur.lines {
 					cur.cursor = i
 
-					out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, wrapAll)
+					out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, wrapAll, 0)
 
 					if out == "" {
 						t.Errorf("wrapAll=%v width=%d height=%d cursor=%d rendered nothing", wrapAll, width, height, i)

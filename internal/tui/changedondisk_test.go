@@ -29,7 +29,7 @@ func stepWithEditedFile() *daemon.StepWire {
 func TestAStepWarnsOnceForEachFileThatChangedOnDiskAndStillShowsItsCode(t *testing.T) {
 	step := stepWithEditedFile()
 
-	out := renderStep(step, newStepCursor(step, nil), nil, nil, 200, 40, false, false)
+	out := renderStep(step, newStepCursor(step, nil), nil, nil, 200, 40, false, false, 0)
 
 	if n := strings.Count(out, "fetch.ts "+postedWarning); n != 1 {
 		t.Errorf("expected one warning for fetch.ts, got %d:\n%s", n, out)

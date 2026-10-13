@@ -39,6 +39,9 @@ type Options struct {
 	TerminalBackground config.TerminalBackground
 	// Diff is the colours the diff is drawn in.
 	Diff config.DiffColours
+	// ProseWidth is the widest the agent's narration is wrapped to, or 0 for no
+	// maximum.
+	ProseWidth int
 }
 
 // Run attaches to the daemon and blocks until the Reviewer quits.
@@ -49,6 +52,7 @@ func Run(opts Options) error {
 		return err
 	}
 	starting.updateCheck = opts.UpdateCheck
+	starting.proseWidth = opts.ProseWidth
 	if opts.ConfigWarning != "" {
 		starting.configNotice = "config: " + opts.ConfigWarning
 	}
@@ -258,6 +262,9 @@ type model struct {
 	// updateCheck is whether Init asks about a newer release at all: the
 	// Reviewer can turn the check off (internal/config).
 	updateCheck bool
+	// proseWidth is the widest the agent's narration is wrapped to, or 0 for no
+	// maximum (internal/config). Code and the keybars keep the pane's width.
+	proseWidth int
 	// configNotice names config file keys dbn ignored. Persistent like
 	// updateNotice: it holds until the Reviewer fixes the file and relaunches.
 	configNotice string
@@ -1610,7 +1617,7 @@ func (m model) View() string {
 		}
 	default:
 		if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo(), m.wrapAll)
+			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo(), m.wrapAll, m.proseWidth)
 		} else {
 			body = m.viewport.View()
 		}
@@ -2674,7 +2681,10 @@ func (m model) brief() string {
 	var b strings.Builder
 	brief := m.view.Brief
 
-	wrap := func(text string) string { return wrapTo(text, m.viewport.Width) }
+	// The Overview is the agent's narration and what became of it, all prose, so
+	// all of it wraps at the prose width. The Step list is never wrapped.
+	width := narrationWidth(m.viewport.Width, m.proseWidth)
+	wrap := func(text string) string { return wrapTo(text, width) }
 
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Goal) + "\n\n")
 	// Only round 1 must give a Background. A later round that gives none shows
@@ -2685,20 +2695,20 @@ func (m model) brief() string {
 	// The Round's own questions are about the work as a whole rather than one
 	// Step's code, so they sit with the Brief (ADR-0017).
 	if len(m.view.RoundQuestions) > 0 {
-		b.WriteString(questionBlock(m.view.RoundQuestions, m.viewport.Width) + "\n\n")
+		b.WriteString(questionBlock(m.view.RoundQuestions, width) + "\n\n")
 	}
 	if carried := carriedQuestions(m.view.Questions); len(carried) > 0 {
-		b.WriteString(m.carriedOverQuestions(carried, m.viewport.Width))
+		b.WriteString(m.carriedOverQuestions(carried, width))
 	}
 
 	if len(m.view.Dispositions) > 0 {
-		b.WriteString(m.sinceTheLastRound(m.viewport.Width))
+		b.WriteString(m.sinceTheLastRound(width))
 	}
 	if len(m.view.AccountedQuestions) > 0 {
-		b.WriteString(m.questionsFromTheLastRound(m.viewport.Width))
+		b.WriteString(m.questionsFromTheLastRound(width))
 	}
 	if len(m.view.Withdrawn) > 0 {
-		b.WriteString(m.withdrawnSince(m.viewport.Width))
+		b.WriteString(m.withdrawnSince(width))
 	}
 
 	b.WriteString(labelSt.Render("Under review") + "\n")
@@ -2772,6 +2782,16 @@ func wrapTo(text string, width int) string {
 		return lipgloss.NewStyle().Width(width).Render(text)
 	}
 	return text
+}
+
+// narrationWidth is the width the agent's prose wraps to in a pane width cells
+// wide: the Reviewer's prose width, or the pane's when that is narrower or the
+// prose width is 0 (no maximum).
+func narrationWidth(width, proseWidth int) int {
+	if proseWidth > 0 && proseWidth < width {
+		return proseWidth
+	}
+	return width
 }
 
 func pluralize(n int, noun string) string {

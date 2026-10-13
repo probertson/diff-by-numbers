@@ -23,6 +23,10 @@ const (
 	NoUpdateCheckEnv = "DBN_NO_UPDATE_CHECK"
 )
 
+// DefaultProseWidth is the prose width with no setting: comfortable reading on
+// a wide terminal.
+const DefaultProseWidth = 100
+
 // Source is where a setting's value came from, so `dbn config` can say why a
 // setting is what it is.
 type Source string
@@ -55,6 +59,10 @@ type Settings struct {
 	// its background, or to override it.
 	TerminalBackground Setting[TerminalBackground]
 	Diff               DiffColours
+	// ProseWidth is the widest, in columns, that prose is wrapped to: the
+	// agent's narration, and later the formatted view of Documents. A narrower
+	// pane wraps it narrower still. 0 means no maximum: the pane's width.
+	ProseWidth Setting[int]
 
 	// unknown is the keys in the file dbn does not know. Not an error: the
 	// repo-built dbn and the installed one share the file, and a key only the
@@ -86,6 +94,23 @@ type fileShape struct {
 	UpdateCheck *boolean            `toml:"update-check"`
 	Background  *TerminalBackground `toml:"background"`
 	Diff        *diffShape          `toml:"diff"`
+	ProseWidth  *proseWidth         `toml:"prose-width"`
+}
+
+// proseWidth is a column count checked as it is decoded, for the same reason as
+// port: the decoder's own type error carries no line.
+type proseWidth int
+
+func (w *proseWidth) UnmarshalTOML(data any) error {
+	number, ok := data.(int64)
+	if !ok {
+		return fmt.Errorf("must be a whole number of columns, got %v", data)
+	}
+	if number < 0 {
+		return fmt.Errorf("must be 0 (no maximum) or more, got %d", number)
+	}
+	*w = proseWidth(number)
+	return nil
 }
 
 // boolean is a true/false value checked as it is decoded, for the same reason
@@ -135,6 +160,7 @@ func Load(lookup func(string) (string, bool)) (Settings, error) {
 		UpdateCheck:        Setting[bool]{Value: true, Source: Default},
 		TerminalBackground: Setting[TerminalBackground]{Value: BackgroundAuto, Source: Default},
 		Diff:               defaultDiffColours(),
+		ProseWidth:         Setting[int]{Value: DefaultProseWidth, Source: Default},
 	}
 
 	if settings.Path != "" {
@@ -154,6 +180,9 @@ func Load(lookup func(string) (string, bool)) (Settings, error) {
 			}
 			if file.Background != nil {
 				settings.TerminalBackground = Setting[TerminalBackground]{Value: *file.Background, Source: File}
+			}
+			if file.ProseWidth != nil {
+				settings.ProseWidth = Setting[int]{Value: int(*file.ProseWidth), Source: File}
 			}
 			settings.Diff = file.Diff.apply()
 			settings.unknown = unknownKeys(meta.Undecoded())

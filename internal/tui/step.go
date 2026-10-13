@@ -494,28 +494,25 @@ func runesForRow(r []rune, width, nextWidth int) int {
 // rows so a long Step stays navigable, and every row clipped to width so nothing
 // overflows the terminal. ackCommentCounts counts the Comments raised in each
 // Acknowledgement's files, so a point made in acknowledged code stays visible
-// when it is collapsed.
-func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo, wrapAll bool) string {
-	wrap := func(text string) string {
-		if width > 1 {
-			return lipgloss.NewStyle().Width(width).Render(text)
-		}
-		return text
-	}
+// when it is collapsed. The agent's narration wraps at proseWidth where that is
+// narrower than the pane (0 for no maximum); the code keeps the pane's width.
+func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo, wrapAll bool, proseWidth int) string {
+	wrap := func(text string) string { return wrapTo(text, width) }
+	prose := narrationWidth(width, proseWidth)
 	var b bytes.Buffer
-	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrap(step.Explanation)+"\n")
+	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrapTo(step.Explanation, prose)+"\n")
 	if step.OversizeJustification != "" {
 		// The label goes on its own line above the wrapped justification. Inlining it
 		// before the block pushed the first wrapped line past the width, and the text
 		// was dropped when the terminal reflowed it.
-		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrap(step.OversizeJustification)+"\n")
+		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrapTo(step.OversizeJustification, prose)+"\n")
 	}
 	// Agent Questions come after the Explanation, which gives them their
 	// context, and before the code, which the Reviewer would otherwise read the
 	// question past (ADR-0017). The pane below is sized from what this header
 	// leaves.
 	if len(step.Questions) > 0 {
-		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, width)+"\n")
+		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, prose)+"\n")
 	}
 
 	// A file edited since the round was posted is still shown as posted, which is

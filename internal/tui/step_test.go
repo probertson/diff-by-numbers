@@ -55,7 +55,7 @@ func TestRenderStepKeepsTheExplanationOnScreen(t *testing.T) {
 	cur := newStepCursor(step, nil)
 	cur.cursor = len(cur.lines) - 1
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	if got := lipgloss.Height(out); got > height {
 		t.Errorf("Step body is %d rows, over the %d it was given — it will clip", got, height)
@@ -80,7 +80,7 @@ func TestRenderStepIndicatesMoreBelowAndStaysWithinHeight(t *testing.T) {
 	const width, height = 80, 20
 
 	cur := newStepCursor(step, nil) // cursor at the top
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	if got := lipgloss.Height(out); got > height {
 		t.Errorf("Step body is %d rows, over the %d it was given", got, height)
@@ -110,7 +110,7 @@ func TestRenderStepInterleavesBeforeAndAfterAsAUnifiedDiff(t *testing.T) {
 	}
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
 
 	before := strings.Index(out, "the old guard")
 	after := strings.Index(out, "the new guard")
@@ -226,7 +226,7 @@ func TestRenderStepShowsADeletionAsBeforeOnly(t *testing.T) {
 	}
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
 
 	if !strings.Contains(out, "- ") || strings.Contains(out, "+ ") {
 		t.Errorf("expected a before-only deletion (only '-' rows), got:\n%s", out)
@@ -252,7 +252,7 @@ func TestRenderStepKeepsTheOversizeJustificationWithinWidth(t *testing.T) {
 	cur := newStepCursor(step, nil)
 	const width = 80
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, 40, false, false, 0)
 
 	if over := widestLine(out); over > width {
 		t.Errorf("a row is %d cells wide, over the %d it was given — the oversize label pushed it past the edge:\n%s", over, width, out)
@@ -320,7 +320,7 @@ func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
 	}
 	cur := newStepCursor(step, nil)
 
-	stepOut := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
+	stepOut := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
 
 	// A changed row is tinted (#81); a reference row is dimmed and never tinted.
 	if !strings.Contains(lineWith(t, stepOut, changed), "48;2;") {
@@ -341,7 +341,7 @@ func TestReferenceRowsAreDimmedInBothCodeViews(t *testing.T) {
 			{Number: 2, Text: reference, Changed: false, Side: "new"},
 		},
 	}}}
-	expandedOut := renderStep(ackStep, newStepCursor(ackStep, expanded), map[string]bool{}, nil, 80, 40, false, false)
+	expandedOut := renderStep(ackStep, newStepCursor(ackStep, expanded), map[string]bool{}, nil, 80, 40, false, false, 0)
 
 	if !strings.Contains(lineWith(t, expandedOut, changed), "48;2;") {
 		t.Error("expanded Acknowledgement: a changed row should be tinted")
@@ -603,7 +603,7 @@ func TestRenderStepHangsAContinuationUnderTheLinesOwnIndent(t *testing.T) {
 	const width, height = 60, 20
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	first := lineWith(t, out, "foo :=")
 	tail := lineWith(t, out, "TAIL")
@@ -620,7 +620,7 @@ func TestRenderStepDoesNotCarryAlignmentPaddingOntoAContinuation(t *testing.T) {
 	const width, height = 60, 20
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	first := lineWith(t, out, "xxx")
 	tail := lineWith(t, out, "TAIL")
@@ -638,7 +638,7 @@ func TestRenderStepWrapsTheCursorLineInPlace(t *testing.T) {
 	cur := newStepCursor(step, nil)
 	cur.cursor = 1 // the long line
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	if !strings.Contains(out, "TAIL") {
 		t.Errorf("the cursor line's tail should wrap into view, got:\n%s", out)
@@ -663,7 +663,7 @@ func TestRenderStepTruncatesLinesThatAreNotUnderTheCursor(t *testing.T) {
 
 	cur := newStepCursor(step, nil) // cursor at index 0, a short line
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 40, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 40, 40, false, false, 0)
 
 	if strings.Contains(out, "TAIL") {
 		t.Errorf("a line that is not under the cursor should stay truncated, got:\n%s", out)
@@ -687,7 +687,7 @@ func TestRenderStepCapsAnEnormousCursorLine(t *testing.T) {
 	const width, height = 40, 16
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, false, 0)
 
 	if h := lipgloss.Height(out); h > height {
 		t.Errorf("an enormous wrapped line blew the height: %d rows over the %d given", h, height)
@@ -720,7 +720,7 @@ func TestRenderStepStylesEveryRowOfTheWrappedCursorLine(t *testing.T) {
 	}
 	cur := newStepCursor(step, nil) // the only line, under the cursor
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 40, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 40, 40, false, false, 0)
 
 	tail := lineWith(t, out, "TAIL")
 	if strings.Contains(tail, "▸") {
@@ -742,7 +742,7 @@ func TestRenderStepShowsNoIndicatorsWhenEverythingFits(t *testing.T) {
 	}
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
 
 	if strings.Contains(out, "more above") || strings.Contains(out, "more below") {
 		t.Errorf("expected no scroll indicators when the whole Step fits, got:\n%s", out)
@@ -755,7 +755,7 @@ func TestRenderStepDoesNotSplitAWordAcrossTheCursorLinesWrap(t *testing.T) {
 	step := oneLineStep("value := configurationOption")
 	cur := newStepCursor(step, nil)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 40, 20, false, false)
+	out := renderStep(step, cur, map[string]bool{}, nil, 40, 20, false, false, 0)
 
 	if !strings.Contains(out, "configurationOption") {
 		t.Errorf("the wrap should fall at the space, leaving the identifier whole, got:\n%s", out)

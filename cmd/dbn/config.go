@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"strconv"
 	"text/tabwriter"
 
 	"github.com/probertson/diff-by-numbers/internal/config"
@@ -54,6 +55,11 @@ func runConfig(args []string, out, errOut io.Writer) error {
 	fmt.Fprintf(table, "port\t%d\t%s\n", port.Value, label(port.Source, config.PortEnv, "-port flag"))
 	fmt.Fprintf(table, "update-check\t%t\t%s\n", settings.UpdateCheck.Value, label(settings.UpdateCheck.Source, config.NoUpdateCheckEnv, ""))
 	fmt.Fprintf(table, "background\t%s\t%s\n", settings.TerminalBackground.Value, label(settings.TerminalBackground.Source, "", ""))
+	proseWidth := strconv.Itoa(settings.ProseWidth.Value)
+	if settings.ProseWidth.Value == 0 {
+		proseWidth += " (no maximum)"
+	}
+	fmt.Fprintf(table, "prose-width\t%s\t%s\n", proseWidth, label(settings.ProseWidth.Source, "", ""))
 	fmt.Fprintf(table, "diff.preset\t%s\t%s\n", diff.Preset.Value, label(diff.Preset.Source, "", ""))
 	// Every colour, not only the ones set: what is drawn is the question, and a
 	// preset's colours are part of the answer.

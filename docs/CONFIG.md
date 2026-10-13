@@ -14,6 +14,7 @@ Here is an example `config.toml`:
 port = 7373           # the daemon's port
 update-check = true   # false turns the update check off
 background = "auto"   # your terminal's background: auto | dark | light
+prose-width = 100     # the widest prose is wrapped, in columns; 0 for no maximum
 
 [diff]
 preset = "medium"     # subtle | medium | strong: applies to both backgrounds
@@ -34,6 +35,16 @@ added-line = "#e8f7e8"
 - **The file is read at launch.** Relaunch the TUI after editing it.
 
 After making a change to `config.toml`, exit and restart the TUI to apply your preferences.
+
+### Prose width
+
+```
+prose-width = 100
+```
+
+`prose-width` is the widest, in columns, that dbn wraps prose: the agent's narration (the Brief and the rest of the Overview, and each Step's explanation and questions). A terminal narrower than the setting wraps prose at the terminal's width instead. It defaults to `100`; `0` means no maximum, so prose wraps at the full width of the terminal. A negative or non-integer value is invalid.
+
+Code and the keybar always use the full width of the terminal.
 
 ### Diff colors
 
@@ -107,4 +118,4 @@ In addition to `config.toml`, some settings can also come from flags or environm
 
 Note that the environment variable is the opposite way round from the key: `DBN_NO_UPDATE_CHECK=1` means `update-check = false`. It can only turn the check off: `0`, `false`, `no` and an empty value count as unset, and the config file decides.
 
-Color/theme settings (`background` and `[diff]`) are set in the file only.
+Color/theme settings (`background` and `[diff]`) and `prose-width` are set in the file only.

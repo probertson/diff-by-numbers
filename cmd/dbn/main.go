@@ -138,6 +138,7 @@ func run(args []string, out, errOut io.Writer) error {
 			ConfigWarning:      settings.Warning(),
 			TerminalBackground: settings.TerminalBackground.Value,
 			Diff:               settings.Diff,
+			ProseWidth:         settings.ProseWidth.Value,
 		})
 	}
 

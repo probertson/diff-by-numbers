@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,6 +168,9 @@ func TestAnInvalidFileIsAnErrorNamingTheFileTheLineAndTheProblem(t *testing.T) {
 		{"a port out of range", "port = 70000\n", "line 1", "between 1 and 65535"},
 		{"a port of zero", "\n\nport = 0\n", "line 3", "between 1 and 65535"},
 		{"an update check that is not a boolean", "update-check = \"off\"\n", "line 1", "update-check"},
+		{"a negative prose width", "\nprose-width = -1\n", "line 2", "prose-width"},
+		{"a prose width that is not a whole number", "prose-width = 72.5\n", "line 1", "prose-width"},
+		{"a prose width that is not a number", "prose-width = \"wide\"\n", "line 1", "prose-width"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -254,5 +258,50 @@ func TestAFileOfKnownKeysHasNoWarning(t *testing.T) {
 	}
 	if settings.Warning() != "" {
 		t.Errorf("Warning() = %q, want none", settings.Warning())
+	}
+}
+
+func TestProseWidthDefaultsToOneHundredColumns(t *testing.T) {
+	env := environment{"HOME": t.TempDir()}
+
+	settings, err := Load(env.lookup)
+
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.ProseWidth != (Setting[int]{Value: 100, Source: Default}) {
+		t.Errorf("ProseWidth = %+v, want 100 from the default", settings.ProseWidth)
+	}
+}
+
+func TestTheFileSetsTheProseWidthAndZeroMeansNoMaximum(t *testing.T) {
+	for _, value := range []int{72, 0} {
+		env := homeWith(t, fmt.Sprintf("prose-width = %d\n", value))
+
+		settings, err := Load(env.lookup)
+
+		if err != nil {
+			t.Fatalf("prose-width = %d: Load: %v", value, err)
+		}
+		if settings.ProseWidth != (Setting[int]{Value: value, Source: File}) {
+			t.Errorf("ProseWidth = %+v, want %d from the file", settings.ProseWidth, value)
+		}
+		if settings.Warning() != "" {
+			t.Errorf("prose-width = %d: Warning() = %q, want none for a known key", value, settings.Warning())
+		}
+	}
+}
+
+func TestProseWidthHasNoEnvironmentVariable(t *testing.T) {
+	env := homeWith(t, "prose-width = 72\n")
+	env["DBN_PROSE_WIDTH"] = "40"
+
+	settings, err := Load(env.lookup)
+
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if settings.ProseWidth != (Setting[int]{Value: 72, Source: File}) {
+		t.Errorf("ProseWidth = %+v, want 72 from the file: like every setting new with the file, it has no variable", settings.ProseWidth)
 	}
 }
