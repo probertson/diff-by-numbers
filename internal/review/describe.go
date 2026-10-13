@@ -20,6 +20,11 @@ const (
 // LineRange is an inclusive run of line numbers on one side of a file.
 type LineRange struct{ First, Last int }
 
+// overlaps reports whether any line from first to last falls inside the range.
+func (r LineRange) overlaps(first, last int) bool {
+	return first <= r.Last && last >= r.First
+}
+
 // Modification is one edit that replaced lines: the before-side it removed and
 // the after-side that took its place. It is a Correspondence with both sides,
 // which is what decides where a before-side rides along with its after-side.
@@ -53,6 +58,7 @@ type FileDescription struct {
 // DocumentCost is what showing a Document's changes costs, in words, block by
 // block, so the agent can plan Steps by section without counting. It is priced
 // by the budget check itself, so a description and a refusal never disagree.
+// The wire calls each Words a cost, with its unit in the field's description.
 type DocumentCost struct {
 	// Words is what one Step showing every costing block would be charged.
 	Words int
@@ -98,11 +104,11 @@ type ChangeDescription struct {
 // It names no review, so it plans a first round: there is nothing to pre-mark
 // against. DescribeRevision is how a Revision Round is planned.
 //
-// Classifications overrule dbn's classification of files as Documents for this
+// Overrulings overrule dbn's classification of files as Documents for this
 // description alone, so the flags and costs it reports are the ones the agent
 // intends to post with.
-func (s *Session) DescribeChanges(set ChangeSet, classifications ...Classification) (ChangeDescription, error) {
-	return s.describe(set, nil, overrulings{}.with(set, classifications), classifications)
+func (s *Session) DescribeChanges(set ChangeSet, given ...Overruling) (ChangeDescription, error) {
+	return s.describe(set, nil, overrulings{}.with(set, given), given)
 }
 
 // DescribeRevision describes the changes as the next Revision Round of the
@@ -113,16 +119,16 @@ func (s *Session) DescribeChanges(set ChangeSet, classifications ...Classificati
 // handed off, or — while a round is still under review, where the next post is a
 // Replacement — whatever that round answers.
 //
-// Classifications are laid over the ones the review has recorded, for this
+// Overrulings are laid over the ones the review has recorded, for this
 // description alone.
-func (s *Session) DescribeRevision(id string, set ChangeSet, classifications ...Classification) (ChangeDescription, error) {
+func (s *Session) DescribeRevision(id string, set ChangeSet, given ...Overruling) (ChangeDescription, error) {
 	if rejection := s.named(id, "describe against", "describe without a review_id to plan a new review"); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
-	return s.describe(set, s.nextAnswering(), s.overruled.with(set, classifications), classifications)
+	return s.describe(set, s.nextAnswering(), s.overruled.with(set, given), given)
 }
 
-func (s *Session) describe(set ChangeSet, earlier *earlierRound, overruled overrulings, given []Classification) (ChangeDescription, error) {
+func (s *Session) describe(set ChangeSet, earlier *earlierRound, overruled overrulings, given []Overruling) (ChangeDescription, error) {
 	if rejection := validateChangeSet(set); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
@@ -131,7 +137,7 @@ func (s *Session) describe(set ChangeSet, earlier *earlierRound, overruled overr
 	if rejection != nil {
 		return ChangeDescription{}, rejection
 	}
-	if rejection := l.validateClassifications(given, set); rejection != nil {
+	if rejection := l.validateOverrulings(given, set); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
 	return l.describe(set, earlier != nil), nil
@@ -231,7 +237,7 @@ func (l ledger) describeFile(repository, path string, atoms *fileAtoms) FileDesc
 		Modifications: atoms.modifications,
 		PreMarkedNew:  rangesOf(atoms.preNew),
 		PreMarkedOld:  rangesOf(atoms.preOld),
-		Document:      l.isDocumentFile(repository, path),
+		Document:      l.isDocumentAfterOverruling(repository, path),
 	}
 	sort.Slice(file.Modifications, func(i, j int) bool {
 		return file.Modifications[i].New.First < file.Modifications[j].New.First

@@ -1,5 +1,7 @@
 package review
 
+import "iter"
+
 // Correspondence pairs the before-side lines a single edit removed with the
 // after-side lines that replaced them, as git derived it. It is adapter-derived
 // plumbing, not a domain concept the Authoring Agent authors against (ADR-0002):
@@ -33,6 +35,30 @@ func (c Correspondence) coversOld(line int) bool {
 	return c.hasOld() && line >= c.OldFirst && line <= c.OldLast
 }
 
+// modificationsReplacing yields each modification whose removed range holds a
+// before-side Changed Line: the edits that line can ride along with.
+func (l ledger) modificationsReplacing(line ChangedLine) iter.Seq[Correspondence] {
+	return func(yield func(Correspondence) bool) {
+		for _, c := range l.correspondences {
+			if c.Repository == line.Repository && c.File == line.File && c.isModification() && c.coversOld(line.Line) {
+				if !yield(c) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// replaced reports whether a modification replaced a before-side Changed Line,
+// so that it can ride along with the after-side that replaced it rather than
+// needing an old-side Excerpt of its own.
+func (l ledger) replaced(line ChangedLine) bool {
+	for range l.modificationsReplacing(line) {
+		return true
+	}
+	return false
+}
+
 // riddenAlong reports whether a before-side Changed Line is rendered by one of
 // the given Steps as part of the edit that removed it. Only a modification rides
 // along, and a line rides along exactly where it is drawn, so "shown" and
@@ -48,13 +74,7 @@ func (l ledger) riddenAlong(line ChangedLine, within, all []Step) bool {
 	if line.Side != OldSide {
 		return false
 	}
-	for _, c := range l.correspondences {
-		if c.Repository != line.Repository || c.File != line.File || !c.isModification() {
-			continue
-		}
-		if !c.coversOld(line.Line) {
-			continue
-		}
+	for c := range l.modificationsReplacing(line) {
 		// Worked out once for the line rather than once per Step: whether anyone
 		// claimed it is what decides where the remainder goes, and this runs for
 		// every Changed Line each time the screen is drawn.

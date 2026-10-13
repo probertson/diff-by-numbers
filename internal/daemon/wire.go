@@ -44,7 +44,7 @@ type wireStep struct {
 	Explanation           string                `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
 	Excerpts              []wireExcerpt         `json:"excerpts,omitempty" jsonschema:"The line ranges to show. Send ranges, never code: dbn reads the bytes from the working tree itself. A Step needs at least one Excerpt or one Acknowledgement"`
 	Acknowledgements      []wireAcknowledgement `json:"acknowledgements,omitempty" jsonschema:"Files whose changes need not be read line by line, for a reason the Reviewer sees, covered in place of an Excerpt. The only way to account for a binary file, a mode change or a pure rename, which have no lines to show"`
-	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"A last resort: why this Step cannot be split below the size budget. Before giving one, split an oversized Step by idea into smaller Steps; justify only a Step whose idea genuinely does not divide. dbn never refuses a justified Step"`
+	OversizeJustification string                `json:"oversize_justification,omitempty" jsonschema:"A last resort: why this Step cannot be split to fit its size budgets, Changed Lines for code and words for Document text; one justification answers for either or both. Before giving one, split an oversized Step by idea into smaller Steps; justify only a Step whose idea genuinely does not divide. dbn never refuses a justified Step"`
 	Questions             []wireQuestion        `json:"questions,omitempty" jsonschema:"Agent Questions about this Step's code: decisions or judgments you need from the Reviewer before going on, shown after the Step's explanation and before its code, in a block of their own. Ask only what the Reviewer must decide, never 'does this look OK?', and write each so it can be answered from this Step and the Steps before it. The Reviewer answers in free text; a Round that asks anything is never concluded at Hand Off"`
 }
 
@@ -308,21 +308,23 @@ func (w wireRound) toDomain() review.Round {
 			Goal:       w.Brief.Goal,
 			Background: w.Brief.Background,
 		},
-		ChangeSet:       toChangeSet(w.Repositories),
-		Steps:           steps,
-		Dispositions:    dispositions,
-		Label:           w.Label,
-		Questions:       toQuestions(w.Questions),
-		Classifications: toClassifications(w.Classifications),
+		ChangeSet:    toChangeSet(w.Repositories),
+		Steps:        steps,
+		Dispositions: dispositions,
+		Label:        w.Label,
+		Questions:    toQuestions(w.Questions),
+		Overrulings:  toOverrulings(w.Classifications),
 
 		QuestionStatuses: statuses,
 	}
 }
 
-func toClassifications(wires []wireClassification) []review.Classification {
-	var out []review.Classification
+// toOverrulings reads the wire's classifications: each one the agent gives
+// overrules dbn's classification of a file.
+func toOverrulings(wires []wireClassification) []review.Overruling {
+	var out []review.Overruling
 	for _, c := range wires {
-		out = append(out, review.Classification{Repository: c.Repository, File: c.File, Document: c.Document})
+		out = append(out, review.Overruling{Repository: c.Repository, File: c.File, Document: c.Document})
 	}
 	return out
 }
@@ -400,12 +402,15 @@ type fileChangesWire struct {
 	PreMarkedOld  []lineRangeWire    `json:"pre_marked_old,omitempty" jsonschema:"In a Revision Round, before-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarked     bool               `json:"pre_marked,omitempty" jsonschema:"In a Revision Round, set on a binary, mode or edit-free renamed file the Reviewer has already seen and the next post need not acknowledge again"`
 	Document      bool               `json:"document,omitempty" jsonschema:"Set when this file is a Document, prose for a person to read rather than code. dbn judges by file type, so Markdown is one, unless classifications overrule it. Plan the Steps that show a Document by the dbn-review skill's document guidance"`
-	Cost          *int               `json:"cost,omitempty" jsonschema:"For a Document, what its changes cost in words against a Step's Document budget of 1,000: what one Step showing every block in new_blocks and old_blocks is charged. In a Revision Round it is net of what the Reviewer has already read. Code has no cost: it is counted in Changed Lines"`
+	Cost          *int               `json:"cost,omitempty" jsonschema:"For a Document, what its changes cost in words against the Document budget: what one Step showing every block in new_blocks and old_blocks is charged. In a Revision Round it is net of what the Reviewer has already read. Code has no cost: it is counted in Changed Lines"`
 	NewBlocks     []blockCostWire    `json:"new_blocks,omitempty" jsonschema:"For a Document, each after-side block that costs anything, in file order. A Step whose Excerpts touch any line of a block is charged the whole block, once; unchanged blocks and ones the Reviewer has already read cost nothing and are left out. Add up a section's blocks to plan its Steps"`
 	OldBlocks     []blockCostWire    `json:"old_blocks,omitempty" jsonschema:"For a Document, each before-side block that costs anything and has to be shown with an old-side Excerpt, such as a deleted paragraph. The before-side of an edit is drawn beside the after-side that replaced it, so it is charged with that block in new_blocks and is not listed here"`
 }
 
-// blockCostWire is one costing block of a Document.
+// blockCostWire is one costing block of a Document. Its Cost carries the
+// domain's BlockCost.Words, as fileChangesWire.Cost carries DocumentCost.Words:
+// the wire names each for what the agent plans with and gives the unit in its
+// description.
 type blockCostWire struct {
 	Lines lineRangeWire `json:"lines" jsonschema:"The block's lines, as a [first, last] pair"`
 	Cost  int           `json:"cost" jsonschema:"What a Step showing any of the block is charged for it, in words"`

@@ -2,7 +2,6 @@ package review_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/probertson/diff-by-numbers/internal/review"
@@ -12,27 +11,6 @@ import (
 // stands after the edit, with the words the edit struck from it. These tests post
 // Rounds over real Markdown that a Change Set modified, so the cost is what dbn
 // makes of the edit itself.
-
-// words is n distinct words, each the prefix and its number, so that a word diff
-// of two passages pairs them only where they really are the same text.
-func words(prefix string, n int) []string {
-	out := make([]string, n)
-	for i := range out {
-		out[i] = fmt.Sprintf("%s%d", prefix, i+1)
-	}
-	return out
-}
-
-// wrapped is a paragraph of the words, hard-wrapped the given number to a line.
-func wrapped(width int, ws []string) string {
-	var lines []string
-	for len(ws) > 0 {
-		n := min(width, len(ws))
-		lines = append(lines, strings.Join(ws[:n], " "))
-		ws = ws[n:]
-	}
-	return strings.Join(lines, "\n")
-}
 
 // replacing is ws with the count words from index at replaced by the given ones.
 func replacing(ws []string, at, count int, with []string) []string {
@@ -96,24 +74,10 @@ func TestARewrappedParagraphMustStillBeShownOrAcknowledged(t *testing.T) {
 	assertDetailOmits(t, err, string(review.RejectedOversizedStep))
 }
 
-// revisedFiles are working files across two Rounds. touched names the lines,
-// as "file:line", that moved since the previous Round; everything else is where
-// the previous Round left it.
-type revisedFiles struct {
-	workingFiles
-	touched map[string]bool
-}
-
-func (r revisedFiles) Snapshot(string) (string, error) { return "snapshot", nil }
-
-func (r revisedFiles) MapBetween(_, _, _ string) (review.RoundMapping, error) {
-	return fakeMapping{touched: r.touched}, nil
-}
-
 func TestAParagraphReadInThePreviousRoundCostsNothingToShowAgain(t *testing.T) {
 	// A paragraph of 950 words on lines 3-97, read in Round 1, and one of 100 on
 	// lines 99-108, rewritten since.
-	files := revisedFiles{
+	files := revisedDocuments{
 		workingFiles: adding("docs/retries.md",
 			markdown("# Retries", wrapped(10, words("read", 950)), wrapped(10, words("fix", 100)))),
 		touched: map[string]bool{},

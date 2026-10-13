@@ -69,11 +69,10 @@ on from one section into the next. A section within the budget is usually one
 Step; a section bigger than that is split at its sub-headings. A section that
 holds more than one idea is split by idea, as code is, whatever its size. The
 budget is a ceiling, not a target: never cut a section where 1,000 words happen
-to fall. A section too big for one Step and with no sub-headings to
-split at is split by idea between paragraphs; justify an oversized Step only
-when its idea genuinely does not divide. Text moved between sections is shown
-in both places at once, as *Show moved code's two places together* in SKILL.md
-says.
+to fall. A section too big for one Step and with no sub-headings to split at is
+split by idea between paragraphs; justify an oversized Step only when its idea
+genuinely does not divide. Text moved between sections is shown in both places
+at once, as *Show moved code's two places together* in SKILL.md says.
 
 **Plan sizes from `describe_changes`, not by counting.** For each Document it
 reports `cost`, what one Step showing all of the Document's changes would be

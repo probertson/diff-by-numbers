@@ -2,6 +2,7 @@ package review_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -95,6 +96,20 @@ func (w workingFiles) Derive(repo review.Repository) (review.Derivation, error) 
 	return d, nil
 }
 
+// revisedDocuments is a Change Set of Documents across Rounds: a test edits the
+// files between them and names, in touched, the lines ("file:line") it moved.
+// Everything else maps to where it was, as a snapshot diff would say.
+type revisedDocuments struct {
+	workingFiles
+	touched map[string]bool
+}
+
+func (r revisedDocuments) Snapshot(string) (string, error) { return "snapshot", nil }
+
+func (r revisedDocuments) MapBetween(_, _, _ string) (review.RoundMapping, error) {
+	return fakeMapping{touched: r.touched}, nil
+}
+
 // deriveEdits diffs a modified file line by line, as git would, reporting each
 // removed and added line as changed and each run of them as one edit.
 func deriveEdits(d *review.Derivation, root, file, before, after string) {
@@ -169,13 +184,29 @@ func adding(pathsAndContents ...string) workingFiles {
 }
 
 // paragraph is n words of prose hard-wrapped ten words to a line, as the
-// Documents dbn was measured against are.
+// Documents dbn was measured against are. Its words are all the same, which is
+// enough where nothing diffs them; an edited paragraph is made of distinct words.
 func paragraph(n int) string {
+	return wrapped(10, slices.Repeat([]string{"prose"}, n))
+}
+
+// words is n distinct words, each the prefix and its number, so that a word diff
+// of two passages pairs them only where they really are the same text.
+func words(prefix string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("%s%d", prefix, i+1)
+	}
+	return out
+}
+
+// wrapped is a paragraph of the words, hard-wrapped the given number to a line.
+func wrapped(width int, ws []string) string {
 	var lines []string
-	for n > 0 {
-		width := min(n, 10)
-		lines = append(lines, strings.TrimSpace(strings.Repeat("prose ", width)))
-		n -= width
+	for len(ws) > 0 {
+		n := min(width, len(ws))
+		lines = append(lines, strings.Join(ws[:n], " "))
+		ws = ws[n:]
 	}
 	return strings.Join(lines, "\n")
 }

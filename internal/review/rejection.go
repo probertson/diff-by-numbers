@@ -88,8 +88,10 @@ const (
 	// send the agent the same point twice.
 	RejectedAlreadyReRaised RejectionReason = "already_re_raised"
 	// RejectedMalformedClassification means an overruling of dbn's Document
-	// classification names a file outside the Change Set, or one it cannot be
-	// placed in, or makes a binary file a Document.
+	// classification (a classification, on the wire) would silently do nothing
+	// or make no sense: it names no repository it can be placed in, no file, a
+	// file outside the Change Set or one already classified, or makes a binary
+	// file a Document.
 	RejectedMalformedClassification RejectionReason = "malformed_classification"
 )
 

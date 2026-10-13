@@ -8,12 +8,13 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/intraline"
 )
 
-// isDocument is dbn's own classification of a file: whether its content is
+// isMarkdown is dbn's own classification of a file: whether its content is
 // prose for a person to read rather than code. dbn judges by file type alone,
 // so Markdown is a Document and everything else is not; the agent, which knows
-// what a file is for, may overrule it (#159). The path is the one the file is
-// described under: its new path, or the path it had if it was deleted.
-func isDocument(path string) bool {
+// what a file is for, may overrule it (#159), and a round goes by
+// isDocumentAfterOverruling. The path is the one the file is described under:
+// its new path, or the path it had if it was deleted.
+func isMarkdown(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown":
 		return true
@@ -32,12 +33,17 @@ const DocumentBudget = 1000
 // documentSide names one side of one Document: the text its blocks are parsed
 // from.
 type documentSide struct {
-	repository, file string
-	side             Side
+	fileRef
+	side Side
 }
 
 func sideOf(line ChangedLine) documentSide {
-	return documentSide{line.Repository, line.File, line.Side}
+	return documentSide{refOf(line), line.Side}
+}
+
+// refOf is the file a Changed Line is in.
+func refOf(line ChangedLine) fileRef {
+	return fileRef{line.Repository, line.File}
 }
 
 // withDocuments parses into blocks both sides of each Document that has Changed
@@ -53,8 +59,8 @@ func (l ledger) withDocuments(resolver Resolver, round RoundSource) ledger {
 	l.documents = map[documentSide]document{}
 	tried := map[fileRef]bool{}
 	for _, line := range l.lines {
-		ref := fileRef{line.Repository, line.File}
-		if tried[ref] || !l.isDocumentFile(ref.repository, ref.file) {
+		ref := refOf(line)
+		if tried[ref] || !l.isDocumentAfterOverruling(ref.repository, ref.file) {
 			continue
 		}
 		tried[ref] = true
@@ -66,7 +72,7 @@ func (l ledger) withDocuments(resolver Resolver, round RoundSource) ledger {
 			if err != nil {
 				continue
 			}
-			l.documents[documentSide{ref.repository, ref.file, side}] = document{lines: source, blocks: blocksOf(ref.file, source)}
+			l.documents[documentSide{ref, side}] = document{lines: source, blocks: blocksOf(ref.file, source)}
 		}
 	}
 	return l
@@ -119,9 +125,10 @@ func (d document) linesExcept(set map[int]bool) []int {
 	return out
 }
 
-// isDocumentText reports whether a Changed Line is charged in words, as Document
-// text, rather than as a line of code.
-func (l ledger) isDocumentText(line ChangedLine) bool {
+// isChargedInWords reports whether a Changed Line is charged in words, as
+// Document text, rather than as a line of code: it is in a Document, after
+// overruling, whose text could be read.
+func (l ledger) isChargedInWords(line ChangedLine) bool {
 	_, ok := l.documents[sideOf(line)]
 	return ok
 }
@@ -135,7 +142,7 @@ func (l ledger) isDocumentText(line ChangedLine) bool {
 // It is the one reckoning of what Document text costs: the budget charges a Step
 // every costedBlock it reads, and describe_changes reports them to plan by.
 type costedBlock struct {
-	repository, file string
+	fileRef
 	// after and before are the lines of the blocks it spans on each side, in
 	// file order. An edit that splits or joins paragraphs spans more than one.
 	after, before []LineRange
@@ -169,9 +176,8 @@ func (c costedBlock) firstLine() int {
 func (l ledger) costedBlocks() []costedBlock {
 	touched := map[fileRef][]ChangedLine{}
 	for _, line := range l.budgetedLines() {
-		if l.isDocumentText(line) {
-			ref := fileRef{line.Repository, line.File}
-			touched[ref] = append(touched[ref], line)
+		if l.isChargedInWords(line) {
+			touched[refOf(line)] = append(touched[refOf(line)], line)
 		}
 	}
 	var out []costedBlock
@@ -202,8 +208,8 @@ func (l ledger) costedBlocks() []costedBlock {
 // edit, so a word is never paired with a like one in some other part of the
 // Document. What that diff struck or added is what changed.
 func (l ledger) costsOf(ref fileRef, lines []ChangedLine) []costedBlock {
-	before := l.documents[documentSide{ref.repository, ref.file, OldSide}]
-	after := l.documents[documentSide{ref.repository, ref.file, NewSide}]
+	before := l.documents[documentSide{ref, OldSide}]
+	after := l.documents[documentSide{ref, NewSide}]
 	beforeNode := before.nodeOfLine(0)
 	afterNode := after.nodeOfLine(len(before.blocks))
 
@@ -275,7 +281,7 @@ func (l ledger) costsOf(ref fileRef, lines []ChangedLine) []costedBlock {
 	costOf := func(node int) *costedBlock {
 		root := find(node)
 		if costs[root] == nil {
-			costs[root] = &costedBlock{repository: ref.repository, file: ref.file}
+			costs[root] = &costedBlock{fileRef: ref}
 		}
 		return costs[root]
 	}
@@ -354,7 +360,7 @@ func (l ledger) reads(step Step, all []Step, c costedBlock) bool {
 			ranges = c.before
 		}
 		for _, r := range ranges {
-			if excerpt.FirstLine <= r.Last && excerpt.LastLine >= r.First {
+			if r.overlaps(excerpt.FirstLine, excerpt.LastLine) {
 				return true
 			}
 		}
@@ -382,13 +388,12 @@ func (l ledger) documentCosts() map[fileRef]*DocumentCost {
 	alone := l.removedOutright()
 	out := map[fileRef]*DocumentCost{}
 	shown := map[fileRef]*Step{}
-	for ref := range l.documents {
-		file := fileRef{ref.repository, ref.file}
-		out[file] = &DocumentCost{}
-		shown[file] = &Step{}
+	for parsed := range l.documents {
+		out[parsed.fileRef] = &DocumentCost{}
+		shown[parsed.fileRef] = &Step{}
 	}
 	for _, c := range costed {
-		file := fileRef{c.repository, c.file}
+		file := c.fileRef
 		side, ranges := NewSide, c.after
 		if len(ranges) == 0 {
 			if !alone.anyOf(c.removed) {
@@ -440,17 +445,7 @@ func (r removedLines) anyOf(lines []ChangedLine) bool {
 func (l ledger) removedOutright() removedLines {
 	out := removedLines{}
 	for _, line := range l.budgetedLines() {
-		if line.Side != OldSide {
-			continue
-		}
-		replaced := false
-		for _, c := range l.correspondences {
-			if c.Repository == line.Repository && c.File == line.File && c.isModification() && c.coversOld(line.Line) {
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
+		if line.Side == OldSide && !l.replaced(line) {
 			out[line] = true
 		}
 	}

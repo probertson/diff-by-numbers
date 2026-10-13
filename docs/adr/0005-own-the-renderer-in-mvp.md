@@ -93,3 +93,14 @@ A prototype ran both approaches over every modification block in the repository'
 Code and prose are treated alike; the prototype found no need to tell them apart. A large
 edit is fast enough to diff whole: an edited copy of a 2,749-line file took 64 ms, and the
 result is kept for the round.
+
+## Amendment (#134, #140, #155): parse Documents, still draw them ourselves
+
+Document text is budgeted in words, per block, not in lines (#140, #155): a Step is charged
+every word of each changed paragraph, list item, heading or table row it shows, so dbn has to
+know where each block of a Document begins and ends. Markdown's block structure is subtle
+enough (lazy continuation, setext headings, fences, nested lists) that finding it is borrowed,
+like the word diff in #81: `github.com/yuin/goldmark` parses each Document in-process, and dbn
+reads only the source positions of its blocks (#134). goldmark never renders anything. It hands
+back line ranges, not HTML or styled text, so the constraint above holds: dbn still draws every
+row itself, Document rows included, and still knows precisely what sits on each.

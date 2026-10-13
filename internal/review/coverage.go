@@ -384,8 +384,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 	// present on the first attempt. The coverage check has always aggregated;
 	// the budget was the outlier.
 	costs := l.costedBlocks()
-	var over []oversizedStep
-	documentOver := false
+	var over oversizedSteps
 	for i, step := range steps {
 		if step.OversizeJustification != "" {
 			continue
@@ -396,35 +395,93 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 		}
 		if words := l.documentWordsIn(step, steps, costs); words > DocumentBudget {
 			offender.words = words
-			documentOver = true
 		}
 		if offender.lines > 0 || offender.words > 0 {
 			over = append(over, offender)
 		}
 	}
-
-	switch len(over) {
-	case 0:
+	if len(over) == 0 {
 		return nil
-	case 1:
-		return reject(RejectedOversizedStep, "%s", over[0].sentence())
-	default:
-		// Uncapped: the point is to learn about all of them in one go, and a
-		// Round has few enough Steps that the list stays readable.
-		var listed strings.Builder
-		if documentOver {
-			fmt.Fprintf(&listed, "%d Steps are over budget (%d changed lines of code, %d words of Document text) and give no justification:",
-				len(over), StepBudget, DocumentBudget)
-		} else {
-			fmt.Fprintf(&listed, "%d Steps are over the budget of %d changed lines and give no justification:",
-				len(over), StepBudget)
-		}
-		for _, step := range over {
-			fmt.Fprintf(&listed, "\n  %s", step.entry(documentOver))
-		}
-		fmt.Fprintf(&listed, "\n%s", splitFirst(documentOver))
-		return reject(RejectedOversizedStep, "%s", listed.String())
 	}
+	return reject(RejectedOversizedStep, "%s", over.refusal())
+}
+
+// oversizedSteps are the Steps a budget check refuses, in Step order. How the
+// refusal reads depends on them as a whole: once any is over the Document
+// budget, the refusal names each count's unit and says how words are counted.
+type oversizedSteps []oversizedStep
+
+// overInWords reports whether any of the Steps is over the Document budget.
+func (over oversizedSteps) overInWords() bool {
+	for _, o := range over {
+		if o.words > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// refusal is what the agent is told. A lone offender reads as a sentence of its
+// own; several are listed, uncapped: the point is to learn about all of them in
+// one go, and a Round has few enough Steps that the list stays readable. Either
+// way it says "counts", not "shows": the number is what the Step costs against
+// the budget (see budgetedLines).
+func (over oversizedSteps) refusal() string {
+	if len(over) == 1 {
+		return fmt.Sprintf("%s counts %s, and gives no justification. %s", over[0], over[0].costs(), over.splitFirst())
+	}
+	var listed strings.Builder
+	listed.WriteString(over.header())
+	for _, step := range over {
+		fmt.Fprintf(&listed, "\n  %s counts %s", step, over.countOf(step))
+	}
+	fmt.Fprintf(&listed, "\n%s", over.splitFirst())
+	return listed.String()
+}
+
+// header opens a list of offenders by saying what the budget is and what is
+// wrong with them, naming both budgets once Document text is over.
+func (over oversizedSteps) header() string {
+	if over.overInWords() {
+		return fmt.Sprintf("%d Steps are over budget (%d changed lines of code, %d words of Document text) and give no justification:",
+			len(over), StepBudget, DocumentBudget)
+	}
+	return fmt.Sprintf("%d Steps are over the budget of %d changed lines and give no justification:",
+		len(over), StepBudget)
+}
+
+// countOf is how one offender's count reads in the list. A list of code alone
+// gives the bare count, the header having named its unit; once Document text is
+// in it, each count names its own.
+func (over oversizedSteps) countOf(o oversizedStep) string {
+	if !over.overInWords() {
+		return fmt.Sprintf("%d", o.lines)
+	}
+	var counts []string
+	if o.lines > 0 {
+		counts = append(counts, fmt.Sprintf("%d changed lines", o.lines))
+	}
+	if o.words > 0 {
+		counts = append(counts, fmt.Sprintf("%d words", o.words))
+	}
+	return strings.Join(counts, " and ")
+}
+
+// splitFirst closes every oversized refusal. The refusal is where the agent
+// chooses between splitting and justifying, so it says which comes first; and it
+// says why the count can be lower than the lines a Step shows, so an agent
+// tallying its own Excerpts is not left with a number it cannot reproduce. When
+// Document text is over, it also says how words are counted, since a block is
+// charged whole however little of it an Excerpt shows, and a rewrap that changed
+// every line of one is charged nothing.
+func (over oversizedSteps) splitFirst() string {
+	advice := "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
+		"whitespace-only lines and lines already shown last round are not counted"
+	if over.overInWords() {
+		advice += "; Document text costs every word of each changed block a Step's Excerpts touch, " +
+			"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing"
+	}
+	return advice
 }
 
 // oversizedStep is one Step over a budget, named as well as numbered: with
@@ -444,24 +501,9 @@ func (o oversizedStep) String() string {
 	return fmt.Sprintf("Step %d (%q)", o.position, o.name)
 }
 
-// splitFirst closes every oversized refusal. The refusal is where the agent
-// chooses between splitting and justifying, so it says which comes first; and it
-// says why the count can be lower than the lines a Step shows, so an agent
-// tallying its own Excerpts is not left with a number it cannot reproduce. When
-// Document text is over, it also says how words are counted, since a block is
-// charged whole however little of it an Excerpt shows, and a rewrap that changed
-// every line of one is charged nothing.
-func splitFirst(documents bool) string {
-	advice := "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
-		"whitespace-only lines and lines already shown last round are not counted"
-	if documents {
-		advice += "; Document text costs every word of each changed block a Step's Excerpts touch, " +
-			"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing"
-	}
-	return advice
-}
-
-// costs is what an offender counts toward the budgets it breaks.
+// costs is what an offender counts toward the budgets it breaks, when it is the
+// only one: with no header to have named them, it names both its units and its
+// budgets.
 func (o oversizedStep) costs() string {
 	code := fmt.Sprintf("%d changed lines toward the budget of %d", o.lines, StepBudget)
 	prose := fmt.Sprintf("%d words of Document text toward the budget of %d", o.words, DocumentBudget)
@@ -474,30 +516,6 @@ func (o oversizedStep) costs() string {
 	return code + " and " + prose
 }
 
-// sentence is how one offender reads on its own. It says "counts", not "shows":
-// the number is what the Step costs against the budget (see budgetedLines).
-func (o oversizedStep) sentence() string {
-	return fmt.Sprintf("%s counts %s, and gives no justification. %s", o, o.costs(), splitFirst(o.words > 0))
-}
-
-// entry is how one offender reads in a list, where the header has already said
-// what the budget is and what is wrong with them. A list of code alone gives the
-// bare count, the header having named its unit; once Document text is in it,
-// each count names its own.
-func (o oversizedStep) entry(units bool) string {
-	if !units {
-		return fmt.Sprintf("%s counts %d", o, o.lines)
-	}
-	var counts []string
-	if o.lines > 0 {
-		counts = append(counts, fmt.Sprintf("%d changed lines", o.lines))
-	}
-	if o.words > 0 {
-		counts = append(counts, fmt.Sprintf("%d words", o.words))
-	}
-	return fmt.Sprintf("%s counts %s", o, strings.Join(counts, " and "))
-}
-
 // changedLinesIn counts the distinct Changed Lines of code a Step asks the
 // Reviewer to read. A line shown by two of the Step's Excerpts counts once.
 // Document text is charged in words instead (see documentWordsIn).
@@ -505,7 +523,7 @@ func (l ledger) changedLinesIn(step Step, all []Step) int {
 	seen := map[ChangedLine]bool{}
 	var code []ChangedLine
 	for _, line := range l.budgetedLines() {
-		if !l.isDocumentText(line) {
+		if !l.isChargedInWords(line) {
 			code = append(code, line)
 		}
 	}

@@ -23,8 +23,8 @@ func plainSpec() string {
 	return markdown("# Not a heading\n"+paragraph(10), paragraph(8))
 }
 
-func documentOverruling(path string, document bool) review.Classification {
-	return review.Classification{File: path, Document: document}
+func documentOverruling(path string, document bool) review.Overruling {
+	return review.Overruling{File: path, Document: document}
 }
 
 func TestATextFileOverruledToADocumentIsDescribedWithItsBlankLineParagraphsCostedInWords(t *testing.T) {
@@ -55,7 +55,7 @@ func TestATextFileOverruledToADocumentIsBudgetedInWordsOnPost(t *testing.T) {
 	// Document budget.
 	files := adding("docs/spec.txt", markdown(paragraph(400)))
 	round := documentRound(showingWhole("The spec", files, review.NewSide, "docs/spec.txt"))
-	round.Classifications = []review.Classification{documentOverruling("docs/spec.txt", true)}
+	round.Overrulings = []review.Overruling{documentOverruling("docs/spec.txt", true)}
 
 	err := review.NewSession(files, files).Post(round)
 
@@ -70,7 +70,7 @@ func TestAMarkdownFileOverruledToNotADocumentLosesItsFlagAndIsCountedInLines(t *
 	session := review.NewSession(files, files)
 	notADocument := documentOverruling("CHANGELOG.md", false)
 	round := documentRound(showingWhole("The changelog", files, review.NewSide, "CHANGELOG.md"))
-	round.Classifications = []review.Classification{notADocument}
+	round.Overrulings = []review.Overruling{notADocument}
 
 	d, describeErr := session.DescribeChanges(documentRound().ChangeSet, notADocument)
 	postErr := session.Post(round)
@@ -95,7 +95,7 @@ func specRevised(t *testing.T) *review.Session {
 	files := revisedDocuments{workingFiles: adding("docs/spec.txt", markdown(paragraph(10))), touched: map[string]bool{}}
 	session := review.NewSession(files, files)
 	first := documentRound(showingWhole("The spec", files.workingFiles, review.NewSide, "docs/spec.txt"))
-	first.Classifications = []review.Classification{documentOverruling("docs/spec.txt", true)}
+	first.Overrulings = []review.Overruling{documentOverruling("docs/spec.txt", true)}
 	mustPost(t, session, first)
 	handOffWithAComment(t, session)
 	files.after["docs/spec.txt"] = markdown(paragraph(10), paragraph(400))
@@ -131,10 +131,26 @@ func TestAnOverrulingHoldsThroughARevisionRoundThatDoesNotRepeatIt(t *testing.T)
 	}
 }
 
+func TestAnOverrulingHoldsThroughAReplacementThatDoesNotRepeatIt(t *testing.T) {
+	// 400 words over 40 lines: within the Document budget, but over the code
+	// budget should the overruling be lost.
+	files := adding("docs/spec.txt", markdown(paragraph(400)))
+	session := review.NewSession(files, files)
+	first := documentRound(showingWhole("The spec", files, review.NewSide, "docs/spec.txt"))
+	first.Overrulings = []review.Overruling{documentOverruling("docs/spec.txt", true)}
+	mustPost(t, session, first)
+
+	err := session.Replace(session.ReviewID(), documentRound(showingWhole("The spec, replanned", files, review.NewSide, "docs/spec.txt")))
+
+	if err != nil {
+		t.Fatalf("expected the spec still budgeted in words in the Replacement, got %v", err)
+	}
+}
+
 func TestALaterRoundCanReverseAnOverruling(t *testing.T) {
 	session := specRevised(t)
 	round := revising(documentRound(showingAddedParagraph()))
-	round.Classifications = []review.Classification{documentOverruling("docs/spec.txt", false)}
+	round.Overrulings = []review.Overruling{documentOverruling("docs/spec.txt", false)}
 
 	err := session.Revise(session.ReviewID(), round)
 
@@ -146,7 +162,7 @@ func TestAReversedOverrulingHoldsForTheRoundsAfterIt(t *testing.T) {
 	session := specRevised(t)
 	round := revising(documentRound(showingAddedParagraph()))
 	round.Steps[0].OversizeJustification = "the paragraph is one argument"
-	round.Classifications = []review.Classification{documentOverruling("docs/spec.txt", false)}
+	round.Overrulings = []review.Overruling{documentOverruling("docs/spec.txt", false)}
 	mustRevise(t, session, round)
 
 	d, err := session.DescribeRevision(session.ReviewID(), documentRound().ChangeSet)
@@ -210,13 +226,13 @@ func (w withBinary) Derive(repo review.Repository) (review.Derivation, error) {
 	return d, err
 }
 
-// classifiedRound is a first Round over a spec and a binary logo, both
-// accounted for, with the given classifications.
-func classifiedRound(files withBinary, classifications ...review.Classification) review.Round {
+// overruledRound is a first Round over a spec and a binary logo, both
+// accounted for, with the given overrulings.
+func overruledRound(files withBinary, overrulings ...review.Overruling) review.Round {
 	step := showingWhole("The spec", files.workingFiles, review.NewSide, "docs/spec.txt")
 	step.Acknowledgements = []review.Acknowledgement{{Repository: docsRepo, Files: []string{files.binary}, Reason: "regenerated image"}}
 	round := documentRound(step)
-	round.Classifications = classifications
+	round.Overrulings = overrulings
 	return round
 }
 
@@ -226,7 +242,7 @@ func TestOverrulingAFileOutsideTheChangeSetIsAProblemOnBothTools(t *testing.T) {
 	typo := documentOverruling("docs/sepc.txt", true)
 
 	_, describeErr := session.DescribeChanges(documentRound().ChangeSet, typo)
-	postErr := session.Post(classifiedRound(files, typo))
+	postErr := session.Post(overruledRound(files, typo))
 
 	for tool, err := range map[string]error{"describe_changes": describeErr, "post_round": postErr} {
 		t.Run(tool, func(t *testing.T) {
@@ -242,7 +258,7 @@ func TestMakingABinaryFileADocumentIsAProblemOnBothTools(t *testing.T) {
 	binary := documentOverruling("logo.png", true)
 
 	_, describeErr := session.DescribeChanges(documentRound().ChangeSet, binary)
-	postErr := session.Post(classifiedRound(files, binary))
+	postErr := session.Post(overruledRound(files, binary))
 
 	for tool, err := range map[string]error{"describe_changes": describeErr, "post_round": postErr} {
 		t.Run(tool, func(t *testing.T) {

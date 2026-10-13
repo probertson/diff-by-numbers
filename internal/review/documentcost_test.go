@@ -127,6 +127,26 @@ func TestAnEditedDocumentListsOnlyTheBlocksThatCostAnything(t *testing.T) {
 	}
 }
 
+func TestARewrappedBlockIsLeftOutOfTheDescribedBlocks(t *testing.T) {
+	// A paragraph of 30 words on lines 3-5 goes from ten words a line to twelve,
+	// changing every line of it and no word. The paragraph of 20 words on lines
+	// 7-8 has 2 words replaced by 2 others: 20 words to read and 2 struck.
+	limits := words("limit", 20)
+	files := modifying("docs/retries.md",
+		markdown("# Retries", wrapped(10, words("retry", 30)), wrapped(10, limits)),
+		markdown("# Retries", wrapped(12, words("retry", 30)), wrapped(10, replacing(limits, 5, 2, words("cap", 2)))),
+	)
+
+	d := describingOver(t, files)
+
+	want := &review.DocumentCost{Words: 22, NewBlocks: []review.BlockCost{
+		{Lines: review.LineRange{First: 7, Last: 8}, Words: 22},
+	}}
+	if got := fileNamed(t, d, "docs/retries.md").Cost; !reflect.DeepEqual(got, want) {
+		t.Errorf("expected only the edited paragraph listed, %+v, got %+v", want, got)
+	}
+}
+
 func TestADocumentsDescribedCostIsWhatAStepShowingItsBlocksIsCharged(t *testing.T) {
 	// 600 words edited in place and 500 deleted: well over budget together.
 	files := retriesEdited(600, 500)
@@ -158,20 +178,6 @@ func TestADocumentsDescribedCostIsWhatAStepShowingItsBlocksIsCharged(t *testing.
 	if sum != cost.Words {
 		t.Errorf("expected the blocks' costs to add up to the total of %d, got %d", cost.Words, sum)
 	}
-}
-
-// revisedDocuments is a Change Set of Documents across Rounds: a test edits the
-// files between them and names, in touched, the lines ("file:line") it moved.
-// Everything else maps to where it was, as a snapshot diff would say.
-type revisedDocuments struct {
-	workingFiles
-	touched map[string]bool
-}
-
-func (r revisedDocuments) Snapshot(string) (string, error) { return "snapshot", nil }
-
-func (r revisedDocuments) MapBetween(_, _, _ string) (review.RoundMapping, error) {
-	return fakeMapping{touched: r.touched}, nil
 }
 
 func TestARevisionRoundIsDescribedNetOfWhatWasReadInTheRoundBefore(t *testing.T) {

@@ -29,20 +29,20 @@ type block struct {
 	words []string
 }
 
-// overlaps reports whether any line of a range falls inside the block.
-func (b block) overlaps(first, last int) bool {
-	return first <= b.lines.Last && last >= b.lines.First
-}
-
 // blocksOf parses a Document into its blocks: a Markdown Document by its
 // Markdown structure, and one the agent made a Document of any other type by its
 // paragraphs, split at blank lines.
 func blocksOf(path string, source []string) []block {
-	if isDocument(path) {
+	if isMarkdown(path) {
 		return markdownBlocks(source)
 	}
-	blank := func(line int) bool { return strings.TrimSpace(source[line-1]) == "" }
-	return blocksOver(source, orphans(1, len(source), blank))
+	return blocksOver(source, orphans(1, len(source), blankIn(source)))
+}
+
+// blankIn reports, for a line of the source numbered from 1, whether it has
+// nothing but whitespace on it.
+func blankIn(source []string) func(int) bool {
+	return func(line int) bool { return strings.TrimSpace(source[line-1]) == "" }
 }
 
 // markdownBlocks parses a Markdown Document, given as its source lines, into
@@ -203,7 +203,7 @@ func claimUnclaimed(source []string, ranges []LineRange) []LineRange {
 		merged = append(merged, r)
 	}
 
-	blank := func(line int) bool { return strings.TrimSpace(source[line-1]) == "" }
+	blank := blankIn(source)
 	var out []LineRange
 	next := 1 // the first line no block has claimed yet
 	for i, r := range merged {

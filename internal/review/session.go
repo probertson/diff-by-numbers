@@ -103,7 +103,7 @@ type Session struct {
 	// say what time it is.
 	now func() time.Time
 	// overruled is how the agent has overruled dbn's classification of files as
-	// Documents. Each Round's classifications are laid over it, and like the
+	// Documents. Each Round's overrulings are laid over it, and like the
 	// label it holds for every later Round until one changes it.
 	overruled overrulings
 	// postings counts the Rounds this Review has accepted, so a surface can tell
@@ -304,7 +304,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	// might say without these would be guesswork. The round's snapshot is
 	// always taken: it is what the round will be shown from, and it is kept only
 	// once the post is accepted.
-	overruled := s.overruled.with(w.ChangeSet, w.Classifications)
+	overruled := s.overruled.with(w.ChangeSet, w.Overrulings)
 	ledger, round, rejection := s.scopedLedger(w.ChangeSet, earlier, overruled, true)
 	if rejection != nil {
 		return rejection
@@ -356,7 +356,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 
 	add(validateNewSideResolves(w.Steps, s.resolver, round))
 
-	add(ledger.validateClassifications(w.Classifications, w.ChangeSet))
+	add(ledger.validateOverrulings(w.Overrulings, w.ChangeSet))
 	add(ledger.validateBudget(w.Steps))
 	add(ledger.validateAcknowledgements(w.Steps))
 	add(ledger.validateCoverage(w.Steps))

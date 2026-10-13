@@ -44,3 +44,18 @@ raised in acknowledged code disputes the claim that it was mechanical, not just 
 
 Expansion stays viewing, not review state: it lives in the TUI, not the daemon, and the Coverage
 Ledger is satisfied by the Acknowledgement whether or not it is expanded.
+
+## Amendment (#140): not only mechanical, and a Comment disputes the reason
+
+An Acknowledgement was a claim that a change is *mechanical*. Documents showed that is too
+narrow. A section of a design doc that follows from requirements the Reviewer already reviewed,
+or lies outside the sections they asked to see, need not be read line by line either, but
+calling it mechanical would be false. An Acknowledgement now declares that a set of changes
+need not be read line by line, with a one-line reason why. Being mechanical is still the
+commonest reason, and nothing about the valve changes: it is still a claim, still a manifest,
+still expandable, and the Coverage Ledger still takes it in place of an Excerpt.
+
+What the reason now carries is the claim itself, so it is what a Comment disputes. A Comment
+raised on acknowledged text, as #31 made possible, disputes the Acknowledgement's reason as well
+as the text: "this is not mechanical" before, "this does not follow from the requirements" or
+"I did want to see this" now.
