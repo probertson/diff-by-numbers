@@ -12,6 +12,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
 	github.com/sergi/go-diff v1.4.0
+	github.com/yuin/goldmark v1.8.6
 )
 
 require (

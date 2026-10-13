@@ -444,6 +444,7 @@ func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bo
 			"could not derive the changes under review: %v", err)
 	}
 	round.Bases = l.bases
+	l = l.withDocuments(s.resolver, round)
 	if earlier != nil {
 		l = l.withPreMarking(s.preMarkUnchanged(l, set, round, earlier.state))
 	}

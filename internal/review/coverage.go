@@ -14,8 +14,9 @@ type fileRef struct {
 	file       string
 }
 
-// StepBudget is the soft ceiling on the new reading a Step may ask for before it
-// must carry a justification. What counts toward it is not everything the Step
+// StepBudget is the soft ceiling on the new reading of code a Step may ask for
+// before it must carry a justification; Document text has DocumentBudget, in
+// words, instead. What counts toward it is not everything the Step
 // shows: reference lines never did, and neither do whitespace-only lines or ones
 // a Revision Round has already shown. It is a fixed number rather than
 // terminal-relative, so a plan validated on one terminal cannot fail on another.
@@ -149,6 +150,10 @@ type ledger struct {
 	// the round's own scope, not of the raw Change Set.
 	preShown       map[ChangedLine]bool
 	preShownOpaque map[fileRef]bool
+	// documents holds the blocks of each side of each Document with Changed
+	// Lines, as the round holds it. A Document's Changed Lines are charged in
+	// words, by the blocks they fall in, rather than as lines of code.
+	documents map[documentSide][]block
 }
 
 // newSinceEarlier reports whether a Changed Line is new to this round: not one
@@ -363,17 +368,34 @@ func anyStep(steps []Step, pred func(Step) bool) bool {
 
 // validateBudget refuses an oversized Step that carries no justification. It
 // never refuses a justified one: no mechanism in dbn forces an arbitrary cut.
+//
+// A Step is checked against two budgets: its Document text against
+// DocumentBudget words, and its other Changed Lines against StepBudget lines. A
+// Step mixing the two is judged on each, and breaking either alone makes it
+// oversized; one justification answers for both.
 func (l ledger) validateBudget(steps []Step) *Rejection {
 	// Every offender, not the first. An agent that learns about them one
 	// rejected post at a time re-sends the whole Round — Brief, every
 	// Step, every Excerpt — to find out about the next, and they were all
 	// present on the first attempt. The coverage check has always aggregated;
 	// the budget was the outlier.
+	costing := l.costingBlocks()
 	var over []oversizedStep
+	documentOver := false
 	for i, step := range steps {
-		count := l.changedLinesIn(step, steps)
-		if count > StepBudget && step.OversizeJustification == "" {
-			over = append(over, oversizedStep{position: i + 1, name: step.Name, count: count})
+		if step.OversizeJustification != "" {
+			continue
+		}
+		offender := oversizedStep{position: i + 1, name: step.Name}
+		if count := l.changedLinesIn(step, steps); count > StepBudget {
+			offender.lines = count
+		}
+		if words := documentWordsIn(step, costing); words > DocumentBudget {
+			offender.words = words
+			documentOver = true
+		}
+		if offender.lines > 0 || offender.words > 0 {
+			over = append(over, offender)
 		}
 	}
 
@@ -386,23 +408,30 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 		// Uncapped: the point is to learn about all of them in one go, and a
 		// Round has few enough Steps that the list stays readable.
 		var listed strings.Builder
-		fmt.Fprintf(&listed, "%d Steps are over the budget of %d changed lines and give no justification:",
-			len(over), StepBudget)
-		for _, step := range over {
-			fmt.Fprintf(&listed, "\n  %s", step.entry())
+		if documentOver {
+			fmt.Fprintf(&listed, "%d Steps are over budget (%d changed lines of code, %d words of Document text) and give no justification:",
+				len(over), StepBudget, DocumentBudget)
+		} else {
+			fmt.Fprintf(&listed, "%d Steps are over the budget of %d changed lines and give no justification:",
+				len(over), StepBudget)
 		}
-		fmt.Fprintf(&listed, "\n%s", splitFirst)
+		for _, step := range over {
+			fmt.Fprintf(&listed, "\n  %s", step.entry(documentOver))
+		}
+		fmt.Fprintf(&listed, "\n%s", splitFirst(documentOver))
 		return reject(RejectedOversizedStep, "%s", listed.String())
 	}
 }
 
-// oversizedStep is one Step over the budget, named as well as numbered: with
+// oversizedStep is one Step over a budget, named as well as numbered: with
 // twenty Steps, "Step 6" alone means counting positions in a JSON array to find
-// the one to fix.
+// the one to fix. lines and words are what it counts against each budget it
+// breaks, and zero for one it keeps within.
 type oversizedStep struct {
 	position int
 	name     string
-	count    int
+	lines    int
+	words    int
 }
 
 // String identifies the Step. validateSteps has already refused a Step with no
@@ -414,28 +443,66 @@ func (o oversizedStep) String() string {
 // splitFirst closes every oversized refusal. The refusal is where the agent
 // chooses between splitting and justifying, so it says which comes first; and it
 // says why the count can be lower than the lines a Step shows, so an agent
-// tallying its own Excerpts is not left with a number it cannot reproduce.
-const splitFirst = "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
-	"whitespace-only lines and lines already shown last round are not counted"
+// tallying its own Excerpts is not left with a number it cannot reproduce. When
+// Document text is over, it also says how words are counted, since a block is
+// charged whole however little of it an Excerpt shows.
+func splitFirst(documents bool) string {
+	advice := "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
+		"whitespace-only lines and lines already shown last round are not counted"
+	if documents {
+		advice += "; Document text costs every word of each changed block a Step's Excerpts touch"
+	}
+	return advice
+}
+
+// costs is what an offender counts toward the budgets it breaks.
+func (o oversizedStep) costs() string {
+	code := fmt.Sprintf("%d changed lines toward the budget of %d", o.lines, StepBudget)
+	prose := fmt.Sprintf("%d words of Document text toward the budget of %d", o.words, DocumentBudget)
+	switch {
+	case o.words == 0:
+		return code
+	case o.lines == 0:
+		return prose
+	}
+	return code + " and " + prose
+}
 
 // sentence is how one offender reads on its own. It says "counts", not "shows":
 // the number is what the Step costs against the budget (see budgetedLines).
 func (o oversizedStep) sentence() string {
-	return fmt.Sprintf("%s counts %d changed lines toward the budget of %d, and gives no justification. %s",
-		o, o.count, StepBudget, splitFirst)
+	return fmt.Sprintf("%s counts %s, and gives no justification. %s", o, o.costs(), splitFirst(o.words > 0))
 }
 
 // entry is how one offender reads in a list, where the header has already said
-// what the budget is and what is wrong with them.
-func (o oversizedStep) entry() string {
-	return fmt.Sprintf("%s counts %d", o, o.count)
+// what the budget is and what is wrong with them. A list of code alone gives the
+// bare count, the header having named its unit; once Document text is in it,
+// each count names its own.
+func (o oversizedStep) entry(units bool) string {
+	if !units {
+		return fmt.Sprintf("%s counts %d", o, o.lines)
+	}
+	var counts []string
+	if o.lines > 0 {
+		counts = append(counts, fmt.Sprintf("%d changed lines", o.lines))
+	}
+	if o.words > 0 {
+		counts = append(counts, fmt.Sprintf("%d words", o.words))
+	}
+	return fmt.Sprintf("%s counts %s", o, strings.Join(counts, " and "))
 }
 
-// changedLinesIn counts the distinct Changed Lines a Step asks the Reviewer to
-// read. A line shown by two of the Step's Excerpts counts once.
+// changedLinesIn counts the distinct Changed Lines of code a Step asks the
+// Reviewer to read. A line shown by two of the Step's Excerpts counts once.
+// Document text is charged in words instead (see documentWordsIn).
 func (l ledger) changedLinesIn(step Step, all []Step) int {
 	seen := map[ChangedLine]bool{}
-	code := l.budgetedLines()
+	var code []ChangedLine
+	for _, line := range l.budgetedLines() {
+		if !l.isDocumentText(line) {
+			code = append(code, line)
+		}
+	}
 	for _, line := range code {
 		for _, excerpt := range step.Excerpts {
 			if line.covered(excerpt) {

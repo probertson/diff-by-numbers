@@ -66,6 +66,17 @@ type Resolver interface {
 	Resolve(Excerpt, RoundSource) ([]Line, error)
 }
 
+// FileReader is the optional capability of reading one side of a whole file as a
+// Round holds it, which is what a Document's blocks are parsed from: an Excerpt's
+// range alone cannot say where the blocks it cuts into begin and end.
+//
+// A Resolver that cannot answer, such as a stub in a test that does not care, or
+// a file it fails to read, leaves that Document's lines charged as code: the
+// stricter of the two budgets, which was every file's before Documents had one.
+type FileReader interface {
+	ReadFile(repository, file string, side Side, round RoundSource) ([]string, error)
+}
+
 // ExcerptView is an Excerpt with its content resolved, or the reason it could
 // not be. The two are mutually exclusive: dbn never renders code it could not
 // actually read.

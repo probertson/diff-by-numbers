@@ -37,42 +37,43 @@ func NewResolver() *Resolver {
 // approximates: a range the source cannot satisfy is a problem to show the
 // Reviewer, never a partial answer.
 func (r *Resolver) Resolve(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
+	all, err := r.ReadFile(e.Repository, e.File, e.Side, round)
+	if err != nil {
+		return nil, err
+	}
+	what := e.File
 	if e.Side == review.OldSide {
-		return r.resolveBefore(e, round)
+		what = "the before-side of " + e.File
 	}
-
-	snapshot, ok := round.Snapshots[e.Repository]
-	if !ok {
-		return resolveOnDisk(e)
-	}
-	all, err := r.read(blobRef{e.Repository, snapshot, e.File}, git.ReadBlob)
-	if err != nil {
-		return nil, err
-	}
-	return linesInRange(all, e, e.File)
+	return linesInRange(all, e, what)
 }
 
-// resolveOnDisk reads the after-side from the working tree, for a repository git
+// ReadFile reads one side of a whole file as the Round holds it: the after-side
+// from its snapshot, or from the working tree for a repository git could not
+// snapshot, and the before-side at its merge-base.
+func (r *Resolver) ReadFile(repository, file string, side review.Side, round review.RoundSource) ([]string, error) {
+	if side == review.OldSide {
+		base, ok := round.Bases[repository]
+		if !ok {
+			return nil, fmt.Errorf("the before-side of %s cannot be read: no merge-base is known for %s", file, repository)
+		}
+		return r.read(blobRef{repository, base, file}, git.ReadFileAt)
+	}
+	snapshot, ok := round.Snapshots[repository]
+	if !ok {
+		return readOnDisk(repository, file)
+	}
+	return r.read(blobRef{repository, snapshot, file}, git.ReadBlob)
+}
+
+// readOnDisk reads the after-side from the working tree, for a repository git
 // could not snapshot. Nothing is cached, since the file can change.
-func resolveOnDisk(e review.Excerpt) ([]review.Line, error) {
-	content, err := os.ReadFile(filepath.Join(e.Repository, filepath.FromSlash(e.File)))
+func readOnDisk(repository, file string) ([]string, error) {
+	content, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(file)))
 	if err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", e.File, err)
+		return nil, fmt.Errorf("could not read %s: %w", file, err)
 	}
-	return linesInRange(splitLines(string(content)), e, e.File)
-}
-
-// resolveBefore reads a before-side range at the round's merge-base.
-func (r *Resolver) resolveBefore(e review.Excerpt, round review.RoundSource) ([]review.Line, error) {
-	base, ok := round.Bases[e.Repository]
-	if !ok {
-		return nil, fmt.Errorf("the before-side of %s cannot be read: no merge-base is known for %s", e.File, e.Repository)
-	}
-	all, err := r.read(blobRef{e.Repository, base, e.File}, git.ReadFileAt)
-	if err != nil {
-		return nil, err
-	}
-	return linesInRange(all, e, "the before-side of "+e.File)
+	return splitLines(string(content)), nil
 }
 
 // read returns a file's lines as a git object holds them, reading each one once.
@@ -137,6 +138,7 @@ func splitLines(content string) []string {
 // The resolver is both things the review core reads code through. Asserted here
 // so a signature drift is a build failure, not warnings that silently stop.
 var (
-	_ review.Resolver  = (*Resolver)(nil)
-	_ review.DiskWatch = (*Resolver)(nil)
+	_ review.Resolver   = (*Resolver)(nil)
+	_ review.DiskWatch  = (*Resolver)(nil)
+	_ review.FileReader = (*Resolver)(nil)
 )
