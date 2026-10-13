@@ -37,6 +37,11 @@ A Round is a **Brief** followed by ordered **Steps**. Plan it as a story told to
 someone who was not there: decide first what the reviewer needs to understand,
 and in what order, and only then fit Excerpts to that plan.
 
+**When `describe_changes` marks any file as a Document, read the document
+guidance, `documents.md` beside this file, before you plan.** It covers ordering
+and splitting prose — specs, stories, ADRs, a skill's instructions — and applies
+to the Documents alone. A Round with no Documents needs none of it.
+
 ### Telling the story
 
 **Write for a reviewer who was not there.** The work may have been planned days

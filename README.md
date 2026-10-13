@@ -156,6 +156,23 @@ If your agent's harness can wait on a background command, the agent is told dire
 
 Handing off is not leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the inbox.
 
+### Shaping how your agent structures a review
+
+dbn never decides what your agent shows you, or in what order: the agent does. Its approach comes from the dbn-review skill, plus any instructions you give it. So if a review comes out in an order you don't like, or spends your attention on the wrong things, that isn't a limit of dbn. Tell your agent, or write your instructions down once so it follows them every time.
+
+This matters most for reviews of documents: specs, stories, ADRs and other prose. The skill already tells your agent to open a new document with its outline and then the parts that ground it, to split the review at the document's own sections, and to ask you before it leaves parts of a document out. But which parts of a document matter most is yours to say. A short personal skill can say it, for example (in Claude Code, saved as `~/.claude/skills/my-review-preferences/SKILL.md`):
+
+```markdown
+---
+name: my-review-preferences
+description: My preferences for how a dbn review is structured. Use alongside dbn-review whenever you post a review with dbn.
+---
+
+- For story documents, show the acceptance criteria first, then the scope.
+- Acknowledge a story's background rather than showing it line by line.
+- For ADRs, show the rejected options right after the decision.
+```
+
 ### Other subcommands
 
 - `dbn wait <review_id>` blocks until you hand that review off or dismiss it (the agent runs it in the background, from the command dbn gives it)
