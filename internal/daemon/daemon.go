@@ -934,9 +934,9 @@ func (d *Daemon) describeChanges(_ context.Context, _ *mcp.CallToolRequest, in d
 	if in.ReviewID == "" {
 		// Nothing to scope against: a first round is described from the working
 		// tree alone, so a Session of its own is all it takes.
-		description, err = newSession().DescribeChanges(toChangeSet(in.Repositories))
+		description, err = newSession().DescribeChanges(toChangeSet(in.Repositories), toClassifications(in.Classifications)...)
 	} else if session, held := d.review(in.ReviewID); held {
-		description, err = session.DescribeRevision(in.ReviewID, toChangeSet(in.Repositories))
+		description, err = session.DescribeRevision(in.ReviewID, toChangeSet(in.Repositories), toClassifications(in.Classifications)...)
 	} else {
 		err = unknownReview(in.ReviewID)
 	}

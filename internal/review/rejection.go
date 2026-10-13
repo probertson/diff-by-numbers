@@ -87,6 +87,10 @@ const (
 	// a Comment standing against it this round, so re-raising again would only
 	// send the agent the same point twice.
 	RejectedAlreadyReRaised RejectionReason = "already_re_raised"
+	// RejectedMalformedClassification means an overruling of dbn's Document
+	// classification names a file outside the Change Set, or one it cannot be
+	// placed in, or makes a binary file a Document.
+	RejectedMalformedClassification RejectionReason = "malformed_classification"
 )
 
 // Problem is one thing wrong with a post: what kind, and what specifically.

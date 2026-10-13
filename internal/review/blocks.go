@@ -34,6 +34,17 @@ func (b block) overlaps(first, last int) bool {
 	return first <= b.lines.Last && last >= b.lines.First
 }
 
+// blocksOf parses a Document into its blocks: a Markdown Document by its
+// Markdown structure, and one the agent made a Document of any other type by its
+// paragraphs, split at blank lines.
+func blocksOf(path string, source []string) []block {
+	if isDocument(path) {
+		return markdownBlocks(source)
+	}
+	blank := func(line int) bool { return strings.TrimSpace(source[line-1]) == "" }
+	return blocksOver(source, orphans(1, len(source), blank))
+}
+
 // markdownBlocks parses a Markdown Document, given as its source lines, into
 // its blocks in source order.
 //

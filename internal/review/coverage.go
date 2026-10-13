@@ -154,6 +154,10 @@ type ledger struct {
 	// Lines, as the round holds it. A Document's Changed Lines are charged in
 	// words, by the blocks they fall in, rather than as lines of code.
 	documents map[documentSide][]block
+	// overruled is how the agent has overruled dbn's classification of files as
+	// Documents, for this round: what the Review has recorded with what the call
+	// in hand gives on top.
+	overruled overrulings
 }
 
 // newSinceEarlier reports whether a Changed Line is new to this round: not one

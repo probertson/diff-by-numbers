@@ -102,6 +102,10 @@ type Session struct {
 	// now reads the clock, for when a Round was posted. Injected so a test can
 	// say what time it is.
 	now func() time.Time
+	// overruled is how the agent has overruled dbn's classification of files as
+	// Documents. Each Round's classifications are laid over it, and like the
+	// label it holds for every later Round until one changes it.
+	overruled overrulings
 	// postings counts the Rounds this Review has accepted, so a surface can tell
 	// when a different one — a Revision Round or a Replacement — has taken the
 	// screen.
@@ -300,7 +304,8 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	// might say without these would be guesswork. The round's snapshot is
 	// always taken: it is what the round will be shown from, and it is kept only
 	// once the post is accepted.
-	ledger, round, rejection := s.scopedLedger(w.ChangeSet, earlier, true)
+	overruled := s.overruled.with(w.ChangeSet, w.Classifications)
+	ledger, round, rejection := s.scopedLedger(w.ChangeSet, earlier, overruled, true)
 	if rejection != nil {
 		return rejection
 	}
@@ -351,6 +356,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 
 	add(validateNewSideResolves(w.Steps, s.resolver, round))
 
+	add(ledger.validateClassifications(w.Classifications, w.ChangeSet))
 	add(ledger.validateBudget(w.Steps))
 	add(ledger.validateAcknowledgements(w.Steps))
 	add(ledger.validateCoverage(w.Steps))
@@ -373,6 +379,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 	s.replaced = replacing
 	s.posted = s.now()
 	s.postings++
+	s.overruled = overruled
 	switch {
 	case replacing:
 	case earlier != nil:
@@ -433,7 +440,7 @@ func (s *Session) accept(w Round, earlier *earlierRound, replacing bool) error {
 // normalisation and every check ask their questions of the round's scope, not of
 // the raw Change Set. It is always the earlier accepted round that decides this —
 // never a Round being replaced, which the Reviewer may not have read.
-func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bool) (ledger, RoundSource, *Rejection) {
+func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, overruled overrulings, snapshot bool) (ledger, RoundSource, *Rejection) {
 	var round RoundSource
 	if snapshotter, ok := s.deriver.(Snapshotter); ok && snapshot {
 		round.Snapshots = snapshotAll(snapshotter, set)
@@ -444,7 +451,7 @@ func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, snapshot bo
 			"could not derive the changes under review: %v", err)
 	}
 	round.Bases = l.bases
-	l = l.withDocuments(s.resolver, round)
+	l = l.withOverrulings(overruled).withDocuments(s.resolver, round)
 	if earlier != nil {
 		l = l.withPreMarking(s.preMarkUnchanged(l, set, round, earlier.state))
 	}

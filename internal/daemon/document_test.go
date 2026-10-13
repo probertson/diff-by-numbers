@@ -135,6 +135,60 @@ func TestDescribeChangesReportsWhatEachDocumentCostsOverMCP(t *testing.T) {
 	}
 }
 
+func TestBothToolsTakeAClassificationListOverMCP(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	// The lockfile's three lines are one paragraph of three words.
+	classifications := []any{map[string]any{"file": "LOCKFILE", "document": true}}
+	round := minimalRound(root)
+	round["classifications"] = classifications
+
+	got := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"repositories":    []any{map[string]any{"root": root, "base": "main"}},
+		"classifications": classifications,
+	}))
+	posted := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", round))
+
+	if len(got.Problems) != 0 || len(got.Repositories) != 1 {
+		t.Fatalf("expected one repository described, got %+v", got)
+	}
+	for _, file := range got.Repositories[0].Files {
+		if file.Path != "LOCKFILE" {
+			continue
+		}
+		want := []describedBlock{{Lines: [2]int{1, 3}, Cost: 3}}
+		if file.Document == nil || !*file.Document || !reflect.DeepEqual(file.NewBlocks, want) {
+			t.Errorf("expected the lockfile described as a Document with blocks %+v, got document %v, blocks %+v", want, file.Document, file.NewBlocks)
+		}
+	}
+	if !posted.Accepted {
+		t.Errorf("expected the post with a classification to be accepted, got %s", posted.summary())
+	}
+}
+
+func TestBothToolsReportAClassificationOfAFileOutsideTheChangeSetAsAProblemOverMCP(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	classifications := []any{map[string]any{"file": "SPEC.txt", "document": true}}
+	round := minimalRound(root)
+	round["classifications"] = classifications
+
+	described := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"repositories":    []any{map[string]any{"root": root, "base": "main"}},
+		"classifications": classifications,
+	}))
+	posted := decodeResult[postOutcome](t, callTool(t, server.URL, "post_round", round))
+
+	if !(postOutcome{Problems: described.Problems}).has("malformed_classification") {
+		t.Errorf("expected describe_changes to report a malformed_classification problem, got %+v", described.Problems)
+	}
+	if posted.Accepted || !posted.has("malformed_classification") {
+		t.Errorf("expected post_round to refuse with a malformed_classification problem, got %s", posted.summary())
+	}
+}
+
 func intPointer(n int) *int { return &n }
 
 // deref shows a pointer's value, or nil for a field left out.

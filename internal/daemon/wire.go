@@ -33,6 +33,12 @@ type wireAcknowledgement struct {
 	Reason     string   `json:"reason" jsonschema:"One line saying why these changes are mechanical and need not be read, e.g. 'regenerated lockfile'. The Reviewer sees this and may expand it into the real code"`
 }
 
+type wireClassification struct {
+	Repository string `json:"repository,omitempty" jsonschema:"Root path of the repository the file is in. Must be one named in the Change Set. Optional when reviewing a single repository: leave it out and dbn uses the only one there is"`
+	File       string `json:"file" jsonschema:"Path to the file, relative to the repository root, as describe_changes lists it. It must be in the Change Set"`
+	Document   bool   `json:"document" jsonschema:"true to make the file a Document, prose for a person to read, charged in words; false to make it code, counted in Changed Lines. A binary file cannot be a Document"`
+}
+
 type wireStep struct {
 	Name                  string                `json:"name" jsonschema:"The single self-contained idea this Step contains, named so the Reviewer knows what they are about to look at"`
 	Explanation           string                `json:"explanation" jsonschema:"What changed here and why. This is the reason the Reviewer is not reading a bare diff"`
@@ -76,6 +82,7 @@ type wireRound struct {
 	// QuestionStatuses sits apart from Dispositions: a question is the agent's
 	// own, so its statuses are not a Comment's.
 	QuestionStatuses []wireQuestionStatus `json:"question_statuses,omitempty" jsonschema:"When this is a Revision Round, or a replacement of one, one entry per Agent Question the previous round asked, answered or not, saying what you did with it. Omit when the previous round asked nothing"`
+	Classifications  []wireClassification `json:"classifications,omitempty" jsonschema:"Files whose classification you overrule, either way: dbn judges a Document by file type, so Markdown is one, but you know what a file is for. Make a prose spec in a .txt file a Document, or a generated Markdown changelog code. Recorded on the Review, an overruling holds for every later Round until one classifies the file again, so give each only once. Omit to keep dbn's classification"`
 }
 
 // InboxWire is the Reviewer's Inbox: every review the daemon holds that is not
@@ -301,14 +308,23 @@ func (w wireRound) toDomain() review.Round {
 			Goal:       w.Brief.Goal,
 			Background: w.Brief.Background,
 		},
-		ChangeSet:    toChangeSet(w.Repositories),
-		Steps:        steps,
-		Dispositions: dispositions,
-		Label:        w.Label,
-		Questions:    toQuestions(w.Questions),
+		ChangeSet:       toChangeSet(w.Repositories),
+		Steps:           steps,
+		Dispositions:    dispositions,
+		Label:           w.Label,
+		Questions:       toQuestions(w.Questions),
+		Classifications: toClassifications(w.Classifications),
 
 		QuestionStatuses: statuses,
 	}
+}
+
+func toClassifications(wires []wireClassification) []review.Classification {
+	var out []review.Classification
+	for _, c := range wires {
+		out = append(out, review.Classification{Repository: c.Repository, File: c.File, Document: c.Document})
+	}
+	return out
 }
 
 func toQuestions(wires []wireQuestion) []review.Question {
@@ -359,8 +375,9 @@ func toFetchResult(r review.Results, message string) fetchResult {
 }
 
 type describeInput struct {
-	ReviewID     string           `json:"review_id,omitempty" jsonschema:"The id of the review you are about to post a Revision Round of, so dbn pre-marks what that review has already shown. Leave it out when planning a new review's first round"`
-	Repositories []wireRepository `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_round"`
+	ReviewID        string               `json:"review_id,omitempty" jsonschema:"The id of the review you are about to post a Revision Round of, so dbn pre-marks what that review has already shown. Leave it out when planning a new review's first round"`
+	Repositories    []wireRepository     `json:"repositories" jsonschema:"The repositories to describe, exactly as you would give them to post_round"`
+	Classifications []wireClassification `json:"classifications,omitempty" jsonschema:"Files whose classification you overrule for this description, as you would give them to post_round, so the document flags and costs describe what you intend to post. Given a review_id, they are laid over the overrulings that review has recorded. Nothing is recorded: post_round is what records an overruling"`
 }
 
 // lineRangeWire is an inclusive [first, last] pair: compact, since a large
@@ -382,7 +399,7 @@ type fileChangesWire struct {
 	PreMarkedNew  []lineRangeWire    `json:"pre_marked_new,omitempty" jsonschema:"In a Revision Round, after-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarkedOld  []lineRangeWire    `json:"pre_marked_old,omitempty" jsonschema:"In a Revision Round, before-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarked     bool               `json:"pre_marked,omitempty" jsonschema:"In a Revision Round, set on a binary, mode or edit-free renamed file the Reviewer has already seen and the next post need not acknowledge again"`
-	Document      bool               `json:"document,omitempty" jsonschema:"Set when dbn classifies this file as a Document, prose for a person to read rather than code; it judges by file type, so Markdown is one. Plan the Steps that show a Document by the dbn-review skill's document guidance"`
+	Document      bool               `json:"document,omitempty" jsonschema:"Set when this file is a Document, prose for a person to read rather than code. dbn judges by file type, so Markdown is one, unless classifications overrule it. Plan the Steps that show a Document by the dbn-review skill's document guidance"`
 	Cost          *int               `json:"cost,omitempty" jsonschema:"For a Document, what its changes cost in words against a Step's Document budget of 1,000: what one Step showing every block in new_blocks and old_blocks is charged. In a Revision Round it is net of what the Reviewer has already read. Code has no cost: it is counted in Changed Lines"`
 	NewBlocks     []blockCostWire    `json:"new_blocks,omitempty" jsonschema:"For a Document, each after-side block that costs anything, in file order. A Step whose Excerpts touch any line of a block is charged the whole block, once; unchanged blocks and ones the Reviewer has already read cost nothing and are left out. Add up a section's blocks to plan its Steps"`
 	OldBlocks     []blockCostWire    `json:"old_blocks,omitempty" jsonschema:"For a Document, each before-side block that costs anything and has to be shown with an old-side Excerpt, such as a deleted paragraph. The before-side of an edit is drawn beside the after-side that replaced it, so it is charged with that block in new_blocks and is not listed here"`

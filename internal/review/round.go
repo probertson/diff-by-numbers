@@ -139,6 +139,10 @@ type Round struct {
 	// identity — that is minted by dbn — only a display aid. It survives a Revision
 	// Round that omits it.
 	Label string
+	// Classifications overrule dbn's classification of files as Documents. They
+	// are recorded on the Review and, like the Label, hold for every later Round
+	// until one classifies the file again.
+	Classifications []Classification
 }
 
 // sole returns the one repository under review, when there is only one. It is

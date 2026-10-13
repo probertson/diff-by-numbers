@@ -41,8 +41,9 @@ type FileDescription struct {
 	// PreMarked is set on an Opaque Change a Revision Round has already shown,
 	// which the next post need not acknowledge again.
 	PreMarked bool
-	// Document reports that dbn classifies the file as a Document: prose for a
-	// person to read, which the agent plans differently from code.
+	// Document reports that the file is a Document: prose for a person to read,
+	// which the agent plans differently from code. dbn judges by file type unless
+	// the agent has overruled it.
 	Document bool
 	// Cost is what a Document's changes cost against the Document budget, set
 	// on every file whose text is charged in words and on no other.
@@ -96,8 +97,12 @@ type ChangeDescription struct {
 // scoped the same way the next post would be, so the two cannot disagree.
 // It names no review, so it plans a first round: there is nothing to pre-mark
 // against. DescribeRevision is how a Revision Round is planned.
-func (s *Session) DescribeChanges(set ChangeSet) (ChangeDescription, error) {
-	return s.describe(set, nil)
+//
+// Classifications overrule dbn's classification of files as Documents for this
+// description alone, so the flags and costs it reports are the ones the agent
+// intends to post with.
+func (s *Session) DescribeChanges(set ChangeSet, classifications ...Classification) (ChangeDescription, error) {
+	return s.describe(set, nil, overrulings{}.with(set, classifications), classifications)
 }
 
 // DescribeRevision describes the changes as the next Revision Round of the
@@ -107,20 +112,26 @@ func (s *Session) DescribeChanges(set ChangeSet) (ChangeDescription, error) {
 // The round it pre-marks against is the one Revise would answer: the round just
 // handed off, or — while a round is still under review, where the next post is a
 // Replacement — whatever that round answers.
-func (s *Session) DescribeRevision(id string, set ChangeSet) (ChangeDescription, error) {
+//
+// Classifications are laid over the ones the review has recorded, for this
+// description alone.
+func (s *Session) DescribeRevision(id string, set ChangeSet, classifications ...Classification) (ChangeDescription, error) {
 	if rejection := s.named(id, "describe against", "describe without a review_id to plan a new review"); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
-	return s.describe(set, s.nextAnswering())
+	return s.describe(set, s.nextAnswering(), s.overruled.with(set, classifications), classifications)
 }
 
-func (s *Session) describe(set ChangeSet, earlier *earlierRound) (ChangeDescription, error) {
+func (s *Session) describe(set ChangeSet, earlier *earlierRound, overruled overrulings, given []Classification) (ChangeDescription, error) {
 	if rejection := validateChangeSet(set); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
 	// A snapshot is only for pre-marking here, so a first round writes none.
-	l, _, rejection := s.scopedLedger(set, earlier, earlier != nil)
+	l, _, rejection := s.scopedLedger(set, earlier, overruled, earlier != nil)
 	if rejection != nil {
+		return ChangeDescription{}, rejection
+	}
+	if rejection := l.validateClassifications(given, set); rejection != nil {
 		return ChangeDescription{}, rejection
 	}
 	return l.describe(set, earlier != nil), nil
@@ -220,7 +231,7 @@ func (l ledger) describeFile(repository, path string, atoms *fileAtoms) FileDesc
 		Modifications: atoms.modifications,
 		PreMarkedNew:  rangesOf(atoms.preNew),
 		PreMarkedOld:  rangesOf(atoms.preOld),
-		Document:      isDocument(path),
+		Document:      l.isDocumentFile(repository, path),
 	}
 	sort.Slice(file.Modifications, func(i, j int) bool {
 		return file.Modifications[i].New.First < file.Modifications[j].New.First

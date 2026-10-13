@@ -50,7 +50,7 @@ func (l ledger) withDocuments(resolver Resolver, round RoundSource) ledger {
 	tried := map[documentSide]bool{}
 	for _, line := range l.lines {
 		ref := sideOf(line)
-		if tried[ref] || !isDocument(ref.file) {
+		if tried[ref] || !l.isDocumentFile(ref.repository, ref.file) {
 			continue
 		}
 		tried[ref] = true
@@ -58,7 +58,7 @@ func (l ledger) withDocuments(resolver Resolver, round RoundSource) ledger {
 		if err != nil {
 			continue
 		}
-		l.documents[ref] = markdownBlocks(source)
+		l.documents[ref] = blocksOf(ref.file, source)
 	}
 	return l
 }
