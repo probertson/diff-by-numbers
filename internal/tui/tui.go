@@ -344,9 +344,14 @@ type model struct {
 	// to the TUI, holds for the whole review rather than one Step, and starts off
 	// again on the next launch.
 	wrapAll bool
-	width   int
-	height  int
-	ready   bool
+	// showSource shows every Document as its source lines rather than
+	// formatted. Like wrapAll it is only how the Step is drawn, so it belongs to
+	// the TUI, holds for the whole review, and starts off again on the next
+	// launch.
+	showSource bool
+	width      int
+	height     int
+	ready      bool
 }
 
 // leftStep is how the Reviewer left a Step: the row the cursor was on and the
@@ -397,7 +402,7 @@ func (m *model) multiRepo() bool {
 // syncCursor rebuilds the selection cursor when the Step in view changes.
 func (m *model) syncCursor() {
 	if m.inStep() {
-		m.cursor = newStepCursor(m.view.Step, m.expanded)
+		m.cursor = newStepCursorShowing(m.view.Step, m.expanded, m.showSource)
 	}
 }
 
@@ -468,7 +473,7 @@ func (m *model) pageBlock(direction int) bool {
 // relayout rebuilds the pane after an Acknowledgement expands or collapses, and
 // puts the cursor on spot — found by what it is, since the indices have moved.
 func (m *model) relayout(spot codeLine) {
-	m.cursor = newStepCursor(m.view.Step, m.expanded)
+	m.cursor = newStepCursorShowing(m.view.Step, m.expanded, m.showSource)
 	m.cursor.restore(spot)
 }
 
@@ -1108,6 +1113,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// whole review rather than this Step, and the cursor does not move.
 				m.wrapAll = !m.wrapAll
 				m.status = ""
+				return m, nil
+			case "s":
+				m.toggleSource()
 				return m, nil
 			case "shift+up":
 				if !interactive {
@@ -1782,7 +1790,11 @@ func (m model) modeKeys() string {
 		return ""
 	}
 	if m.cursor.sel >= 0 {
-		return keybar("↑/↓ extend", "y copy", "c comment", m.wrapToggleKey(), "<esc> stop selecting")
+		tokens := []string{"↑/↓ extend", "y copy", "c comment", m.wrapToggleKey()}
+		if m.showsDocument() {
+			tokens = append(tokens, m.sourceToggleKey())
+		}
+		return keybar(append(tokens, "<esc> stop selecting")...)
 	}
 	tokens := []string{"↑/↓ move"}
 	if len(m.view.Step.Questions) > 0 {
@@ -1803,6 +1815,9 @@ func (m model) modeKeys() string {
 		}
 	}
 	tokens = append(tokens, m.wrapToggleKey())
+	if m.showsDocument() {
+		tokens = append(tokens, m.sourceToggleKey())
+	}
 	if m.view.PreviousRound > 0 {
 		tokens = append(tokens, m.comparisonKey())
 	}
