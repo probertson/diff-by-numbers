@@ -36,10 +36,7 @@ func (m *model) toggleSource() {
 
 // cursorRow is the row of the Step's pane the cursor is drawn on now.
 func (m *model) cursorRow() int {
-	step, showRepo := m.view.Step, m.multiRepo()
-	header := stepHeader(step, m.width, showRepo, m.proseWidth)
-	pane := layoutPane(header, step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), showRepo, m.wrapAll, m.proseWidth)
-	return pane.cursorRow(m.cursor)
+	return m.pane().cursorRow(m.cursor)
 }
 
 // sourceToggleKey names what s will do next, as wrapToggleKey does for w.
@@ -67,9 +64,6 @@ func (m model) showsDocument() bool {
 	}
 	return false
 }
-
-// docRed is the terminal palette's red, for the source view's removed text.
-var docRed = lipgloss.ANSIColor(1)
 
 // sourceRows draws one line of a Document shown as source. It wraps as a line of
 // code does, across the pane's full width rather than the prose width, since

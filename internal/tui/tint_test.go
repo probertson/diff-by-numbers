@@ -54,7 +54,7 @@ func tintStep() *daemon.StepWire {
 // the row under test is not also the cursor unless a test puts it there.
 func drawn(t *testing.T, i int, commented bool, adjust func(*stepCursor)) string {
 	t.Helper()
-	cur := newStepCursor(tintStep(), nil)
+	cur := newStepCursor(tintStep(), nil, false)
 	cur.cursor = 2
 	if adjust != nil {
 		adjust(&cur)
@@ -131,7 +131,7 @@ func TestEmphasisSurvivesWrapping(t *testing.T) {
 		File: "f.go", Side: "new", FirstLine: 1, LastLine: 1,
 		Lines: []daemon.LineWire{{Number: 1, Side: "new", Text: long, Changed: true, Emphasis: [][2]int{{70, 77}}}},
 	}}}
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 
 	rows := codeRows(cur, 0, false, 50, 4, true)
 
@@ -150,7 +150,7 @@ func TestATabBeforeTheChangeDoesNotShiftTheEmphasis(t *testing.T) {
 		File: "f.go", Side: "new", FirstLine: 1, LastLine: 1,
 		Lines: []daemon.LineWire{{Number: 1, Side: "new", Text: "\treturn 5", Changed: true, Emphasis: [][2]int{{8, 9}}}},
 	}}}
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 
 	row := strings.Join(codeRows(cur, 0, false, 60, 4, false), "")
 
@@ -167,7 +167,7 @@ func TestAChangedRowTooNarrowForItsCodeIsTintedPlain(t *testing.T) {
 		File: "f.go", Side: "new", FirstLine: 1, LastLine: 1,
 		Lines: []daemon.LineWire{{Number: 1, Side: "new", Text: "retry(transport, 5)", Changed: true, Emphasis: [][2]int{{0, 5}}}},
 	}}}
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 	cur.cursor = -1
 
 	row := strings.Join(codeRows(cur, 0, false, 12, 4, false), "")
@@ -184,7 +184,7 @@ func TestTheEllipsisOfAClippedRowIsNeverEmphasised(t *testing.T) {
 		// The emphasised word starts exactly where a 30-cell row is clipped.
 		Lines: []daemon.LineWire{{Number: 1, Side: "new", Text: "abcdefghijklmnopq CHANGED", Changed: true, Emphasis: [][2]int{{18, 25}}}},
 	}}}
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 	cur.cursor = -1
 
 	row := strings.Join(codeRows(cur, 0, false, 32, 4, false), "")

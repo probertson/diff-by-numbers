@@ -132,14 +132,7 @@ func run(args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return tui.Run(tui.Options{
-			Port:               resolved.Value,
-			UpdateCheck:        settings.UpdateCheck.Value,
-			ConfigWarning:      settings.Warning(),
-			TerminalBackground: settings.TerminalBackground.Value,
-			Diff:               settings.Diff,
-			ProseWidth:         settings.ProseWidth.Value,
-		})
+		return tui.Run(tui.OptionsFrom(settings, resolved.Value))
 	}
 
 	switch args[0] {

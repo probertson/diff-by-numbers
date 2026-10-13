@@ -26,6 +26,7 @@ const (
 	faintSGR       = "2"
 	boldSGR        = "1"
 	italicSGR      = "3"
+	redSGR         = "31"
 	greenSGR       = "32"
 	blueSGR        = "34"
 	cyanSGR        = "36"
@@ -130,7 +131,7 @@ func retries() daemon.ExcerptWire {
 
 // drawnStep renders the Step pane as the model draws it, at the given width.
 func drawnStep(m model) string {
-	return renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), false, false, m.proseWidth)
+	return renderStep(m.paneInputs())
 }
 
 // textColumn is where a Document row's text begins: past the caret, the sign, the
@@ -193,6 +194,45 @@ func TestMarkersAreMutedAndSpansStyled(t *testing.T) {
 	}
 	if !drawnWith(t, lineWith(t, out, "Retries"), "#", brightBlackSGR) {
 		t.Errorf("expected the heading's # muted:\n%s", out)
+	}
+}
+
+// rowsEndingWith is every row of out whose text, its styling stripped, ends in
+// suffix.
+func rowsEndingWith(out, suffix string) []string {
+	var rows []string
+	for _, row := range strings.Split(out, "\n") {
+		if strings.HasSuffix(strings.TrimRight(ansi.Strip(row), " "), suffix) {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+func TestFrontmatterAndCodeFencesAreMutedAndWhatTheyHoldIsNot(t *testing.T) {
+	inColour(t)
+	m := stepModel(t, documentStep(documentExcerpt("docs/retries.md",
+		docBlock{kind: "frontmatter", text: []string{"---", "title: Retries", "---"}},
+		docBlock{kind: "code", text: []string{"```go", "retry()", "```"}},
+	)))
+
+	out := drawnStep(m)
+
+	for fence, want := range map[string]int{"---": 2, "```go": 1, "```": 1} {
+		rows := rowsEndingWith(out, fence)
+		if len(rows) != want {
+			t.Fatalf("expected %d rows ending in %q, got %d:\n%s", want, fence, len(rows), out)
+		}
+		for _, row := range rows {
+			if !drawnWith(t, row, fence, brightBlackSGR) {
+				t.Errorf("expected the fence %q drawn in bright black: %q", fence, row)
+			}
+		}
+	}
+	for _, text := range []string{"title: Retries", "retry()"} {
+		if drawnWith(t, lineWith(t, out, text), text, brightBlackSGR) {
+			t.Errorf("expected %q, inside its fences, not muted:\n%s", text, out)
+		}
 	}
 }
 

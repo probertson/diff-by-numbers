@@ -38,8 +38,8 @@ const (
 
 // Block is one block of a Document as an Excerpt shows it: what kind it is,
 // where it is in the file, and how it was changed. The Excerpt's rows name the
-// block they belong to (Line.Block), so the surface groups them without
-// parsing anything.
+// block they belong to (Line.Block), so the surface groups them without working
+// out the Document's structure itself (ADR-0005, #166).
 type Block struct {
 	Kind BlockKind
 	// Level is a heading's level, 1 to 6; 0 for any other kind.
@@ -49,6 +49,20 @@ type Block struct {
 	Side      Side
 	Lines     LineRange
 	Treatment Treatment
+}
+
+// shown is a parsed block as an Excerpt shows it: on side, and treated so.
+func (b block) shown(side Side, treatment Treatment) Block {
+	return Block{Kind: b.kind, Level: b.level, Side: side, Lines: b.lines, Treatment: treatment}
+}
+
+// withDocumentBlocks is view drawn as a Document: its rows, tagged with their
+// blocks, the blocks, and whether the Document is plain prose rather than
+// Markdown.
+func withDocumentBlocks(view ExcerptView, lines []Line, blocks []Block) ExcerptView {
+	view.Lines, view.Blocks = lines, blocks
+	view.Plain = !isMarkdown(view.Excerpt.File)
+	return view
 }
 
 // withRemovedBlocks gives a Document's old-side Excerpt, a deletion shown on its
@@ -76,8 +90,7 @@ func (s *Session) withRemovedBlocks(view ExcerptView) ExcerptView {
 		}
 		n, ok := numbered[node]
 		if !ok {
-			b := doc.blocks[node]
-			blocks = append(blocks, Block{Kind: b.kind, Level: b.level, Side: OldSide, Lines: b.lines, Treatment: treatment})
+			blocks = append(blocks, doc.blocks[node].shown(OldSide, treatment))
 			n = len(blocks)
 			numbered[node] = n
 		}
@@ -86,9 +99,7 @@ func (s *Session) withRemovedBlocks(view ExcerptView) ExcerptView {
 		}
 		lines[i].Block = n
 	}
-	view.Lines, view.Blocks = lines, blocks
-	view.Plain = !isMarkdown(excerpt.File)
-	return view
+	return withDocumentBlocks(view, lines, blocks)
 }
 
 // withBlocks gives a Document Excerpt its blocks, widens it so that none is
@@ -154,12 +165,11 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		}
 	}
 	afterBlock := func(n int) Block {
-		b := t.after.blocks[n]
 		treatment := TreatmentContext
 		if named[n] {
 			treatment = t.afterTreatment(n)
 		}
-		return Block{Kind: b.kind, Level: b.level, Side: NewSide, Lines: b.lines, Treatment: treatment}
+		return t.after.blocks[n].shown(NewSide, treatment)
 	}
 
 	for i, row := range lines {
@@ -185,12 +195,9 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 			}
 			continue
 		}
-		b := t.before.blocks[node]
-		lines[i].Block = number(Block{Kind: b.kind, Level: b.level, Side: otherSide, Lines: b.lines, Treatment: TreatmentRemoved})
+		lines[i].Block = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved))
 	}
-	view.Lines, view.Blocks = lines, blocks
-	view.Plain = !isMarkdown(excerpt.File)
-	return view
+	return withDocumentBlocks(view, lines, blocks)
 }
 
 // widened is an Excerpt's rows with the rows it needs so that no block is read

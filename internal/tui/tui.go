@@ -39,22 +39,29 @@ type Options struct {
 	TerminalBackground config.TerminalBackground
 	// Diff is the colours the diff is drawn in.
 	Diff config.DiffColours
-	// ProseWidth is the widest the agent's narration is wrapped to, or 0 for no
-	// maximum.
+	// ProseWidth is the widest the agent's narration, and the text of a
+	// Document shown formatted, is wrapped to, or 0 for no maximum.
 	ProseWidth int
+}
+
+// OptionsFrom is the TUI's options from the Reviewer's settings, attaching to
+// the daemon on port.
+func OptionsFrom(settings config.Settings, port int) Options {
+	return Options{
+		Port:               port,
+		UpdateCheck:        settings.UpdateCheck.Value,
+		ConfigWarning:      settings.Warning(),
+		TerminalBackground: settings.TerminalBackground.Value,
+		Diff:               settings.Diff,
+		ProseWidth:         settings.ProseWidth.Value,
+	}
 }
 
 // Run attaches to the daemon and blocks until the Reviewer quits.
 func Run(opts Options) error {
-	useColours(opts.TerminalBackground, opts.Diff)
-	starting, err := attach(opts.Port)
+	starting, err := start(opts)
 	if err != nil {
 		return err
-	}
-	starting.updateCheck = opts.UpdateCheck
-	starting.proseWidth = opts.ProseWidth
-	if opts.ConfigWarning != "" {
-		starting.configNotice = "config: " + opts.ConfigWarning
 	}
 
 	program := tea.NewProgram(starting, tea.WithAltScreen())
@@ -70,6 +77,22 @@ func Run(opts Options) error {
 	}
 
 	return nil
+}
+
+// start sets the TUI up as the options say and builds the model the program
+// starts from, attached to the daemon or waiting for it.
+func start(opts Options) (model, error) {
+	useColours(opts.TerminalBackground, opts.Diff)
+	starting, err := attach(opts.Port)
+	if err != nil {
+		return model{}, err
+	}
+	starting.updateCheck = opts.UpdateCheck
+	starting.proseWidth = opts.ProseWidth
+	if opts.ConfigWarning != "" {
+		starting.configNotice = "config: " + opts.ConfigWarning
+	}
+	return starting, nil
 }
 
 // attach builds the model the program starts from. No daemon answering is not a
@@ -262,8 +285,10 @@ type model struct {
 	// updateCheck is whether Init asks about a newer release at all: the
 	// Reviewer can turn the check off (internal/config).
 	updateCheck bool
-	// proseWidth is the widest the agent's narration is wrapped to, or 0 for no
-	// maximum (internal/config). Code and the keybars keep the pane's width.
+	// proseWidth is the widest the agent's narration, and the text of a
+	// Document shown formatted, is wrapped to, or 0 for no maximum
+	// (internal/config). Code, a Document shown as source and the keybars keep
+	// the pane's width.
 	proseWidth int
 	// configNotice names config file keys dbn ignored. Persistent like
 	// updateNotice: it holds until the Reviewer fixes the file and relaunches.
@@ -413,7 +438,7 @@ func (m *model) multiRepo() bool {
 // syncCursor rebuilds the selection cursor when the Step in view changes.
 func (m *model) syncCursor() {
 	if m.inStep() {
-		m.cursor = newStepCursorShowing(m.view.Step, m.expanded, m.showSource)
+		m.cursor = newStepCursor(m.view.Step, m.expanded, m.showSource)
 	}
 }
 
@@ -450,10 +475,23 @@ func (m *model) tallBlock() (height, page int, tall bool) {
 	if !m.inStep() || len(m.cursor.lines) == 0 {
 		return 0, 0, false
 	}
-	step, showRepo := m.view.Step, m.multiRepo()
-	header := stepHeader(step, m.width, showRepo, m.proseWidth)
-	pane := layoutPane(header, step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), showRepo, m.wrapAll, m.proseWidth)
-	return pane.tallBlock(m.cursor)
+	return m.pane().tallBlock(m.cursor)
+}
+
+// paneInputs is the Step's pane as the model draws it now.
+func (m model) paneInputs() paneInputs {
+	return paneInputs{
+		step: m.view.Step, cur: m.cursor,
+		commented: m.commentedLines(), ackCommentCounts: m.ackComments(),
+		width: m.width, height: m.bodyHeight(),
+		showRepo: m.multiRepo(), wrapAll: m.wrapAll, proseWidth: m.proseWidth,
+	}
+}
+
+// pane is the Step's pane laid out as the model draws it now.
+func (m model) pane() stepPane {
+	in := m.paneInputs()
+	return in.layout(in.header())
 }
 
 // pageBlock scrolls a page through the cursor's block, in the direction given,
@@ -465,7 +503,7 @@ func (m *model) pageBlock(direction int) bool {
 	if !tall {
 		return false
 	}
-	offset := min(max(m.cursor.scroll, 0), height-page)
+	offset := m.cursor.blockOffset(height, page)
 	if direction > 0 {
 		if offset+page >= height {
 			return false
@@ -484,7 +522,7 @@ func (m *model) pageBlock(direction int) bool {
 // relayout rebuilds the pane after an Acknowledgement expands or collapses, and
 // puts the cursor on spot — found by what it is, since the indices have moved.
 func (m *model) relayout(spot codeLine) {
-	m.cursor = newStepCursorShowing(m.view.Step, m.expanded, m.showSource)
+	m.cursor = newStepCursor(m.view.Step, m.expanded, m.showSource)
 	m.cursor.restore(spot)
 }
 
@@ -1696,7 +1734,7 @@ func (m model) View() string {
 		}
 	default:
 		if m.inStep() {
-			body = renderStep(m.view.Step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), m.multiRepo(), m.wrapAll, m.proseWidth)
+			body = renderStep(m.paneInputs())
 		} else {
 			body = m.viewport.View()
 		}
@@ -2268,10 +2306,7 @@ func (m model) cursorFilter() commentFilter {
 		filter.rows = []rowRef{{side: line.side, line: line.number}}
 		return filter
 	}
-	for _, r := range line.rows {
-		row := excerpt.Lines[r]
-		filter.rows = append(filter.rows, rowRef{side: lineSide(row, excerpt), line: row.Number})
-	}
+	filter.rows = blockRefs(line, excerpt)
 	return filter
 }
 
@@ -2781,7 +2816,7 @@ func (m model) brief() string {
 
 	// The Overview is the agent's narration and what became of it, all prose, so
 	// all of it wraps at the prose width. The Step list is never wrapped.
-	width := narrationWidth(m.viewport.Width, m.proseWidth)
+	width := proseWidthFor(m.viewport.Width, m.proseWidth)
 	wrap := func(text string) string { return wrapTo(text, width) }
 
 	b.WriteString(labelSt.Render("Goal") + "\n" + wrap(brief.Goal) + "\n\n")
@@ -2882,10 +2917,10 @@ func wrapTo(text string, width int) string {
 	return text
 }
 
-// narrationWidth is the width the agent's prose wraps to in a pane width cells
-// wide: the Reviewer's prose width, or the pane's when that is narrower or the
-// prose width is 0 (no maximum).
-func narrationWidth(width, proseWidth int) int {
+// proseWidthFor is the width prose wraps to in a pane width cells wide, the
+// agent's narration or a Document shown formatted: the Reviewer's prose width,
+// or the pane's when that is narrower or the prose width is 0 (no maximum).
+func proseWidthFor(width, proseWidth int) int {
 	if proseWidth > 0 && proseWidth < width {
 		return proseWidth
 	}

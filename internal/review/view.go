@@ -49,6 +49,11 @@ type Line struct {
 	// list item it cuts into, or the header row of a table it cuts into. It is
 	// context whatever happened to the line, so it is never Changed and carries
 	// no Runs.
+	//
+	// It is not Absorption, which widens the range an Excerpt stores, at post
+	// time, over whitespace-only Changed Lines it then shows and covers. A
+	// widened row is added only as the Excerpt is drawn: the stored range stays
+	// as the agent wrote it, and the row is never what covers a Changed Line.
 	Widened bool
 }
 

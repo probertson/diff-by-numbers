@@ -32,6 +32,8 @@ type LineWire struct {
 	Runs []RunWire `json:"runs,omitempty"`
 	// Widened marks a row of a Document Excerpt shown so that no block is read
 	// in part, though the Excerpt does not name it: context, dimmed and unsigned.
+	// Unlike a line Absorption adds to an Excerpt, it is added only as the
+	// Excerpt is drawn, and covers nothing.
 	Widened bool `json:"widened,omitempty"`
 }
 
@@ -43,8 +45,9 @@ type RunWire struct {
 }
 
 // BlockWire is one block of a Document Excerpt: what kind it is, where it is in
-// the file, and how it was changed. The TUI lays it out and styles it; it parses
-// nothing.
+// the file, and how it was changed. The TUI lays it out and styles it, working
+// out only the inline styling within it (markers, bullets, pipes); the block's
+// structure is decided here, never again in the TUI (ADR-0005, #166).
 type BlockWire struct {
 	Kind      string `json:"kind"`
 	Level     int    `json:"level,omitempty"`

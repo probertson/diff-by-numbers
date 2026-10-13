@@ -85,9 +85,9 @@ func TestTheStepPaneKeepsWideRunesInsideTheFrame(t *testing.T) {
 	}
 	const width = 40
 	for _, wrapAll := range []bool{false, true} {
-		cur := newStepCursor(step, nil)
+		cur := newStepCursor(step, nil, false)
 
-		out := renderStep(step, cur, map[string]bool{}, nil, width, 40, false, wrapAll, 0)
+		out := renderStep(paneInputs{step: step, cur: cur, width: width, height: 40, wrapAll: wrapAll})
 
 		if got := widestLine(out); got > width {
 			t.Errorf("wrapAll=%v: the widest row is %d cells, over the %d-cell frame:\n%s", wrapAll, got, width, out)

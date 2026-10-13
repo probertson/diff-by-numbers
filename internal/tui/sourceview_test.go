@@ -10,9 +10,6 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// redTextSGR is the terminal palette's red, as an SGR parameter.
-const redTextSGR = "31"
-
 // s switches every Document between its formatted view and its source: the
 // source lines as they stand, signed + and -, with the changed text itself
 // coloured rather than banded. Code is drawn as it always was.
@@ -64,13 +61,13 @@ func TestInARewriteOnlyTheChangedWordsAreColoured(t *testing.T) {
 	out := drawnStep(m)
 
 	removed, added := lineWith(t, out, "waited"), lineWith(t, out, "waits")
-	if !strings.Contains(ansi.Strip(removed), "-") || !drawnWith(t, removed, "waited", redTextSGR) {
+	if !strings.Contains(ansi.Strip(removed), "-") || !drawnWith(t, removed, "waited", redSGR) {
 		t.Errorf("expected the removed word red on a - line: %q", removed)
 	}
 	if !drawnWith(t, added, "waits", greenSGR) {
 		t.Errorf("expected the added word green: %q", added)
 	}
-	if drawnWith(t, added, "between", greenSGR) || drawnWith(t, removed, "between", redTextSGR) {
+	if drawnWith(t, added, "between", greenSGR) || drawnWith(t, removed, "between", redSGR) {
 		t.Errorf("expected the unchanged words of a rewrite uncoloured:\n%s\n%s", removed, added)
 	}
 	if strings.Contains(out, "\x1b[9m") || strings.Contains(out, ";9m") || strings.Contains(out, ";9;") || strings.Contains(out, "48;") {

@@ -28,7 +28,7 @@ func signpostStep() *daemon.StepWire {
 }
 
 func TestTheCursorDoesNotOpenOnASignpost(t *testing.T) {
-	cur := newStepCursor(signpostStep(), nil)
+	cur := newStepCursor(signpostStep(), nil, false)
 
 	if !cur.onCode() {
 		t.Errorf("expected the cursor to open on code, got kind %v", cur.lines[cur.cursor].kind)
@@ -39,7 +39,7 @@ func TestTheCursorDoesNotOpenOnASignpost(t *testing.T) {
 }
 
 func TestTheCursorPassesOverASignpostGoingBack(t *testing.T) {
-	cur := newStepCursor(signpostStep(), nil)
+	cur := newStepCursor(signpostStep(), nil, false)
 	cur.move(1) // onto code line 5
 
 	cur.move(-1)
@@ -51,9 +51,9 @@ func TestTheCursorPassesOverASignpostGoingBack(t *testing.T) {
 }
 
 func TestASignpostIsDrawnAsItsOwnText(t *testing.T) {
-	cur := newStepCursor(signpostStep(), nil)
+	cur := newStepCursor(signpostStep(), nil, false)
 
-	rows := paneRows(signpostStep(), cur, nil, nil, 80, 4, false, false, 0)
+	rows := paneInputs{step: signpostStep(), cur: cur, width: 80}.rows(4)
 
 	var drawn bool
 	for _, row := range rows {

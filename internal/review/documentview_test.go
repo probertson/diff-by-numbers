@@ -9,8 +9,9 @@ import (
 )
 
 // A Step's view gives each Document Excerpt its blocks, so the Reviewer's
-// surface can draw the Document formatted, block by block, without parsing
-// Markdown itself (ADR-0005: dbn delegates the algorithm, not the rendering).
+// surface can draw the Document formatted, block by block, without working out
+// its structure itself: only the inline styling within a block is left to it
+// (ADR-0005, #166).
 // These tests post Rounds over real Markdown and read what the Step view says.
 
 // retriesDocument is a new Markdown Document with one block of every kind.
@@ -35,13 +36,21 @@ retry()
 ` + "```" + `
 `
 
-// viewingStep posts a Round of the Steps over the files and opens the first.
-func viewingStep(t *testing.T, files workingFiles, steps ...review.Step) *review.StepView {
+// openDocumentRound posts a Round of the Steps over the files and opens the
+// first.
+func openDocumentRound(t *testing.T, files workingFiles, steps ...review.Step) *review.Session {
 	t.Helper()
 	session := review.NewSession(files, files)
 	mustPost(t, session, documentRound(steps...))
 	mustAdvance(t, session)
-	return session.View().Step
+	return session
+}
+
+// viewingStep is the view of the first Step of a Round of the Steps over the
+// files.
+func viewingStep(t *testing.T, files workingFiles, steps ...review.Step) *review.StepView {
+	t.Helper()
+	return openDocumentRound(t, files, steps...).View().Step
 }
 
 func TestANewDocumentsExcerptCarriesItsBlocksWithTheirKindsRangesAndTreatment(t *testing.T) {
@@ -91,10 +100,7 @@ func TestADocumentsUnchangedBlocksAreContextBesideItsNewOnes(t *testing.T) {
 
 	step := viewingStep(t, files, showingLines("Retries", "docs/retries.md", review.NewSide, 3, 6))
 
-	var treatments []review.Treatment
-	for _, block := range step.Excerpts[0].Blocks {
-		treatments = append(treatments, block.Treatment)
-	}
+	treatments := treatmentsOf(step.Excerpts[0])
 	if want := []review.Treatment{review.TreatmentContext, review.TreatmentNew}; !slices.Equal(treatments, want) {
 		t.Errorf("expected the unchanged paragraph as context and the new one new, got %v", treatments)
 	}
@@ -125,8 +131,7 @@ func TestAnExpandedAcknowledgementOverANewDocumentCarriesItsBlocks(t *testing.T)
 	step.Acknowledgements = []review.Acknowledgement{{
 		Repository: docsRepo, Files: []string{"docs/retries.md"}, Reason: "the agent's notes, read elsewhere",
 	}}
-	session := review.NewSession(files, files)
-	mustPost(t, session, documentRound(step))
+	session := openDocumentRound(t, files, step)
 
 	views, err := session.ExpandAcknowledgement(1, 0)
 
@@ -144,21 +149,6 @@ func TestAnExpandedAcknowledgementOverANewDocumentCarriesItsBlocks(t *testing.T)
 	}
 }
 
-// viewRow is one row of an Excerpt's view: its line number, and whether it was
-// changed and whether it was widened in.
-type viewRow struct {
-	number           int
-	changed, widened bool
-}
-
-func rowsOfView(view review.ExcerptView) []viewRow {
-	var out []viewRow
-	for _, line := range view.Lines {
-		out = append(out, viewRow{line.Number, line.Changed, line.Widened})
-	}
-	return out
-}
-
 func TestAnExcerptCuttingIntoAParagraphIsWidenedToItWithTheExtraLinesAsContext(t *testing.T) {
 	// A heading on line 1, then a six-line paragraph on lines 3-8. One Step
 	// shows the paragraph's middle two lines; another shows the rest.
@@ -172,14 +162,12 @@ func TestAnExcerptCuttingIntoAParagraphIsWidenedToItWithTheExtraLinesAsContext(t
 	step := viewingStep(t, files, middle, rest)
 
 	excerpt := step.Excerpts[0]
-	want := []viewRow{
-		{3, false, true}, {4, false, true},
-		{5, true, false}, {6, true, false},
-		{7, false, true}, {8, false, true},
-	}
-	if got := rowsOfView(excerpt); !slices.Equal(got, want) {
-		t.Errorf("expected the whole paragraph, its extra lines widened in as context\n%+v\ngot\n%+v", want, got)
-	}
+	// The whole paragraph, its extra lines widened in as context.
+	assertRows(t, rowsOf(excerpt), []viewRow{
+		{review.NewSide, 3, false, true}, {review.NewSide, 4, false, true},
+		{review.NewSide, 5, true, false}, {review.NewSide, 6, true, false},
+		{review.NewSide, 7, false, true}, {review.NewSide, 8, false, true},
+	})
 	for _, line := range excerpt.Lines {
 		if line.Block != 1 {
 			t.Errorf("expected line %d in the paragraph's block, got block %d", line.Number, line.Block)
@@ -198,9 +186,7 @@ func TestAWidenedParagraphCanBeAnchoredWhole(t *testing.T) {
 	rest.Excerpts = append(rest.Excerpts, review.Excerpt{
 		Repository: docsRepo, File: "docs/retries.md", Side: review.NewSide, FirstLine: 7, LastLine: 8,
 	})
-	session := review.NewSession(files, files)
-	mustPost(t, session, documentRound(showingLines("The middle", "docs/retries.md", review.NewSide, 5, 6), rest))
-	mustAdvance(t, session)
+	session := openDocumentRound(t, files, showingLines("The middle", "docs/retries.md", review.NewSide, 5, 6), rest)
 
 	anchor, err := session.Anchor(review.AnchorTarget{
 		Start: review.AnchorEndpoint{Line: 3}, End: review.AnchorEndpoint{Line: 8},
@@ -218,18 +204,18 @@ func TestAnExcerptCuttingIntoATableKeepsItsRowsAndGainsTheHeaderRowAsContext(t *
 	// A heading on line 1; a table with its header row on line 3, its divider
 	// on 4 and rows on 5-8. One Step shows the heading and the first row; the
 	// other shows rows 7-8, and is not widened to the rest of the table.
-	table := "| Attempt | Delay |\n| ------- | ----- |\n| 1 | none |\n| 2 | 1s |\n| 3 | 2s |\n| 4 | 4s |"
-	files := adding("docs/retries.md", markdown("# Retries", table))
+	files := adding("docs/retries.md", markdown("# Retries", attemptsTable))
 	first := showingLines("The first attempt", "docs/retries.md", review.NewSide, 1, 6)
 	last := showingLines("The last attempts", "docs/retries.md", review.NewSide, 7, 8)
 
 	view := viewingStep(t, files, last, first)
 
 	excerpt := view.Excerpts[0]
-	want := []viewRow{{3, false, true}, {4, false, true}, {7, true, false}, {8, true, false}}
-	if got := rowsOfView(excerpt); !slices.Equal(got, want) {
-		t.Errorf("expected the rows shown, with the header row and divider as context\n%+v\ngot\n%+v", want, got)
-	}
+	// The rows shown, with the header row and divider as context.
+	assertRows(t, rowsOf(excerpt), []viewRow{
+		{review.NewSide, 3, false, true}, {review.NewSide, 4, false, true},
+		{review.NewSide, 7, true, false}, {review.NewSide, 8, true, false},
+	})
 	row := func(first, last int, treatment review.Treatment) review.Block {
 		return review.Block{Kind: review.BlockTableRow, Side: review.NewSide,
 			Lines: review.LineRange{First: first, Last: last}, Treatment: treatment}

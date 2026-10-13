@@ -60,7 +60,7 @@ type Settings struct {
 	TerminalBackground Setting[TerminalBackground]
 	Diff               DiffColours
 	// ProseWidth is the widest, in columns, that prose is wrapped to: the
-	// agent's narration, and later the formatted view of Documents. A narrower
+	// agent's narration, and the text of a Document shown formatted. A narrower
 	// pane wraps it narrower still. 0 means no maximum: the pane's width.
 	ProseWidth Setting[int]
 

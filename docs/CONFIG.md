@@ -42,9 +42,9 @@ After making a change to `config.toml`, exit and restart the TUI to apply your p
 prose-width = 100
 ```
 
-`prose-width` is the widest, in columns, that dbn wraps prose: the agent's narration (the Brief and the rest of the Overview, and each Step's explanation and questions). A terminal narrower than the setting wraps prose at the terminal's width instead. It defaults to `100`; `0` means no maximum, so prose wraps at the full width of the terminal. A negative or non-integer value is invalid.
+`prose-width` is the widest, in columns, that dbn wraps prose: the agent's narration (the Brief and the rest of the Overview, and each Step's explanation and questions), and the text of a Document shown formatted, which is reflowed to it beside the gutter. A terminal narrower than the setting wraps prose at the terminal's width instead. It defaults to `100`; `0` means no maximum, so prose wraps at the full width of the terminal. A negative or non-integer value is invalid.
 
-Code and the keybar always use the full width of the terminal.
+Code, a Document shown as source (`s`), and the keybar always use the full width of the terminal.
 
 ### Diff colors
 

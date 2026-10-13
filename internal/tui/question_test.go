@@ -70,7 +70,7 @@ func askingModel(t *testing.T, questions ...daemon.QuestionWire) (model, *answer
 func TestAStepShowsItsQuestionsInTheirOwnBlockBeforeTheCode(t *testing.T) {
 	step := askingStep(question(1, "Should the retry cap be 3 or 5?", ""))
 
-	out := renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, 80, 40, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: 80, height: 40})
 
 	block := strings.Index(out, "Agent Question")
 	asked := strings.Index(out, "Should the retry cap be 3 or 5?")
@@ -89,7 +89,7 @@ func TestAStepShowsItsQuestionsInTheirOwnBlockBeforeTheCode(t *testing.T) {
 func TestTheQuestionBlockSaysWhetherItIsAnswered(t *testing.T) {
 	step := askingStep(question(1, "3 or 5?", "3, the upstream is steady"), question(2, "keep the name?", ""))
 
-	out := flatten(renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, 80, 40, false, false, 0))
+	out := flatten(renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: 80, height: 40}))
 
 	if !strings.Contains(out, "Your answer: 3, the upstream is steady") {
 		t.Errorf("expected the Answer given, got:\n%s", out)
@@ -114,7 +114,7 @@ func TestTheCodePaneSizesItselfAroundTheQuestionBlock(t *testing.T) {
 	step := askingStep(question(1, strings.Repeat("a long question that wraps ", 12), ""))
 	const width, height = 80, 24
 
-	out := renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, width, height, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: width, height: height})
 
 	if got := lipgloss.Height(out); got > height {
 		t.Errorf("the Step is %d rows, over the %d it was given", got, height)
@@ -127,7 +127,7 @@ func TestTheCodePaneSizesItselfAroundTheQuestionBlock(t *testing.T) {
 func TestAStepWithoutQuestionsShowsNoQuestionBlock(t *testing.T) {
 	step := tallStep()
 
-	out := renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, 80, 40, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: 80, height: 40})
 
 	if strings.Contains(out, "Agent Question") {
 		t.Errorf("a Step that asks nothing should render as it always did, got:\n%s", out)
@@ -516,7 +516,7 @@ func TestAQuestionAskedAgainShowsWhatWasAskedAndAnsweredBefore(t *testing.T) {
 	}
 	step := askingStep(asked)
 
-	out := flatten(renderStep(step, newStepCursor(step, nil), map[string]bool{}, nil, 80, 40, false, false, 0))
+	out := flatten(renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: 80, height: 40}))
 
 	for _, want := range []string{"asked before: 3 or 5?", "you answered: 5 or so", "asked before: exactly 5?", "unanswered"} {
 		if !strings.Contains(out, want) {

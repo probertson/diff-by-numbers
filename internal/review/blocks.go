@@ -288,14 +288,20 @@ func blocksOver(source []string, parsed []parsedBlock) []block {
 	return blocks
 }
 
-// wordsIn is a line's words: its whitespace-separated tokens with at least one
-// letter or digit in them.
+// wordsIn is a line's words: its whitespace-separated tokens that isWord counts.
 func wordsIn(line string) []string {
 	var words []string
 	for _, token := range strings.Fields(line) {
-		if strings.IndexFunc(token, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0 {
+		if isWord(token) {
 			words = append(words, token)
 		}
 	}
 	return words
+}
+
+// isWord reports whether a whitespace-separated token of a Document counts as a
+// word: it has at least one letter or digit in it, so a marker or punctuation on
+// its own (`-`, `|`, `**`) is none.
+func isWord(token string) bool {
+	return strings.IndexFunc(token, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0
 }

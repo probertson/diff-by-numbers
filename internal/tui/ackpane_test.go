@@ -45,7 +45,7 @@ func ackExpansion() []daemon.ExcerptWire {
 }
 
 func TestACollapsedAcknowledgementIsACursorStop(t *testing.T) {
-	cur := newStepCursor(ackStep(), nil)
+	cur := newStepCursor(ackStep(), nil, false)
 
 	cur.move(1)
 
@@ -59,8 +59,8 @@ func TestAnAcknowledgementOnlyStepStartsOnItsStop(t *testing.T) {
 	step := ackStep()
 	step.Excerpts = nil
 
-	cur := newStepCursor(step, nil)
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
+	cur := newStepCursor(step, nil, false)
+	out := renderStep(paneInputs{step: step, cur: cur, width: 80, height: 40})
 
 	if len(cur.lines) != 1 || cur.lines[0].kind != kindStop {
 		t.Fatalf("expected a single stop to rest on, got %+v", cur.lines)
@@ -76,9 +76,9 @@ func TestAnAcknowledgementOnlyStepStartsOnItsStop(t *testing.T) {
 
 func TestAnExpandedAcknowledgementRendersInlineAsRealCode(t *testing.T) {
 	step := ackStep()
-	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: ackExpansion()})
+	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: ackExpansion()}, false)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 40, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, width: 80, height: 40})
 
 	for _, want := range []string{"narrated", "Acknowledged", "── gen.go", "old generated", "new generated", "── logo.png", "binary file"} {
 		if !strings.Contains(out, want) {
@@ -96,7 +96,7 @@ func TestAnExpandedAcknowledgementRendersInlineAsRealCode(t *testing.T) {
 func TestTheCursorSkipsAnOpaqueChangeInAnExpansion(t *testing.T) {
 	step := ackStep()
 	step.Acknowledgements = append(step.Acknowledgements, daemon.AcknowledgementWire{Reason: "second"})
-	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: ackExpansion()})
+	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: ackExpansion()}, false)
 	cur.cursor = 4 // the last line of gen.go
 
 	cur.move(1)
@@ -107,7 +107,7 @@ func TestTheCursorSkipsAnOpaqueChangeInAnExpansion(t *testing.T) {
 }
 
 func TestASelectionInAcknowledgedCodeNamesTheAcknowledgement(t *testing.T) {
-	cur := newStepCursor(ackStep(), map[int][]daemon.ExcerptWire{0: ackExpansion()})
+	cur := newStepCursor(ackStep(), map[int][]daemon.ExcerptWire{0: ackExpansion()}, false)
 	cur.cursor = 2 // the removed row of gen.go
 
 	cur.extend(1)
@@ -126,7 +126,7 @@ func TestASelectionInAcknowledgedCodeNamesTheAcknowledgement(t *testing.T) {
 }
 
 func TestANarratedSelectionSendsNoAcknowledgement(t *testing.T) {
-	cur := newStepCursor(ackStep(), nil)
+	cur := newStepCursor(ackStep(), nil, false)
 
 	run, _ := cur.selection()
 
@@ -136,7 +136,7 @@ func TestANarratedSelectionSendsNoAcknowledgement(t *testing.T) {
 }
 
 func TestAStopCannotBeSelected(t *testing.T) {
-	cur := newStepCursor(ackStep(), nil)
+	cur := newStepCursor(ackStep(), nil, false)
 	cur.cursor = 1 // the stop
 
 	if _, ok := cur.selection(); ok {
@@ -151,11 +151,11 @@ func TestTheAcknowledgementHeaderStaysOnScreenInsideItsCode(t *testing.T) {
 	}
 	step := ackStep()
 	expansion := map[int][]daemon.ExcerptWire{0: {{File: "gen.go", Side: "new", FirstLine: 1, LastLine: 60, Lines: lines}}}
-	cur := newStepCursor(step, expansion)
+	cur := newStepCursor(step, expansion, false)
 	cur.cursor = len(cur.lines) - 1
 	const height = 20
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, height, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, width: 80, height: height})
 
 	if got := lipgloss.Height(out); got > height {
 		t.Errorf("the pane is %d rows, over the %d given", got, height)
@@ -176,9 +176,9 @@ func TestTheAcknowledgementHeaderStaysOnScreenInsideItsCode(t *testing.T) {
 
 func TestACollapsedAcknowledgementCountsItsComments(t *testing.T) {
 	step := ackStep()
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 
-	out := renderStep(step, cur, map[string]bool{}, []int{1}, 80, 40, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, ackCommentCounts: []int{1}, width: 80, height: 40})
 
 	if !strings.Contains(lineWith(t, out, "Acknowledged"), "1 Comment") {
 		t.Errorf("expected the stop to count its Comment:\n%s", out)

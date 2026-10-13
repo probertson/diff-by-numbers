@@ -124,15 +124,6 @@ func blocks(excerpt, first, last int) review.AnchorTarget {
 		Start: review.AnchorEndpoint{Line: first}, End: review.AnchorEndpoint{Line: last}}
 }
 
-// anchoringIn opens the first Step of a Round over the files, ready to anchor.
-func anchoringIn(t *testing.T, files workingFiles, steps ...review.Step) *review.Session {
-	t.Helper()
-	session := review.NewSession(files, files)
-	mustPost(t, session, documentRound(steps...))
-	mustAdvance(t, session)
-	return session
-}
-
 func numbersOf(lines []review.Line) []int {
 	var out []int
 	for _, line := range lines {
@@ -144,7 +135,7 @@ func numbersOf(lines []review.Line) []int {
 func TestSelectingTwoParagraphsAnchorsTheirSourceLines(t *testing.T) {
 	// A heading on line 1; paragraphs on 3-4, 6-7 and 9.
 	files := adding("docs/retries.md", markdown("# Retries", "one two\nthree four", "five six\nseven eight", "nine"))
-	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
 
 	anchor, err := session.Anchor(blocks(0, 3, 6))
 
@@ -168,7 +159,7 @@ func TestAnEditedParagraphsAnchorQuotesItsRemovedAndAddedLines(t *testing.T) {
 		markdown("# Retries", "A request is retried when the transport fails."),
 		markdown("# Retries", "A request is resent when the transport fails.", "It waits between attempts."),
 	)
-	session := anchoringIn(t, files, showingLines("Resend", "docs/retries.md", review.NewSide, 3, 5))
+	session := openDocumentRound(t, files, showingLines("Resend", "docs/retries.md", review.NewSide, 3, 5))
 
 	anchor, err := session.Anchor(blocks(0, 3, 3))
 
@@ -198,7 +189,7 @@ func TestAnchoringATableRowQuotesTheHeaderRowForContext(t *testing.T) {
 	// One Step shows the heading and the first row; the one under test shows
 	// rows 7-8, so dbn adds the header row and divider to it as context.
 	files := adding("docs/retries.md", markdown("# Retries", attemptsTable))
-	session := anchoringIn(t, files,
+	session := openDocumentRound(t, files,
 		showingLines("The last attempts", "docs/retries.md", review.NewSide, 7, 8),
 		showingLines("The first attempt", "docs/retries.md", review.NewSide, 1, 6))
 
@@ -221,7 +212,7 @@ func TestAnchoringATableRowQuotesTheHeaderRowForContext(t *testing.T) {
 
 func TestAnchoringATablesHeaderRowPointsAtIt(t *testing.T) {
 	files := adding("docs/retries.md", markdown("# Retries", attemptsTable))
-	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
 
 	anchor, err := session.Anchor(blocks(0, 3, 5))
 
@@ -235,7 +226,7 @@ func TestAnchoringATablesHeaderRowPointsAtIt(t *testing.T) {
 
 func TestASelectionOfBlocksMustEndInBlocks(t *testing.T) {
 	files := adding("docs/retries.md", markdown("# Retries", "one two"))
-	session := anchoringIn(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
+	session := openDocumentRound(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
 
 	_, err := session.Anchor(blocks(0, 2, 3)) // line 2 is the blank line
 

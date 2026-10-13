@@ -47,10 +47,10 @@ func TestWrappingEveryLineSurvivesAStepChange(t *testing.T) {
 
 func TestWrappingEveryLineShowsTwoLongLinesAtOnce(t *testing.T) {
 	step := twoLongLines()
-	cur := newStepCursor(step, nil) // on the removal, not the addition
+	cur := newStepCursor(step, nil, false) // on the removal, not the addition
 	const width, height = 50, 30
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, width: width, height: height, wrapAll: true})
 
 	if !strings.Contains(out, "OLDTAIL") || !strings.Contains(out, "NEWTAIL") {
 		t.Errorf("both long lines should be readable in full at once, got:\n%s", out)
@@ -80,10 +80,10 @@ func TestTogglingBackRestoresTheCursorLineOnlyWrap(t *testing.T) {
 
 func TestWrappingEveryLineKeepsTheCursorLineOnScreen(t *testing.T) {
 	step := tallStep() // 40 lines, more than fits
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 	cur.cursor = 30
 
-	out := renderStep(step, cur, map[string]bool{}, nil, 80, 20, false, true, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, width: 80, height: 20, wrapAll: true})
 
 	if !strings.Contains(out, "code line 31") {
 		t.Errorf("the cursor's own line must stay visible, got:\n%s", out)
@@ -100,9 +100,9 @@ func TestWrappingEveryLineClipsALineTallerThanThePane(t *testing.T) {
 	huge := strings.Repeat("word ", 400)
 	step := oneLineStep(huge)
 	const width, height = 40, 16
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 
-	out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, true, 0)
+	out := renderStep(paneInputs{step: step, cur: cur, width: width, height: height, wrapAll: true})
 
 	if h := lipgloss.Height(out); h > height {
 		t.Errorf("an oversized wrapped line blew the height: %d rows over the %d given:\n%s", h, height, out)
@@ -127,7 +127,7 @@ func TestTheStepPaneSurvivesAPaneTooShortForItsHeaders(t *testing.T) {
 		{Number: 2, Text: long, Side: "new", Changed: true},
 		{Number: 3, Text: "short", Side: "new", Changed: true},
 	}}}
-	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: expansion})
+	cur := newStepCursor(step, map[int][]daemon.ExcerptWire{0: expansion}, false)
 
 	for _, wrapAll := range []bool{false, true} {
 		for width := 24; width <= 60; width += 4 {
@@ -135,7 +135,7 @@ func TestTheStepPaneSurvivesAPaneTooShortForItsHeaders(t *testing.T) {
 				for i := range cur.lines {
 					cur.cursor = i
 
-					out := renderStep(step, cur, map[string]bool{}, nil, width, height, false, wrapAll, 0)
+					out := renderStep(paneInputs{step: step, cur: cur, width: width, height: height, wrapAll: wrapAll})
 
 					if out == "" {
 						t.Errorf("wrapAll=%v width=%d height=%d cursor=%d rendered nothing", wrapAll, width, height, i)

@@ -14,7 +14,6 @@ import (
 // struck and added; the TUI only lays the runs out and styles them.
 
 const (
-	redSGR       = "31"
 	strikeSGR    = "9"
 	underlineSGR = "4"
 )

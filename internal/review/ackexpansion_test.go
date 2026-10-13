@@ -8,23 +8,25 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
-// ackRow is one rendered row of an expansion, reduced to what a unified diff is
-// judged by: which side it is on, its number, and whether it changed.
-type ackRow struct {
+// viewRow is one rendered row of an Excerpt's view, reduced to what a unified
+// diff is judged by: which side it is on, its number, and whether it changed;
+// and, in a Document, whether it was widened in.
+type viewRow struct {
 	side    review.Side
 	number  int
 	changed bool
+	widened bool
 }
 
-func rowsOf(view review.ExcerptView) []ackRow {
-	rows := make([]ackRow, len(view.Lines))
+func rowsOf(view review.ExcerptView) []viewRow {
+	rows := make([]viewRow, len(view.Lines))
 	for i, line := range view.Lines {
-		rows[i] = ackRow{line.Side, line.Number, line.Changed}
+		rows[i] = viewRow{line.Side, line.Number, line.Changed, line.Widened}
 	}
 	return rows
 }
 
-func assertRows(t *testing.T, got, want []ackRow) {
+func assertRows(t *testing.T, got, want []viewRow) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("expected %d rows %+v, got %d %+v", len(want), want, len(got), got)
@@ -73,16 +75,16 @@ func TestAnExpandedEditReadsAsAUnifiedDiff(t *testing.T) {
 	if len(views) != 2 {
 		t.Fatalf("expected one Excerpt per edit, got %d: %+v", len(views), views)
 	}
-	assertRows(t, rowsOf(views[0]), []ackRow{
-		{review.OldSide, 2, true}, // the before it replaced, just above
-		{review.NewSide, 2, true},
-		{review.NewSide, 3, true},
+	assertRows(t, rowsOf(views[0]), []viewRow{
+		{review.OldSide, 2, true, false}, // the before it replaced, just above
+		{review.NewSide, 2, true, false},
+		{review.NewSide, 3, true, false},
 	})
 	// A pure removal has no after-side to sit beside, so it stays before-only — in
 	// file order, after the edit above it.
-	assertRows(t, rowsOf(views[1]), []ackRow{
-		{review.OldSide, 9, true},
-		{review.OldSide, 10, true},
+	assertRows(t, rowsOf(views[1]), []viewRow{
+		{review.OldSide, 9, true, false},
+		{review.OldSide, 10, true, false},
 	})
 }
 
@@ -180,16 +182,13 @@ func acknowledgedDocumentAndCode(t *testing.T) *review.Session {
 			"retry.go":        "func retry() {\n\tresend()\n}\n",
 		},
 	}
-	session := review.NewSession(files, files)
-	mustPost(t, session, documentRound(review.Step{
+	return openDocumentRound(t, files, review.Step{
 		Name:        "Notes and their code",
 		Explanation: "the agent's notes and the call they describe, read elsewhere",
 		Acknowledgements: []review.Acknowledgement{{
 			Repository: docsRepo, Files: []string{"docs/retries.md", "retry.go"}, Reason: "read in the design review",
 		}},
-	}))
-	mustAdvance(t, session)
-	return session
+	})
 }
 
 // expandedFile is what an Acknowledgement's expansion shows of one file.
@@ -238,15 +237,13 @@ func TestAParagraphEditedInTwoPlacesExpandsOnceWithBothEdits(t *testing.T) {
 		markdown("# Retries", "A request is retried\nwhen the transport\nfails badly."),
 		markdown("# Retries", "A request is resent\nwhen the transport\nfails often."),
 	)
-	session := review.NewSession(files, files)
-	mustPost(t, session, documentRound(review.Step{
+	session := openDocumentRound(t, files, review.Step{
 		Name:        "Notes",
 		Explanation: "the agent's notes, read elsewhere",
 		Acknowledgements: []review.Acknowledgement{{
 			Repository: docsRepo, Files: []string{"docs/retries.md"}, Reason: "read in the design review",
 		}},
-	}))
-	mustAdvance(t, session)
+	})
 
 	views, err := session.ExpandAcknowledgement(1, 0)
 
@@ -281,8 +278,8 @@ func TestCodeInTheSameAcknowledgementAsADocumentStillExpandsAsAUnifiedDiff(t *te
 	if blocks := code[0].Blocks; len(blocks) != 0 {
 		t.Errorf("expected code to carry no blocks, got %+v", blocks)
 	}
-	assertRows(t, rowsOf(code[0]), []ackRow{
-		{review.OldSide, 2, true},
-		{review.NewSide, 2, true},
+	assertRows(t, rowsOf(code[0]), []viewRow{
+		{review.OldSide, 2, true, false},
+		{review.NewSide, 2, true, false},
 	})
 }

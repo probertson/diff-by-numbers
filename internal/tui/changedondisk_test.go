@@ -29,7 +29,7 @@ func stepWithEditedFile() *daemon.StepWire {
 func TestAStepWarnsOnceForEachFileThatChangedOnDiskAndStillShowsItsCode(t *testing.T) {
 	step := stepWithEditedFile()
 
-	out := renderStep(step, newStepCursor(step, nil), nil, nil, 200, 40, false, false, 0)
+	out := renderStep(paneInputs{step: step, cur: newStepCursor(step, nil, false), width: 200, height: 40})
 
 	if n := strings.Count(out, "fetch.ts "+postedWarning); n != 1 {
 		t.Errorf("expected one warning for fetch.ts, got %d:\n%s", n, out)
@@ -51,9 +51,9 @@ func TestAnExpansionWarnsAboutAFileThatChangedOnDisk(t *testing.T) {
 		Repository: "/r", File: "gen.ts", Side: "new", FirstLine: 1, LastLine: 1, ChangedOnDisk: true,
 		Lines: []daemon.LineWire{{Number: 1, Side: "new", Text: "generated line", Changed: true}},
 	}}}
-	cur := newStepCursor(step, expanded)
+	cur := newStepCursor(step, expanded, false)
 
-	rows := paneRows(step, cur, nil, nil, 200, 4, false, false, 0)
+	rows := paneInputs{step: step, cur: cur, width: 200}.rows(4)
 
 	var warned bool
 	for _, row := range rows {

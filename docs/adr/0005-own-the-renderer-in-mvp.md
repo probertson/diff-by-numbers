@@ -104,3 +104,23 @@ like the word diff in #81: `github.com/yuin/goldmark` parses each Document in-pr
 reads only the source positions of its blocks (#134). goldmark never renders anything. It hands
 back line ranges, not HTML or styled text, so the constraint above holds: dbn still draws every
 row itself, Document rows included, and still knows precisely what sits on each.
+
+## Amendment (#166): structure is the review package's, inline styling is presentation
+
+A Document Step is drawn formatted (#168): each block reflowed to the prose width, its kind
+styled, and an edit drawn as track changes. That raises where Markdown is read: by the daemon,
+which already parses Documents for their budget (#134), or by the TUI, which lays the text out.
+The line falls between structure and styling.
+
+- **Structure is the review package's, parsed with goldmark.** Anything that affects coverage,
+  costs or Anchors is decided there: where each block begins and ends, its kind, which source
+  lines it spans, its treatment (new, edited, removed or context), the rows an Excerpt is widened
+  by, and the words an edit kept, struck and added. The daemon carries all of it to the TUI, which
+  never decides any of it again, so the Step view, the budget and every Anchor agree on what a
+  block is.
+- **Inline styling within a block is presentation, like syntax highlighting.** Emphasis markers,
+  list bullets, heading hashes, quote prefixes, hard breaks and table pipes are worked out by the
+  TUI from the block's own text. That never changes which source lines a row shows, which is what
+  the constraint above protects: dbn still knows precisely what sits on every row, because the
+  rows and the blocks they belong to came from the daemon. A styling rule the TUI gets wrong
+  draws a word in the wrong style; it cannot move, hide or misattribute a line.

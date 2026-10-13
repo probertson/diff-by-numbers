@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/probertson/diff-by-numbers/internal/config"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
@@ -91,5 +92,25 @@ func TestTheOverviewWrapsTheBriefAtTheProseWidth(t *testing.T) {
 
 	if w := widestRowWith(out, "narration"); w > 72 || w < 60 {
 		t.Errorf("the Overview's widest row of narration is %d cells, want it wrapped at 72:\n%s", w, out)
+	}
+}
+
+func TestTheDefaultProseWidthReachesTheTUIFromSettingsWithNoFile(t *testing.T) {
+	noFile := map[string]string{"XDG_CONFIG_HOME": t.TempDir()}
+	settings, err := config.Load(func(key string) (string, bool) {
+		value, ok := noFile[key]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("loading settings with no config file: %v", err)
+	}
+
+	m, err := start(OptionsFrom(settings, closedPort(t)))
+
+	if err != nil {
+		t.Fatalf("starting with no daemon: %v", err)
+	}
+	if m.proseWidth != 100 {
+		t.Errorf("the TUI starts with a prose width of %d, want the default 100", m.proseWidth)
 	}
 }

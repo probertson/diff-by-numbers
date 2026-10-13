@@ -2,7 +2,6 @@ package review
 
 import (
 	"strings"
-	"unicode"
 
 	"github.com/probertson/diff-by-numbers/internal/intraline"
 )
@@ -18,7 +17,8 @@ type docWord struct {
 }
 
 // wordsAt is the words of the given lines in order, each with where it stands
-// and the node of the block it falls in. A word is what wordsIn counts.
+// and the node of the block it falls in. A word is what isWord counts, as for
+// wordsIn.
 func (d document) wordsAt(lines, nodes []int) []docWord {
 	var out []docWord
 	for _, line := range lines {
@@ -27,7 +27,7 @@ func (d document) wordsAt(lines, nodes []int) []docWord {
 		for _, field := range strings.Fields(text) {
 			start := at + strings.Index(text[at:], field)
 			at = start + len(field)
-			if strings.IndexFunc(field, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) < 0 {
+			if !isWord(field) {
 				continue
 			}
 			out = append(out, docWord{text: field, line: line, start: start, end: at, node: nodes[line-1]})

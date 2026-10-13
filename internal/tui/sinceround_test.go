@@ -121,9 +121,9 @@ func TestAPreviousRoundRowIsDrawnAsARemoval(t *testing.T) {
 				{Number: 3, Side: "new", Text: "new text", Changed: true},
 			}}},
 	}
-	cur := newStepCursor(step, nil)
+	cur := newStepCursor(step, nil, false)
 
-	rows := paneRows(step, cur, nil, nil, 80, 4, false, false, 0)
+	rows := paneInputs{step: step, cur: cur, width: 80}.rows(4)
 
 	var removed, added bool
 	for _, r := range rows {
