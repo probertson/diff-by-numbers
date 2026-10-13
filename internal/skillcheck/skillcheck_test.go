@@ -6,12 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/probertson/diff-by-numbers/internal/skillcheck"
 )
 
 // The skill this release shipped. Every case compares an on-disk copy against it.
 const shipped = "# dbn-review\n\nRequires dbn v0.2.2 or later.\n"
+
+// A reference file the skill sends its reader to, shipped beside SKILL.md.
+const shippedReference = "# Documents\n\nSplit by the Document's sections.\n"
 
 const stale = "# dbn-review\n\nan older copy\n"
 
@@ -145,18 +149,100 @@ func TestAStalePluginAndAStaleUserSkillAreBothReported(t *testing.T) {
 	}
 }
 
-// report runs the check over a fake home and returns everything it printed.
+func TestAUserSkillWithAStaleReferenceFileIsOutOfDate(t *testing.T) {
+	home := t.TempDir()
+	skills := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, skills, shipped)
+	writeSkillFile(t, skills, "documents.md", "# Documents\n\nan older copy\n")
+
+	out := reportShipping(t, home, withReference())
+
+	if !strings.Contains(out, "is out of date: run `npx skills add probertson/diff-by-numbers/skills/dbn-review`\n") {
+		t.Errorf("a matching SKILL.md should not hide a stale reference file:\n%s", out)
+	}
+}
+
+func TestAPluginMissingAReferenceFileIsOutOfDate(t *testing.T) {
+	home := t.TempDir()
+	install := t.TempDir()
+	writeSkill(t, filepath.Join(install, "skills"), shipped)
+	installPlugin(t, home, install)
+
+	out := reportShipping(t, home, withReference())
+
+	if !strings.Contains(out, "Your dbn-review skill (Claude Code plugin) is out of date") {
+		t.Errorf("a copy without a file this build ships should not pass for current:\n%s", out)
+	}
+}
+
+func TestASkillMatchingFileForFileIsNotMentioned(t *testing.T) {
+	home := t.TempDir()
+	install := t.TempDir()
+	writeSkill(t, filepath.Join(install, "skills"), shipped)
+	writeSkillFile(t, filepath.Join(install, "skills"), "documents.md", shippedReference)
+	installPlugin(t, home, install)
+	skills := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, skills, shipped)
+	writeSkillFile(t, skills, "documents.md", shippedReference)
+
+	out := reportShipping(t, home, withReference())
+
+	if strings.Contains(out, "out of date") {
+		t.Errorf("copies with every shipped file, unchanged, should print nothing about themselves:\n%s", out)
+	}
+}
+
+// An installer, or the Reviewer, may leave files of its own beside the skill.
+// They were never dbn's, so they say nothing about whether the copy is current.
+func TestExtraFilesInAnInstalledCopyDoNotMakeItOutOfDate(t *testing.T) {
+	home := t.TempDir()
+	skills := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, skills, shipped)
+	writeSkillFile(t, skills, "documents.md", shippedReference)
+	writeSkillFile(t, skills, "my-notes.md", "# Notes\n")
+
+	out := reportShipping(t, home, withReference())
+
+	if strings.Contains(out, "out of date") {
+		t.Errorf("a file the build does not ship should be ignored:\n%s", out)
+	}
+}
+
+// report runs the check over a fake home, against a shipped skill of just its
+// main file, and returns everything it printed.
 func report(t *testing.T, home string) string {
 	t.Helper()
+	return reportShipping(t, home, fstest.MapFS{"SKILL.md": {Data: []byte(shipped)}})
+}
+
+// withReference is a shipped skill with a reference file beside its main file.
+func withReference() fstest.MapFS {
+	return fstest.MapFS{
+		"SKILL.md":     {Data: []byte(shipped)},
+		"documents.md": {Data: []byte(shippedReference)},
+	}
+}
+
+// reportShipping runs the check over a fake home against the given shipped
+// skill and returns everything it printed.
+func reportShipping(t *testing.T, home string, skill fstest.MapFS) string {
+	t.Helper()
 	var buf strings.Builder
-	skillcheck.Report(skillcheck.Config{Home: home, Embedded: shipped}, &buf)
+	skillcheck.Report(skillcheck.Config{Home: home, Embedded: skill}, &buf)
 	return buf.String()
 }
 
 // writeSkill puts a dbn-review SKILL.md at the given directory's conventional path.
 func writeSkill(t *testing.T, dir, content string) {
 	t.Helper()
-	path := filepath.Join(dir, "dbn-review", "SKILL.md")
+	writeSkillFile(t, dir, "SKILL.md", content)
+}
+
+// writeSkillFile puts one file of the dbn-review skill, named relative to the
+// skill's own directory, under the given directory's conventional path.
+func writeSkillFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	path := filepath.Join(dir, "dbn-review", filepath.FromSlash(name))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
