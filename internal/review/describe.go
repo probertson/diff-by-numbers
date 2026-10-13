@@ -41,6 +41,9 @@ type FileDescription struct {
 	// PreMarked is set on an Opaque Change a Revision Round has already shown,
 	// which the next post need not acknowledge again.
 	PreMarked bool
+	// Document reports that dbn classifies the file as a Document: prose for a
+	// person to read, which the agent plans differently from code.
+	Document bool
 }
 
 // RepositoryDescription is one repository's part of a Change Set.
@@ -192,6 +195,7 @@ func (l ledger) describeFile(repository, path string, atoms *fileAtoms) FileDesc
 		Modifications: atoms.modifications,
 		PreMarkedNew:  rangesOf(atoms.preNew),
 		PreMarkedOld:  rangesOf(atoms.preOld),
+		Document:      isDocument(path),
 	}
 	sort.Slice(file.Modifications, func(i, j int) bool {
 		return file.Modifications[i].New.First < file.Modifications[j].New.First

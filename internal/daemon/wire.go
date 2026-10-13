@@ -382,6 +382,7 @@ type fileChangesWire struct {
 	PreMarkedNew  []lineRangeWire    `json:"pre_marked_new,omitempty" jsonschema:"In a Revision Round, after-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarkedOld  []lineRangeWire    `json:"pre_marked_old,omitempty" jsonschema:"In a Revision Round, before-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarked     bool               `json:"pre_marked,omitempty" jsonschema:"In a Revision Round, set on a binary, mode or edit-free renamed file the Reviewer has already seen and the next post need not acknowledge again"`
+	Document      bool               `json:"document,omitempty" jsonschema:"Set when dbn classifies this file as a Document, prose for a person to read rather than code; it judges by file type, so Markdown is one. Plan the Steps that show a Document by the dbn-review skill's document guidance"`
 }
 
 type repositoryChangesWire struct {
@@ -423,6 +424,7 @@ func toDescribeResult(d review.ChangeDescription) describeResult {
 				PreMarkedNew: toRangeWires(file.PreMarkedNew),
 				PreMarkedOld: toRangeWires(file.PreMarkedOld),
 				PreMarked:    file.PreMarked,
+				Document:     file.Document,
 			}
 			for _, m := range file.Modifications {
 				fileWire.Modifications = append(fileWire.Modifications, modificationWire{

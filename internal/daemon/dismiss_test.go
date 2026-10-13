@@ -102,6 +102,16 @@ func TestTheAgentCannotDismissItsOwnReview(t *testing.T) {
 // toolsOf is the names of the tools the daemon offers an agent.
 func toolsOf(t *testing.T, baseURL string) []string {
 	t.Helper()
+	var names []string
+	for _, tool := range listedTools(t, baseURL) {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+// listedTools is every tool the daemon lists over MCP, schemas included.
+func listedTools(t *testing.T, baseURL string) []*mcp.Tool {
+	t.Helper()
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: baseURL + "/mcp"}, nil)
@@ -113,9 +123,5 @@ func toolsOf(t *testing.T, baseURL string) []string {
 	if err != nil {
 		t.Fatalf("could not list tools: %v", err)
 	}
-	var names []string
-	for _, tool := range listed.Tools {
-		names = append(names, tool.Name)
-	}
-	return names
+	return listed.Tools
 }

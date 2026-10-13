@@ -18,6 +18,7 @@ type describedFile struct {
 		Old [2]int `json:"old"`
 		New [2]int `json:"new"`
 	} `json:"modifications"`
+	Document *bool `json:"document"`
 }
 
 type described struct {
