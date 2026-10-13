@@ -18,7 +18,15 @@ type describedFile struct {
 		Old [2]int `json:"old"`
 		New [2]int `json:"new"`
 	} `json:"modifications"`
-	Document *bool `json:"document"`
+	Document  *bool            `json:"document"`
+	Cost      *int             `json:"cost"`
+	NewBlocks []describedBlock `json:"new_blocks"`
+	OldBlocks []describedBlock `json:"old_blocks"`
+}
+
+type describedBlock struct {
+	Lines [2]int `json:"lines"`
+	Cost  int    `json:"cost"`
 }
 
 type described struct {

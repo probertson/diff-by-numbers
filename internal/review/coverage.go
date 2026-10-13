@@ -150,10 +150,10 @@ type ledger struct {
 	// the round's own scope, not of the raw Change Set.
 	preShown       map[ChangedLine]bool
 	preShownOpaque map[fileRef]bool
-	// documents holds the blocks of each side of each Document with Changed
-	// Lines, as the round holds it. A Document's Changed Lines are charged in
-	// words, by the blocks they fall in, rather than as lines of code.
-	documents map[documentSide][]block
+	// documents holds the text and blocks of each side of each Document with
+	// Changed Lines, as the round holds it. A Document's Changed Lines are
+	// charged in words, by the blocks they fall in, rather than as lines of code.
+	documents map[documentSide]document
 }
 
 // newSinceEarlier reports whether a Changed Line is new to this round: not one
@@ -379,7 +379,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 	// Step, every Excerpt — to find out about the next, and they were all
 	// present on the first attempt. The coverage check has always aggregated;
 	// the budget was the outlier.
-	costs := l.documentCosts()
+	costs := l.costedBlocks()
 	var over []oversizedStep
 	documentOver := false
 	for i, step := range steps {
