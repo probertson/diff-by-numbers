@@ -45,19 +45,44 @@ func TestCommentingOnATableRowQuotesItsHeaderRow(t *testing.T) {
 		map[string]any{"name": "the last attempt", "explanation": "why", "excerpts": []any{excerpt(7, 7)}},
 		map[string]any{"name": "the rest", "explanation": "why", "excerpts": []any{excerpt(2, 6)}},
 	)
-	reviewerAct(t, server.URL, reviewID, "goto/1", nil)
-	m := model{client: client{base: server.URL}.on(reviewID), mode: modeReview, width: 80, height: 40, ready: true, note: newNote(80)}
+	m := press(openedOn(t, server.URL, reviewID), "down") // past the header row, onto the row
+
+	m = press(m, "c")
+
+	for _, want := range []string{"after 7 ", "      3 | | Attempt | Delay |", "+     7 | | 3 | 2s |"} {
+		if !strings.Contains(m.pendingCode, want) {
+			t.Errorf("expected the Anchor to contain %q, got:\n%s", want, m.pendingCode)
+		}
+	}
+}
+
+// openedOn is a model on the first Step of a review held by a real daemon.
+func openedOn(t *testing.T, baseURL, reviewID string) model {
+	t.Helper()
+	reviewerAct(t, baseURL, reviewID, "goto/1", nil)
+	m := model{client: client{base: baseURL}.on(reviewID), mode: modeReview, width: 80, height: 40, ready: true, note: newNote(80)}
 	view, err := m.client.view()
 	if err != nil {
 		t.Fatalf("could not read the view: %v", err)
 	}
 	m.view = view
 	m.syncCursor()
-	m = press(m, "down") // past the header row, onto the row
+	return m
+}
+
+func TestCommentingOnAnEditedParagraphQuotesItsRemovedAndAddedLines(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	t.Cleanup(server.Close)
+	root := repoChanging(t, "retries.md",
+		"# Retries\n\nA request is retried when the transport fails.\n",
+		"# Retries\n\nA request is resent when the transport fails.\n")
+	reviewID := postedRound(t, server.URL, root, map[string]any{"name": "resend", "explanation": "why",
+		"excerpts": []any{map[string]any{"file": "retries.md", "side": "new", "first_line": 1, "last_line": 3}}})
+	m := press(openedOn(t, server.URL, reviewID), "down") // onto the paragraph
 
 	m = press(m, "c")
 
-	for _, want := range []string{"after 7 ", "      3 | | Attempt | Delay |", "+     7 | | 3 | 2s |"} {
+	for _, want := range []string{"-     3 | A request is retried", "+     3 | A request is resent"} {
 		if !strings.Contains(m.pendingCode, want) {
 			t.Errorf("expected the Anchor to contain %q, got:\n%s", want, m.pendingCode)
 		}

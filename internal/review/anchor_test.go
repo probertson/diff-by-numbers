@@ -162,6 +162,34 @@ func TestSelectingTwoParagraphsAnchorsTheirSourceLines(t *testing.T) {
 	}
 }
 
+func TestAnEditedParagraphsAnchorQuotesItsRemovedAndAddedLines(t *testing.T) {
+	// The paragraph on line 3 is edited; a new one follows it on line 5.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "A request is retried when the transport fails."),
+		markdown("# Retries", "A request is resent when the transport fails.", "It waits between attempts."),
+	)
+	session := anchoringIn(t, files, showingLines("Resend", "docs/retries.md", review.NewSide, 3, 5))
+
+	anchor, err := session.Anchor(blocks(0, 3, 3))
+
+	if err != nil {
+		t.Fatalf("expected the edited paragraph to anchor, got %v", err)
+	}
+	want := []review.AnchorSegment{
+		{Side: review.OldSide, FirstLine: 3, LastLine: 3},
+		{Side: review.NewSide, FirstLine: 3, LastLine: 3},
+	}
+	if !slices.Equal(anchor.Segments, want) {
+		t.Errorf("expected the paragraph's removed and added lines, %v; got %v", want, anchor.Segments)
+	}
+	rendered := anchor.Render()
+	for _, line := range []string{"-     3 | A request is retried", "+     3 | A request is resent"} {
+		if !strings.Contains(rendered, line) {
+			t.Errorf("expected %q quoted:\n%s", line, rendered)
+		}
+	}
+}
+
 // attemptsTable is a heading on line 1 and a table: its header row on line 3,
 // its divider on 4 and its rows on 5-8.
 const attemptsTable = "| Attempt | Delay |\n| ------- | ----- |\n| 1 | none |\n| 2 | 1s |\n| 3 | 2s |\n| 4 | 4s |"
