@@ -60,6 +60,12 @@ type Anchor struct {
 	Segments   []AnchorSegment
 	StepName   string
 	Lines      []Line
+	// HeadingPath is the heading path of the Anchor's first line, when it lies
+	// in a Document: the headings that line sits under, outermost first. It
+	// says which section a point is about, so neither the Round nor the
+	// Reviewer has to; a selection that crosses into the next section quotes
+	// that section's heading among its lines (#177).
+	HeadingPath []string
 	// AcknowledgementReason is set when the Anchor lies in acknowledged code: a
 	// point raised there disputes the Acknowledgement's reason as well
 	// as the line, so the Anchor carries the claim it disputes.
@@ -121,11 +127,15 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 	// A row quoted only for context is not what the Anchor points at, so it is
 	// left out of the extent the Comment is marked and located by.
 	var lines, pointed []Line
+	var path []string
 	for _, row := range rows {
 		if row.line.Unreadable {
 			return Anchor{}, fmt.Errorf("could not read the selected code: %s", row.line.Text)
 		}
 		if row.line.Content() {
+			if len(lines) == 0 {
+				path = headingPathAt(view, row.at)
+			}
 			lines = append(lines, row.line)
 			if !row.context {
 				pointed = append(pointed, row.line)
@@ -139,6 +149,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		StepName:   step.Name,
 		Lines:      lines,
 
+		HeadingPath:           path,
 		AcknowledgementReason: reason,
 		Acknowledgement:       ackIndex,
 		ChangedOnDisk:         view.ChangedOnDisk,
@@ -150,6 +161,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 // rows selected can be read: a table's header row, above a row of the table.
 type quotedRow struct {
 	line    Line
+	at      int
 	context bool
 }
 
@@ -172,8 +184,8 @@ func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedR
 	}
 	if !target.Blocks {
 		var rows []quotedRow
-		for _, line := range view.Lines[start : end+1] {
-			rows = append(rows, quotedRow{line: line})
+		for i := start; i <= end; i++ {
+			rows = append(rows, quotedRow{line: view.Lines[i], at: i})
 		}
 		return rows, nil
 	}
@@ -205,12 +217,31 @@ func (s *Session) selectedRows(view ExcerptView, target AnchorTarget) ([]quotedR
 	for i, line := range view.Lines {
 		switch {
 		case headers[line.Block]:
-			rows = append(rows, quotedRow{line: line, context: true})
+			rows = append(rows, quotedRow{line: line, at: i, context: true})
 		case selected(line.Block), line.Block == 0 && i > lo && i < hi:
-			rows = append(rows, quotedRow{line: line})
+			rows = append(rows, quotedRow{line: line, at: i})
 		}
 	}
 	return rows, nil
+}
+
+// headingPathAt is the heading path of row i of an Excerpt's rendering: its
+// block's, or for a row in none, such as a blank line, the nearest block's
+// above it — below it only when there is none above — as the Reviewer's
+// surface heads it. A code Excerpt has no blocks, so no path.
+func headingPathAt(view ExcerptView, i int) []string {
+	isBlock := func(b int) bool { return b > 0 && b <= len(view.Blocks) }
+	for at := i; at >= 0; at-- {
+		if b := view.Lines[at].Block; isBlock(b) {
+			return view.Blocks[b-1].Path
+		}
+	}
+	for _, line := range view.Lines[i:] {
+		if isBlock(line.Block) {
+			return view.Blocks[line.Block-1].Path
+		}
+	}
+	return nil
 }
 
 // anchoredExcerpt finds the Excerpt a selection lies in — one of the Step's own,
@@ -305,7 +336,12 @@ func segmentsOf(lines []Line) []AnchorSegment {
 // of their own, "round 2 14", since their numbers are positions in that round
 // and in neither side of this one.
 func (a Anchor) Location() string {
-	parts := []string{a.File}
+	return a.location(a.File)
+}
+
+// location is Location with the file named as given.
+func (a Anchor) location(file string) string {
+	parts := []string{file}
 	for _, group := range []struct {
 		side  Side
 		label string
@@ -355,7 +391,10 @@ func (a Anchor) Render() string {
 	if a.AcknowledgementReason != "" {
 		where = fmt.Sprintf("acknowledged in Step %q (%s)", a.StepName, a.AcknowledgementReason)
 	}
-	fmt.Fprintf(&b, "Re: %s — %s in %s", a.Location(), where, filepath.Base(a.Repository))
+	// The heading path follows the file as it does in the Excerpt's header, so
+	// the agent reads the place the way the Reviewer saw it.
+	file := strings.Join(append([]string{a.File}, a.HeadingPath...), " › ")
+	fmt.Fprintf(&b, "Re: %s — %s in %s", a.location(file), where, filepath.Base(a.Repository))
 	if a.ChangedOnDisk {
 		b.WriteString(" (file changed since this round was posted; line numbers are from the posted version)")
 	}
