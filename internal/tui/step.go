@@ -65,6 +65,13 @@ type codeLine struct {
 	// emphasis is the [start, end) rune ranges of this line's text that its
 	// edit removed or added (#81, #125).
 	emphasis [][2]int
+	// block is, for a stop on a whole block of a Document Excerpt, the block's
+	// number among the Excerpt's Blocks (from 1), and rows the indexes of its
+	// rows among the Excerpt's Lines; number and side are then its first row's,
+	// and lastRow its last row's. A line of code has block 0.
+	block   int
+	rows    []int
+	lastRow rowRef
 }
 
 // sameExcerpt reports whether two rows lie in the same Excerpt — a narrated one,
@@ -89,6 +96,9 @@ type stepCursor struct {
 	cursor   int // index into lines
 	sel      int // selection start index, or -1 for none
 	expanded map[int][]daemon.ExcerptWire
+	// scroll is how many rows of the cursor's block are scrolled past, when the
+	// block is taller than the pane and is being paged through.
+	scroll int
 }
 
 // newStepCursor lays out a Step's pane. expanded holds the Excerpts of each
@@ -97,9 +107,7 @@ type stepCursor struct {
 func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire) stepCursor {
 	var lines []codeLine
 	for ei, excerpt := range step.Excerpts {
-		for _, line := range excerpt.Lines {
-			lines = append(lines, rowFor(line, excerpt, -1, ei))
-		}
+		lines = append(lines, stopsIn(excerpt, -1, ei)...)
 	}
 	for k := range step.Acknowledgements {
 		lines = append(lines, codeLine{kind: kindStop, ack: k, excerpt: -1})
@@ -108,9 +116,7 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 				lines = append(lines, codeLine{kind: kindNote, ack: k, excerpt: ei})
 				continue
 			}
-			for _, line := range excerpt.Lines {
-				lines = append(lines, rowFor(line, excerpt, k, ei))
-			}
+			lines = append(lines, stopsIn(excerpt, k, ei)...)
 		}
 	}
 	// A Step can open on a row the cursor may not rest on: a Step showing the
@@ -123,6 +129,32 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 		cursor = 0
 	}
 	return stepCursor{lines: lines, cursor: cursor, sel: -1, expanded: expanded}
+}
+
+// stopsIn is where the cursor stops in one Excerpt: on each line of code, or, in
+// a Document, on each block, which is the unit prose is read in. The blank lines
+// between blocks are no stop; a row of a Document in no block is a line.
+func stopsIn(excerpt daemon.ExcerptWire, ack, ei int) []codeLine {
+	var stops []codeLine
+	for i, line := range excerpt.Lines {
+		if len(excerpt.Blocks) == 0 || line.Block == 0 {
+			if len(excerpt.Blocks) > 0 && strings.TrimSpace(line.Text) == "" {
+				continue
+			}
+			stops = append(stops, rowFor(line, excerpt, ack, ei))
+			continue
+		}
+		last := rowRef{side: lineSide(line, excerpt), line: line.Number}
+		if n := len(stops); n > 0 && stops[n-1].block == line.Block {
+			stops[n-1].rows = append(stops[n-1].rows, i)
+			stops[n-1].lastRow = last
+			continue
+		}
+		stop := rowFor(line, excerpt, ack, ei)
+		stop.block, stop.rows, stop.lastRow = line.Block, []int{i}, last
+		stops = append(stops, stop)
+	}
+	return stops
 }
 
 // rowFor turns one rendered line into a cursor row, keeping a signpost out of
@@ -229,6 +261,9 @@ func (c *stepCursor) move(delta int) (blocked bool) {
 			return true
 		}
 	}
+	if target != c.cursor {
+		c.scroll = 0
+	}
 	c.cursor = target
 	return false
 }
@@ -303,13 +338,20 @@ func (c stepCursor) selection() (selectedRun, bool) {
 	if first.kind != kindCode || last.kind != kindCode || !first.sameExcerpt(last) {
 		return selectedRun{}, false
 	}
-	return selectedRun{
+	run := selectedRun{
 		ack:     first.ack,
-		excerpt: c.lines[start].excerpt,
-		start:   rowRef{side: c.lines[start].side, line: c.lines[start].number},
-		end:     rowRef{side: c.lines[end].side, line: c.lines[end].number},
+		excerpt: first.excerpt,
+		start:   rowRef{side: first.side, line: first.number},
+		end:     rowRef{side: last.side, line: last.number},
 		rows:    end - start + 1,
-	}, true
+	}
+	if first.block > 0 && last.block > 0 {
+		// A run of blocks is the source lines from the first block's first row to
+		// the last block's last, which is what the Anchor carries.
+		run.end = last.lastRow
+		run.rows = last.rows[len(last.rows)-1] - first.rows[0] + 1
+	}
+	return run, true
 }
 
 func (c stepCursor) inSelection(i int) bool {
@@ -497,33 +539,9 @@ func runesForRow(r []rune, width, nextWidth int) int {
 // when it is collapsed. The agent's narration wraps at proseWidth where that is
 // narrower than the pane (0 for no maximum); the code keeps the pane's width.
 func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo, wrapAll bool, proseWidth int) string {
-	wrap := func(text string) string { return wrapTo(text, width) }
-	prose := narrationWidth(width, proseWidth)
+	header := stepHeader(step, width, showRepo, proseWidth)
 	var b bytes.Buffer
-	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrapTo(step.Explanation, prose)+"\n")
-	if step.OversizeJustification != "" {
-		// The label goes on its own line above the wrapped justification. Inlining it
-		// before the block pushed the first wrapped line past the width, and the text
-		// was dropped when the terminal reflowed it.
-		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrapTo(step.OversizeJustification, prose)+"\n")
-	}
-	// Agent Questions come after the Explanation, which gives them their
-	// context, and before the code, which the Reviewer would otherwise read the
-	// question past (ADR-0017). The pane below is sized from what this header
-	// leaves.
-	if len(step.Questions) > 0 {
-		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, prose)+"\n")
-	}
-
-	// A file edited since the round was posted is still shown as posted, which is
-	// what the explanation was written against, so the code stays and the
-	// Reviewer is told. It sits up here, where it cannot scroll out of sight.
-	if edited := filesChangedOnDisk(step.Excerpts, showRepo); len(edited) > 0 {
-		fmt.Fprint(&b, "\n")
-		for _, label := range edited {
-			fmt.Fprint(&b, warnSt.Render(wrap(postedVersionWarning(label)))+"\n")
-		}
-	}
+	fmt.Fprint(&b, header)
 
 	// Every Acknowledgement is a stop, so an empty pane means no Acknowledgements
 	// and no code that could be read.
@@ -537,78 +555,10 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		return b.String()
 	}
 
-	// The pane gets whatever the fixed header (Step name and explanation) leaves.
-	// The explanation wins ties: the pane can shrink to a single row, and the
-	// Reviewer scrolls or enlarges the terminal, because the explanation is the
-	// whole reason the Reviewer is here.
-	available := height - lipgloss.Height(b.String())
-	if available < 1 {
-		available = 1
-	}
-
-	// The line under the cursor soft-wraps in place (#26): it is shown in full while
-	// every other line stays one truncated row. Its wrapped height is capped at
-	// roughly half the code area — with a small floor so even a short pane wraps
-	// something — so one enormous line cannot crowd out all the surrounding context;
-	// past the cap its last row ends in an ellipsis. The cursor line is reserved its
-	// full (capped) height and is never clipped by the window: context shrinks to
-	// make room, absorbed into the "more above/below" counts.
-	wrapCap := available / 2
-	if wrapCap < 3 {
-		wrapCap = 3
-	}
-	if wrapCap > available {
-		wrapCap = available
-	}
-	if wrapAll {
-		// Every line wraps in full, so nothing is compared against a clipped tail
-		// (#77). The half-pane cap existed to stop one line crowding out the rest;
-		// with every line wrapping, the window is what keeps them in proportion.
-		//
-		// A line is still capped one row past the pane: the cursor moves by source
-		// line, so no line can ever show more rows than the pane has, and the row
-		// past it is what tells the window there is more below. Without a cap a
-		// single generated line would be wrapped and styled in full on every
-		// keystroke, for rows that could never be drawn.
-		wrapCap = available + 1
-	}
-	rows := paneRows(step, cur, commented, ackCommentCounts, width, wrapCap, showRepo, wrapAll)
-
-	curFirst, curLast := -1, -1
-	for ri, row := range rows {
-		if row.line == cur.cursor {
-			if curFirst < 0 {
-				curFirst = ri
-			}
-			curLast = ri
-		}
-	}
+	pane := layoutPane(header, step, cur, commented, ackCommentCounts, width, height, showRepo, wrapAll, proseWidth)
+	rows, curFirst, curLast, budget := pane.rows, pane.curFirst, pane.curLast, pane.budget
 	cursorHeight := curLast - curFirst + 1
-
-	// When the pane does not all fit, reserve three rows for scroll indicators: a
-	// spacer and the upward arrow above, the downward arrow below. They are always
-	// present while scrolling (blank at an edge), so the body height stays constant
-	// and the frame below does not shift as the cursor moves. They are reserved
-	// only when the cursor line's full height plus the indicators fit, so a very
-	// short terminal shows code rather than arrows and nothing.
-	const indicatorRows = 3
-	overflow := len(rows) > available
-	// The cursor line is reserved its full height, so the window never clips it.
-	// Once every line wraps (#77) a single line can be taller than the whole pane;
-	// then it reserves what the pane has, is held to its first row, and the rest is
-	// clipped behind the downward marker.
-	reserved := cursorHeight
-	if reserved > available {
-		reserved = max(1, available-indicatorRows)
-	}
-	showIndicators := overflow && available >= reserved+indicatorRows
-	budget := available
-	if showIndicators {
-		budget -= indicatorRows
-	}
-	if budget < reserved {
-		budget = reserved
-	}
+	showIndicators := pane.showIndicators
 
 	// Centre the window on the cursor, then make room for the headers that give
 	// its top row context — the file it is in and, inside acknowledged code, the
@@ -666,13 +616,35 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		}
 	}
 
-	above, below := countLines(cur, rows[:start]), countLines(cur, rows[end:])
+	// A block taller than the pane is paged through a page at a time (↓ and ↑
+	// scroll it before they move on), so the window holds a page of it, and the
+	// indicators say when there is more of the block itself.
+	blockHeight, page, tall := pane.tallBlock(cur)
+	if tall {
+		sticky = stickyHeaders(rows[curFirst])
+		offset := min(max(cur.scroll, 0), blockHeight-page)
+		start, end = curFirst+offset, curFirst+offset+page
+	}
+	moreAbove, moreBelow := "", ""
+	switch above := countLines(cur, rows[:start]); {
+	case tall && start > curFirst:
+		moreAbove = "  ↑ more of this block above"
+	case above > 0:
+		moreAbove = fmt.Sprintf("  ↑ %d more above", above)
+	}
+	switch below := countLines(cur, rows[end:]); {
+	case tall && end <= curLast:
+		moreBelow = "  ↓ more of this block below"
+	case below > 0:
+		moreBelow = fmt.Sprintf("  ↓ %d more below", below)
+	}
+
 	if showIndicators {
-		if above > 0 {
-			fmt.Fprint(&b, "\n"+dimSt.Render(fmt.Sprintf("  ↑ %d more above", above))+"\n")
-		} else {
-			fmt.Fprint(&b, "\n\n")
+		// Blank at an edge, so the frame below does not shift as the cursor moves.
+		if moreAbove != "" {
+			moreAbove = dimSt.Render(moreAbove)
 		}
+		fmt.Fprint(&b, "\n"+moreAbove+"\n")
 	}
 	for _, header := range sticky {
 		fmt.Fprint(&b, header+"\n")
@@ -681,13 +653,146 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 		fmt.Fprint(&b, row.text+"\n")
 	}
 	if showIndicators {
-		if below > 0 {
-			fmt.Fprint(&b, dimSt.Render(fmt.Sprintf("  ↓ %d more below", below))+"\n")
-		} else {
-			fmt.Fprint(&b, "\n")
+		if moreBelow != "" {
+			moreBelow = dimSt.Render(moreBelow)
+		}
+		fmt.Fprint(&b, moreBelow+"\n")
+	}
+	return b.String()
+}
+
+// stepHeader is what sits above a Step's pane: its name, the agent's narration
+// and anything the Reviewer must not scroll past.
+func stepHeader(step *daemon.StepWire, width int, showRepo bool, proseWidth int) string {
+	wrap := func(text string) string { return wrapTo(text, width) }
+	prose := narrationWidth(width, proseWidth)
+	var b bytes.Buffer
+	fmt.Fprint(&b, labelSt.Render(step.Name)+"\n\n"+wrapTo(step.Explanation, prose)+"\n")
+	if step.OversizeJustification != "" {
+		// The label goes on its own line above the wrapped justification. Inlining it
+		// before the block pushed the first wrapped line past the width, and the text
+		// was dropped when the terminal reflowed it.
+		fmt.Fprint(&b, "\n"+warnSt.Render("oversized")+"\n"+wrapTo(step.OversizeJustification, prose)+"\n")
+	}
+	// Agent Questions come after the Explanation, which gives them their
+	// context, and before the code, which the Reviewer would otherwise read the
+	// question past (ADR-0017). The pane below is sized from what this header
+	// leaves.
+	if len(step.Questions) > 0 {
+		fmt.Fprint(&b, "\n"+questionBlock(step.Questions, prose)+"\n")
+	}
+
+	// A file edited since the round was posted is still shown as posted, which is
+	// what the explanation was written against, so the code stays and the
+	// Reviewer is told. It sits up here, where it cannot scroll out of sight.
+	if edited := filesChangedOnDisk(step.Excerpts, showRepo); len(edited) > 0 {
+		fmt.Fprint(&b, "\n")
+		for _, label := range edited {
+			fmt.Fprint(&b, warnSt.Render(wrap(postedVersionWarning(label)))+"\n")
 		}
 	}
 	return b.String()
+}
+
+// stepPane is a Step's pane laid out under its header: every row it draws, the
+// rows the cursor's line or block takes, and how many rows the window gives
+// them.
+type stepPane struct {
+	rows              []paneRow
+	curFirst, curLast int
+	budget            int
+	showIndicators    bool
+}
+
+// tallBlock reports whether the cursor is on a block taller than one window of
+// the pane, which ↓ and ↑ then page through; and if so how tall it is and how
+// many of its rows a page shows, below the headers that stay on screen.
+func (p stepPane) tallBlock(cur stepCursor) (height, page int, tall bool) {
+	if cur.lines[cur.cursor].block == 0 {
+		return 0, 0, false
+	}
+	height = p.curLast - p.curFirst + 1
+	page = max(1, p.budget-len(stickyHeaders(p.rows[p.curFirst])))
+	return height, page, height > page
+}
+
+// layoutPane lays out a Step's pane in the rows its header leaves of height.
+// The cursor must have somewhere to be.
+func layoutPane(header string, step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, height int, showRepo, wrapAll bool, proseWidth int) stepPane {
+	// The pane gets whatever the fixed header (Step name and explanation) leaves.
+	// The explanation wins ties: the pane can shrink to a single row, and the
+	// Reviewer scrolls or enlarges the terminal, because the explanation is the
+	// whole reason the Reviewer is here.
+	available := height - lipgloss.Height(header)
+	if available < 1 {
+		available = 1
+	}
+
+	// The line under the cursor soft-wraps in place (#26): it is shown in full while
+	// every other line stays one truncated row. Its wrapped height is capped at
+	// roughly half the code area — with a small floor so even a short pane wraps
+	// something — so one enormous line cannot crowd out all the surrounding context;
+	// past the cap its last row ends in an ellipsis. The cursor line is reserved its
+	// full (capped) height and is never clipped by the window: context shrinks to
+	// make room, absorbed into the "more above/below" counts.
+	wrapCap := available / 2
+	if wrapCap < 3 {
+		wrapCap = 3
+	}
+	if wrapCap > available {
+		wrapCap = available
+	}
+	if wrapAll {
+		// Every line wraps in full, so nothing is compared against a clipped tail
+		// (#77). The half-pane cap existed to stop one line crowding out the rest;
+		// with every line wrapping, the window is what keeps them in proportion.
+		//
+		// A line of code is still capped one row past the pane: the cursor moves by
+		// source line, so no line can ever show more rows than the pane has, and the
+		// row past it is what tells the window there is more below. (A Document's
+		// block is not capped: the cursor pages through one taller than the pane.) Without a cap a
+		// single generated line would be wrapped and styled in full on every
+		// keystroke, for rows that could never be drawn.
+		wrapCap = available + 1
+	}
+	rows := paneRows(step, cur, commented, ackCommentCounts, width, wrapCap, showRepo, wrapAll, proseWidth)
+
+	curFirst, curLast := -1, -1
+	for ri, row := range rows {
+		if row.line == cur.cursor {
+			if curFirst < 0 {
+				curFirst = ri
+			}
+			curLast = ri
+		}
+	}
+	cursorHeight := curLast - curFirst + 1
+
+	// When the pane does not all fit, reserve three rows for scroll indicators: a
+	// spacer and the upward arrow above, the downward arrow below. They are always
+	// present while scrolling (blank at an edge), so the body height stays constant
+	// and the frame below does not shift as the cursor moves. They are reserved
+	// only when the cursor line's full height plus the indicators fit, so a very
+	// short terminal shows code rather than arrows and nothing.
+	const indicatorRows = 3
+	overflow := len(rows) > available
+	// The cursor line is reserved its full height, so the window never clips it.
+	// Once every line wraps (#77) a single line can be taller than the whole pane;
+	// then it reserves what the pane has, is held to its first row, and the rest is
+	// clipped behind the downward marker.
+	reserved := cursorHeight
+	if reserved > available {
+		reserved = max(1, available-indicatorRows)
+	}
+	showIndicators := overflow && available >= reserved+indicatorRows
+	budget := available
+	if showIndicators {
+		budget -= indicatorRows
+	}
+	if budget < reserved {
+		budget = reserved
+	}
+	return stepPane{rows: rows, curFirst: curFirst, curLast: curLast, budget: budget, showIndicators: showIndicators}
 }
 
 // paneRow is one drawn row of a Step's pane, with what the windowing needs to
@@ -736,8 +841,15 @@ func countLines(cur stepCursor, rows []paneRow) int {
 // paneRows draws every row of a Step's pane, in order: the Step's own Excerpts,
 // then each Acknowledgement — its stop, and then either its manifest or, expanded,
 // the code it stands in for, drawn exactly as narrated code is.
-func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, wrapCap int, showRepo, wrapAll bool) []paneRow {
+func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, ackCommentCounts []int, width, wrapCap int, showRepo, wrapAll bool, proseWidth int) []paneRow {
 	var rows []paneRow
+	// Every block's line range is padded to the widest, so its text lines up.
+	labelWidth := 0
+	for _, line := range cur.lines {
+		if line.block > 0 {
+			labelWidth = max(labelWidth, ansi.StringWidth(blockLabel(line)))
+		}
+	}
 	decor := func(text, fileHeader, ackHeader string) {
 		rows = append(rows, paneRow{text: text, line: -1, blank: text == "", fileHeader: fileHeader, ackHeader: ackHeader})
 	}
@@ -816,11 +928,35 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			continue
 		}
 		excerpt := cur.excerptOf(step, line)
+		if line.block > 0 {
+			// Blocks stand apart where the source sets them apart, with a blank line.
+			if i > 0 {
+				prev := cur.lines[i-1]
+				if prev.block > 0 && prev.sameExcerpt(line) && line.rows[0] > prev.rows[len(prev.rows)-1]+1 {
+					decor("", fileHeader, ackHeader)
+				}
+			}
+			for _, text := range blockRows(cur, i, excerpt, blockCommented(excerpt, line, commented), width, proseWidth, labelWidth) {
+				rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
+			}
+			continue
+		}
 		for _, text := range codeRows(cur, i, commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)], width, wrapCap, wrapAll) {
 			rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 		}
 	}
 	return rows
+}
+
+// blockCommented reports whether a Comment covers any row of a block.
+func blockCommented(excerpt daemon.ExcerptWire, line codeLine, commented map[string]bool) bool {
+	for _, r := range line.rows {
+		row := excerpt.Lines[r]
+		if commented[commentKey(excerpt.Repository, excerpt.File, lineSide(row, excerpt), row.Number)] {
+			return true
+		}
+	}
+	return false
 }
 
 // codeRows draws one line of code: a single truncated row, or — under the cursor,

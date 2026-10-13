@@ -53,7 +53,7 @@ func TestAnExpansionWarnsAboutAFileThatChangedOnDisk(t *testing.T) {
 	}}}
 	cur := newStepCursor(step, expanded)
 
-	rows := paneRows(step, cur, nil, nil, 200, 4, false, false)
+	rows := paneRows(step, cur, nil, nil, 200, 4, false, false, 0)
 
 	var warned bool
 	for _, row := range rows {

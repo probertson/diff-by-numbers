@@ -23,6 +23,21 @@ type LineWire struct {
 	// Emphasis is the [start, end) rune ranges of the text on this line that the
 	// edit it belongs to removed or added (#81, #125). The TUI only styles them.
 	Emphasis [][2]int `json:"emphasis,omitempty"`
+	// Block is the block of a Document Excerpt the row belongs to, numbered from
+	// 1 among the Excerpt's Blocks; 0 for a row in none.
+	Block int `json:"block,omitempty"`
+}
+
+// BlockWire is one block of a Document Excerpt: what kind it is, where it is in
+// the file, and how it was changed. The TUI lays it out and styles it; it parses
+// nothing.
+type BlockWire struct {
+	Kind      string `json:"kind"`
+	Level     int    `json:"level,omitempty"`
+	Side      string `json:"side"`
+	FirstLine int    `json:"first_line"`
+	LastLine  int    `json:"last_line"`
+	Treatment string `json:"treatment"`
 }
 
 // toLineWire carries one rendered row to the TUI, including whether it is code
@@ -36,7 +51,19 @@ func toLineWire(line review.Line) LineWire {
 		Changed:  line.Changed,
 		Signpost: line.Signpost,
 		Emphasis: toEmphasisWire(line.Emphasis),
+		Block:    line.Block,
 	}
+}
+
+func toBlockWires(blocks []review.Block) []BlockWire {
+	var out []BlockWire
+	for _, b := range blocks {
+		out = append(out, BlockWire{
+			Kind: string(b.Kind), Level: b.Level, Side: string(b.Side),
+			FirstLine: b.Lines.First, LastLine: b.Lines.Last, Treatment: string(b.Treatment),
+		})
+	}
+	return out
 }
 
 func toEmphasisWire(ranges []intraline.Range) [][2]int {
@@ -58,6 +85,8 @@ type ExcerptWire struct {
 	// ChangedOnDisk says the file has been edited since the round was posted;
 	// the lines are still the posted ones.
 	ChangedOnDisk bool `json:"changed_on_disk,omitempty"`
+	// Blocks are a Document Excerpt's blocks, which its rows name; none for code.
+	Blocks []BlockWire `json:"blocks,omitempty"`
 }
 
 type AcknowledgedFileWire struct {
@@ -418,6 +447,7 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			LastLine:      view.Excerpt.LastLine,
 			Problem:       view.Problem,
 			ChangedOnDisk: view.ChangedOnDisk,
+			Blocks:        toBlockWires(view.Blocks),
 		}
 		for _, line := range view.Lines {
 			wire.Lines = append(wire.Lines, toLineWire(line))

@@ -427,6 +427,44 @@ func (m *model) enterStep() {
 	}
 }
 
+// tallBlock reports whether the cursor is on a block of a Document taller than
+// the pane shows at once, with the block's height and a page's, as the pane is
+// drawn now.
+func (m *model) tallBlock() (height, page int, tall bool) {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
+		return 0, 0, false
+	}
+	step, showRepo := m.view.Step, m.multiRepo()
+	header := stepHeader(step, m.width, showRepo, m.proseWidth)
+	pane := layoutPane(header, step, m.cursor, m.commentedLines(), m.ackComments(), m.width, m.bodyHeight(), showRepo, m.wrapAll, m.proseWidth)
+	return pane.tallBlock(m.cursor)
+}
+
+// pageBlock scrolls a page through the cursor's block, in the direction given,
+// when the block is taller than the pane and there is more of it that way. It
+// reports whether it did; once the block's end (or top) is on screen the cursor
+// moves on as it would from any block.
+func (m *model) pageBlock(direction int) bool {
+	height, page, tall := m.tallBlock()
+	if !tall {
+		return false
+	}
+	offset := min(max(m.cursor.scroll, 0), height-page)
+	if direction > 0 {
+		if offset+page >= height {
+			return false
+		}
+		m.cursor.scroll = min(offset+page, height-page)
+	} else {
+		if offset == 0 {
+			return false
+		}
+		m.cursor.scroll = max(0, offset-page)
+	}
+	m.noteBoundary(false)
+	return true
+}
+
 // relayout rebuilds the pane after an Acknowledgement expands or collapses, and
 // puts the cursor on spot — found by what it is, since the indices have moved.
 func (m *model) relayout(spot codeLine) {
@@ -1048,9 +1086,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			interactive := m.cursor.onCode()
 			switch key {
 			case "up", "k":
+				if m.pageBlock(-1) {
+					return m, nil
+				}
+				was := m.cursor.cursor
 				m.noteBoundary(m.cursor.move(-1))
+				// Coming up into a block taller than the pane lands on its end, which
+				// is the part of it nearest where the Reviewer was reading.
+				if height, page, tall := m.tallBlock(); tall && m.cursor.cursor != was {
+					m.cursor.scroll = height - page
+				}
 				return m, nil
 			case "down", "j":
+				if m.pageBlock(1) {
+					return m, nil
+				}
 				m.noteBoundary(m.cursor.move(1))
 				return m, nil
 			case "w":

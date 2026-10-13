@@ -35,6 +35,10 @@ type Line struct {
 	// (#81).
 	// Offsets are in runes of Text as it stands, before any tab is expanded.
 	Emphasis []intraline.Range
+	// Block is the block of a Document Excerpt the row belongs to, numbered from
+	// 1 among the Excerpt's Blocks; 0 for a row in none, such as a blank line
+	// between blocks or any row of code.
+	Block int
 }
 
 // Content reports whether a row is code, rather than a stand-in drawn in its
@@ -88,6 +92,9 @@ type ExcerptView struct {
 	// posted. The lines are still the posted ones; this only says the Reviewer
 	// is no longer looking at what is on disk.
 	ChangedOnDisk bool
+	// Blocks are the blocks of a Document Excerpt, in the order its rows show
+	// them, so it can be drawn formatted; none for code.
+	Blocks []Block
 }
 
 // AcknowledgedFile is one line of an Acknowledgement's manifest: a file the
@@ -298,10 +305,10 @@ func (s *Session) resolveExcerpt(excerpt Excerpt, in drawnIn) ExcerptView {
 	if excerpt.Side == NewSide {
 		if rows, ok := s.sinceRows(excerpt, in, lines); ok {
 			view.Lines = rows
-			return view
+			return s.withBlocks(view)
 		}
 		view.Lines = s.interleaveBefore(excerpt, in, lines)
-		return view
+		return s.withBlocks(view)
 	}
 	// An old-side Excerpt that assigns a rewrite's before-side has already been
 	// drawn, interleaved above the after-side it replaced. Drawing it again as a

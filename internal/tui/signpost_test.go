@@ -53,7 +53,7 @@ func TestTheCursorPassesOverASignpostGoingBack(t *testing.T) {
 func TestASignpostIsDrawnAsItsOwnText(t *testing.T) {
 	cur := newStepCursor(signpostStep(), nil)
 
-	rows := paneRows(signpostStep(), cur, nil, nil, 80, 4, false, false)
+	rows := paneRows(signpostStep(), cur, nil, nil, 80, 4, false, false, 0)
 
 	var drawn bool
 	for _, row := range rows {
