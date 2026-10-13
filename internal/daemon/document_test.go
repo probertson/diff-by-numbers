@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -100,6 +101,48 @@ func TestDescribeChangesMarksMarkdownFilesAsDocuments(t *testing.T) {
 			t.Errorf("expected %s to be described", path)
 		}
 	}
+}
+
+func TestDescribeChangesReportsWhatEachDocumentCostsOverMCP(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := documentsRepo(t)
+
+	got := decodeResult[described](t, callTool(t, server.URL, "describe_changes", map[string]any{
+		"repositories": []any{map[string]any{"root": root, "base": "main"}},
+	}))
+
+	if len(got.Problems) != 0 || len(got.Repositories) != 1 {
+		t.Fatalf("expected one repository described, got %+v", got)
+	}
+	files := map[string]describedFile{}
+	for _, file := range got.Repositories[0].Files {
+		files[file.Path] = file
+	}
+	// "# Spec" and "What it does." added; "# Retired" and "No longer needed."
+	// deleted.
+	blocks := []describedBlock{{Lines: [2]int{1, 1}, Cost: 1}, {Lines: [2]int{3, 3}, Cost: 3}}
+	for path, want := range map[string]describedFile{
+		"spec.md":    {Cost: intPointer(4), NewBlocks: blocks},
+		"retired.md": {Cost: intPointer(4), OldBlocks: blocks},
+		"main.go":    {},
+	} {
+		file := files[path]
+		if !reflect.DeepEqual(file.Cost, want.Cost) || !reflect.DeepEqual(file.NewBlocks, want.NewBlocks) || !reflect.DeepEqual(file.OldBlocks, want.OldBlocks) {
+			t.Errorf("%s: expected cost %v, new blocks %+v, old blocks %+v; got %v, %+v, %+v",
+				path, deref(want.Cost), want.NewBlocks, want.OldBlocks, deref(file.Cost), file.NewBlocks, file.OldBlocks)
+		}
+	}
+}
+
+func intPointer(n int) *int { return &n }
+
+// deref shows a pointer's value, or nil for a field left out.
+func deref(n *int) any {
+	if n == nil {
+		return nil
+	}
+	return *n
 }
 
 func TestDescribeChangesSaysWhatADocumentIs(t *testing.T) {

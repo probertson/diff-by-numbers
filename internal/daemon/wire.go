@@ -383,6 +383,15 @@ type fileChangesWire struct {
 	PreMarkedOld  []lineRangeWire    `json:"pre_marked_old,omitempty" jsonschema:"In a Revision Round, before-side ranges the Reviewer has already read and the next post need not cover"`
 	PreMarked     bool               `json:"pre_marked,omitempty" jsonschema:"In a Revision Round, set on a binary, mode or edit-free renamed file the Reviewer has already seen and the next post need not acknowledge again"`
 	Document      bool               `json:"document,omitempty" jsonschema:"Set when dbn classifies this file as a Document, prose for a person to read rather than code; it judges by file type, so Markdown is one. Plan the Steps that show a Document by the dbn-review skill's document guidance"`
+	Cost          *int               `json:"cost,omitempty" jsonschema:"For a Document, what its changes cost in words against a Step's Document budget of 1,000: what one Step showing every block in new_blocks and old_blocks is charged. In a Revision Round it is net of what the Reviewer has already read. Code has no cost: it is counted in Changed Lines"`
+	NewBlocks     []blockCostWire    `json:"new_blocks,omitempty" jsonschema:"For a Document, each after-side block that costs anything, in file order. A Step whose Excerpts touch any line of a block is charged the whole block, once; unchanged blocks and ones the Reviewer has already read cost nothing and are left out. Add up a section's blocks to plan its Steps"`
+	OldBlocks     []blockCostWire    `json:"old_blocks,omitempty" jsonschema:"For a Document, each before-side block that costs anything and has to be shown with an old-side Excerpt, such as a deleted paragraph. The before-side of an edit is drawn beside the after-side that replaced it, so it is charged with that block in new_blocks and is not listed here"`
+}
+
+// blockCostWire is one costing block of a Document.
+type blockCostWire struct {
+	Lines lineRangeWire `json:"lines" jsonschema:"The block's lines, as a [first, last] pair"`
+	Cost  int           `json:"cost" jsonschema:"What a Step showing any of the block is charged for it, in words"`
 }
 
 type repositoryChangesWire struct {
@@ -426,6 +435,12 @@ func toDescribeResult(d review.ChangeDescription) describeResult {
 				PreMarked:    file.PreMarked,
 				Document:     file.Document,
 			}
+			if file.Cost != nil {
+				words := file.Cost.Words
+				fileWire.Cost = &words
+				fileWire.NewBlocks = toBlockCostWires(file.Cost.NewBlocks)
+				fileWire.OldBlocks = toBlockCostWires(file.Cost.OldBlocks)
+			}
 			for _, m := range file.Modifications {
 				fileWire.Modifications = append(fileWire.Modifications, modificationWire{
 					Old: lineRangeWire{m.Old.First, m.Old.Last},
@@ -435,6 +450,14 @@ func toDescribeResult(d review.ChangeDescription) describeResult {
 			wire.Files = append(wire.Files, fileWire)
 		}
 		out.Repositories = append(out.Repositories, wire)
+	}
+	return out
+}
+
+func toBlockCostWires(blocks []review.BlockCost) []blockCostWire {
+	var out []blockCostWire
+	for _, b := range blocks {
+		out = append(out, blockCostWire{Lines: lineRangeWire{b.Lines.First, b.Lines.Last}, Cost: b.Words})
 	}
 	return out
 }

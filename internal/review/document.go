@@ -2,6 +2,7 @@ package review
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -116,4 +117,87 @@ func documentWordsIn(step Step, costing map[documentSide][]block) int {
 		}
 	}
 	return words
+}
+
+// documentCosts prices each Document's changes for a description. Rather than
+// count words itself, it asks the budget check what a Step would be charged: each
+// block is priced as a Step showing it alone, and a Document's total as one Step
+// showing every block listed, so the description can never disagree with a
+// refusal.
+//
+// A before-side block is listed only where it has to be shown on its own. One
+// an edit replaced is drawn beside the after-side that replaced it, and a Step
+// showing that after-side is charged for it there.
+func (l ledger) documentCosts() map[fileRef]*DocumentCost {
+	costing := l.costingBlocks()
+	alone := l.removedOutright()
+	out := map[fileRef]*DocumentCost{}
+	shown := map[fileRef]*Step{}
+	for ref := range l.documents {
+		file := fileRef{ref.repository, ref.file}
+		out[file] = &DocumentCost{}
+		shown[file] = &Step{}
+	}
+	for ref, blocks := range costing {
+		file := fileRef{ref.repository, ref.file}
+		for _, b := range blocks {
+			if ref.side == OldSide && !alone.any(ref, b) {
+				continue
+			}
+			excerpt := Excerpt{Repository: ref.repository, File: ref.file, Side: ref.side, FirstLine: b.lines.First, LastLine: b.lines.Last}
+			words := documentWordsIn(Step{Excerpts: []Excerpt{excerpt}}, costing)
+			if words == 0 {
+				continue
+			}
+			listed := BlockCost{Lines: b.lines, Words: words}
+			if ref.side == OldSide {
+				out[file].OldBlocks = append(out[file].OldBlocks, listed)
+			} else {
+				out[file].NewBlocks = append(out[file].NewBlocks, listed)
+			}
+			shown[file].Excerpts = append(shown[file].Excerpts, excerpt)
+		}
+	}
+	for file, cost := range out {
+		cost.Words = documentWordsIn(*shown[file], costing)
+		for _, blocks := range [][]BlockCost{cost.NewBlocks, cost.OldBlocks} {
+			sort.Slice(blocks, func(i, j int) bool { return blocks[i].Lines.First < blocks[j].Lines.First })
+		}
+	}
+	return out
+}
+
+// removedLines is a set of before-side Changed Lines.
+type removedLines map[ChangedLine]bool
+
+// any reports whether a block holds any of the lines.
+func (r removedLines) any(ref documentSide, b block) bool {
+	for n := b.lines.First; n <= b.lines.Last; n++ {
+		if r[ChangedLine{Repository: ref.repository, File: ref.file, Side: ref.side, Line: n}] {
+			return true
+		}
+	}
+	return false
+}
+
+// removedOutright are the before-side Changed Lines the budget counts that no
+// modification replaced: the ones only an old-side Excerpt can show.
+func (l ledger) removedOutright() removedLines {
+	out := removedLines{}
+	for _, line := range l.budgetedLines() {
+		if line.Side != OldSide {
+			continue
+		}
+		replaced := false
+		for _, c := range l.correspondences {
+			if c.Repository == line.Repository && c.File == line.File && c.isModification() && c.coversOld(line.Line) {
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out[line] = true
+		}
+	}
+	return out
 }

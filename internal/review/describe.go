@@ -44,6 +44,27 @@ type FileDescription struct {
 	// Document reports that dbn classifies the file as a Document: prose for a
 	// person to read, which the agent plans differently from code.
 	Document bool
+	// Cost is what a Document's changes cost against the Document budget, set
+	// on every file whose text is charged in words and on no other.
+	Cost *DocumentCost
+}
+
+// DocumentCost is what showing a Document's changes costs, in words, block by
+// block, so the agent can plan Steps by section without counting. It is priced
+// by the budget check itself, so a description and a refusal never disagree.
+type DocumentCost struct {
+	// Words is what one Step showing every costing block would be charged.
+	Words int
+	// NewBlocks and OldBlocks are the blocks that cost anything, on each side,
+	// in file order. A block that costs nothing is left out.
+	NewBlocks, OldBlocks []BlockCost
+}
+
+// BlockCost is one costing block of a Document: the lines it spans, and what a
+// Step showing any of them is charged for it.
+type BlockCost struct {
+	Lines LineRange
+	Words int
 }
 
 // RepositoryDescription is one repository's part of a Change Set.
@@ -117,6 +138,7 @@ type fileAtoms struct {
 // and files by path.
 func (l ledger) describe(set ChangeSet, revision bool) ChangeDescription {
 	files := l.atomsByFile()
+	costs := l.documentCosts()
 	out := ChangeDescription{RevisionRound: revision}
 	if revision {
 		for _, line := range l.lines {
@@ -135,7 +157,10 @@ func (l ledger) describe(set ChangeSet, revision bool) ChangeDescription {
 		}
 		sort.Strings(paths)
 		for _, path := range paths {
-			described.Files = append(described.Files, l.describeFile(repository.Root, path, files[fileRef{repository.Root, path}]))
+			ref := fileRef{repository.Root, path}
+			file := l.describeFile(repository.Root, path, files[ref])
+			file.Cost = costs[ref]
+			described.Files = append(described.Files, file)
 		}
 		out.Repositories = append(out.Repositories, described)
 	}
