@@ -60,6 +60,20 @@ func TestARoundInChaptersIsAcceptedOverTheWire(t *testing.T) {
 	}
 }
 
+func TestAChaptersOverviewStateCrossesTheWire(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	root := featureRepo(t)
+	posted := postRound(t, server.URL, chapteredRound(root))
+
+	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/goto/1")
+
+	view := viewWire(t, server.URL, posted.ReviewID)
+	if len(view.Chapters) != 1 || !view.Chapters[0].Seen {
+		t.Errorf("expected the one Chapter seen once its only Step is, got %+v", view.Chapters)
+	}
+}
+
 func TestARoundGivingBothShapesIsRefusedOverTheWire(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()

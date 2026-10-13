@@ -23,7 +23,7 @@ func chapteredView() *daemon.ViewWire {
 		Seen:      make([]bool, 5),
 		Chapters: []daemon.ChapterWire{
 			{Number: 1, Name: "Outline", Intro: "what the Round is about", FirstStep: 1, LastStep: 2},
-			{Number: 2, Name: "EL-7 Pack holds", Intro: "the holds come first", FirstStep: 3, LastStep: 3},
+			{Number: 2, Name: "EL-7 Pack holds", Intro: "the holds come first", FirstStep: 3, LastStep: 3, QuestionCount: 1},
 			{Number: 3, Name: "Tidying", Intro: "what is left", FirstStep: 4, LastStep: 5},
 		},
 		Questions: []daemon.QuestionWire{{ID: 1, Step: 3, Text: "Should the hold be 3 days?"}},

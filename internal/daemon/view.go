@@ -165,6 +165,12 @@ type ChapterWire struct {
 	Intro     string `json:"intro"`
 	FirstStep int    `json:"first_step"`
 	LastStep  int    `json:"last_step"`
+	// Seen says every Step in the Chapter has been seen; QuestionCount is how
+	// many Agent Questions its Steps ask; UnchangedSincePrevious says nothing
+	// any of its Steps shows changed since the previous round.
+	Seen                   bool `json:"seen,omitempty"`
+	QuestionCount          int  `json:"question_count,omitempty"`
+	UnchangedSincePrevious bool `json:"unchanged_since_previous,omitempty"`
 }
 
 // QuestionWire is an Agent Question as the TUI draws it, with the Reviewer's
@@ -420,6 +426,8 @@ func toViewWire(v review.ViewModel) ViewWire {
 		wire.Chapters = append(wire.Chapters, ChapterWire{
 			Number: chapter.Number, Name: chapter.Name, Intro: chapter.Intro,
 			FirstStep: chapter.FirstStep, LastStep: chapter.LastStep,
+			Seen: chapter.Seen, QuestionCount: chapter.QuestionCount,
+			UnchangedSincePrevious: chapter.UnchangedSincePrevious,
 		})
 	}
 	for _, st := range v.StepStatuses {

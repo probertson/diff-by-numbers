@@ -119,6 +119,12 @@ func (m model) asksMark(step int) string {
 			asked++
 		}
 	}
+	return askedMark(asked)
+}
+
+// askedMark says that a Step or a Chapter asks the Reviewer asked questions,
+// or nothing when it asks none.
+func askedMark(asked int) string {
 	switch asked {
 	case 0:
 		return ""

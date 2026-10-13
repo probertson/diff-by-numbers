@@ -24,6 +24,13 @@ type ChapterView struct {
 	Intro     string
 	FirstStep int
 	LastStep  int
+	// Seen reports that the Reviewer has seen every Step in the Chapter.
+	Seen bool
+	// QuestionCount is how many Agent Questions the Chapter's Steps ask.
+	QuestionCount int
+	// UnchangedSincePrevious reports that nothing any of the Chapter's Steps
+	// shows is new or edited since the previous round; false in a first round.
+	UnchangedSincePrevious bool
 }
 
 // chapterSpan is where an accepted Round's Chapter sits among its Steps, which
@@ -121,11 +128,19 @@ func (s *Session) chapterOf(step int) int {
 
 // chapterViews describes the Chapters of the Round on screen, or none.
 func (s *Session) chapterViews() []ChapterView {
+	unchanged := s.previousUnchanged()
 	var views []ChapterView
 	for i, span := range s.chapters {
-		views = append(views, ChapterView{
+		view := ChapterView{
 			Number: i + 1, Name: span.name, Intro: span.intro, FirstStep: span.first, LastStep: span.last,
-		})
+			Seen: true, UnchangedSincePrevious: unchanged != nil,
+		}
+		for step := span.first; step <= span.last; step++ {
+			view.Seen = view.Seen && s.seen[step]
+			view.QuestionCount += len(s.questionsOnStep(step))
+			view.UnchangedSincePrevious = view.UnchangedSincePrevious && step <= len(unchanged) && unchanged[step-1]
+		}
+		views = append(views, view)
 	}
 	return views
 }

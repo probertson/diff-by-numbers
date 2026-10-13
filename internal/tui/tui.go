@@ -2865,6 +2865,12 @@ func (m model) brief() string {
 	}
 	b.WriteString("\n")
 
+	// A Round in Chapters lists its Chapters here and each Chapter's Steps on
+	// its intro, so the whole Round fits on one screen.
+	if len(m.view.Chapters) > 0 {
+		b.WriteString(m.chapterRows())
+		return b.String()
+	}
 	b.WriteString(labelSt.Render("Steps") + "\n")
 	for i, name := range m.view.StepNames {
 		mark := " "

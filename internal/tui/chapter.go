@@ -41,6 +41,36 @@ func (m model) chapterSpan(chapter daemon.ChapterWire) string {
 	return fmt.Sprintf("Steps %d–%d of %d", chapter.FirstStep, chapter.LastStep, m.view.StepCount)
 }
 
+// stepRange names the Steps a Chapter holds, e.g. "Steps 12–16", or "Step 3"
+// for a Chapter of one.
+func stepRange(chapter daemon.ChapterWire) string {
+	if chapter.FirstStep == chapter.LastStep {
+		return fmt.Sprintf("Step %d", chapter.FirstStep)
+	}
+	return fmt.Sprintf("Steps %d–%d", chapter.FirstStep, chapter.LastStep)
+}
+
+// chapterRows is the Overview's list of a Round's Chapters, one row each in
+// place of the Steps. The rows are for reading, not picking: the Reviewer
+// reaches a Chapter by moving through the Round, or by its number.
+func (m model) chapterRows() string {
+	var b strings.Builder
+	b.WriteString(labelSt.Render("Chapters") + "\n")
+	for _, chapter := range m.view.Chapters {
+		mark := " "
+		if chapter.Seen {
+			mark = "✓"
+		}
+		unchanged := ""
+		if chapter.UnchangedSincePrevious {
+			unchanged = dimSt.Render(fmt.Sprintf(" unchanged since round %d", m.view.PreviousRound))
+		}
+		b.WriteString(fmt.Sprintf("  %s %2d. %s  %s%s%s\n", dimSt.Render(mark), chapter.Number, chapter.Name,
+			dimSt.Render(stepRange(chapter)), unchanged, askedMark(chapter.QuestionCount)))
+	}
+	return b.String()
+}
+
 // stepChapterHeading names the Chapter of the Step in view, or "" in a Round
 // without Chapters.
 func (m model) stepChapterHeading() string {

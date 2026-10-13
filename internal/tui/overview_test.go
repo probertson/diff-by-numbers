@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -231,6 +232,116 @@ func TestTheOverviewHasNoSourceSection(t *testing.T) {
 	}
 	if strings.Contains(out, "Source") || strings.Contains(out, "inferred") || strings.Contains(out, "stated") {
 		t.Errorf("the Overview should say nothing about where the account came from, got:\n%s", out)
+	}
+}
+
+// atOverview is the Overview of a Round in Chapters: chapteredView's five Steps
+// in three Chapters, two, one and two.
+func atOverview() model {
+	return model{width: 80, height: 30, viewport: viewport.New(80, 30), mode: modeReview, view: chapteredView()}
+}
+
+// overviewLines are the Overview's lines, each with its runs of spaces closed
+// up, so a row can be checked whole.
+func overviewLines(m model) []string {
+	var lines []string
+	for _, line := range strings.Split(m.content(), "\n") {
+		lines = append(lines, flatten(line))
+	}
+	return lines
+}
+
+// rowStarting is the first line that starts with prefix, or "".
+func rowStarting(lines []string, prefix string) string {
+	for _, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestTheOverviewOfARoundInChaptersListsOneRowPerChapter(t *testing.T) {
+	m := atOverview()
+
+	lines := overviewLines(m)
+
+	out := strings.Join(lines, "\n")
+	if !slices.Contains(lines, "Chapters") || slices.Contains(lines, "Steps") {
+		t.Errorf("expected the list headed Chapters, not Steps, got:\n%s", out)
+	}
+	for _, want := range []string{"1. Outline Steps 1–2", "2. EL-7 Pack holds Step 3", "3. Tidying Steps 4–5"} {
+		if rowStarting(lines, want) == "" {
+			t.Errorf("expected the row %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "STEP-") {
+		t.Errorf("expected the Steps listed on the intros, not the Overview, got:\n%s", out)
+	}
+}
+
+func TestAChapterRowIsTickedOnceItsStepsAreAllSeen(t *testing.T) {
+	m := atOverview()
+	m.view.Seen = []bool{true, true, false, true, false}
+	m.view.Chapters[0].Seen = true
+
+	lines := overviewLines(m)
+
+	out := strings.Join(lines, "\n")
+	if rowStarting(lines, "✓ 1. Outline") == "" {
+		t.Errorf("expected Chapter 1 ticked, got:\n%s", out)
+	}
+	if rowStarting(lines, "3. Tidying") == "" {
+		t.Errorf("expected the half-read Chapter 3 left unticked, got:\n%s", out)
+	}
+}
+
+func TestAChapterRowIsMarkedWhenItsStepsAskAQuestion(t *testing.T) {
+	m := atOverview()
+	m.view.Chapters[2].QuestionCount = 2
+
+	lines := overviewLines(m)
+
+	out := strings.Join(lines, "\n")
+	if row := rowStarting(lines, "2. EL-7 Pack holds"); !strings.HasSuffix(row, "◆ asks you a question") {
+		t.Errorf("expected Chapter 2 marked for its one question, got:\n%s", out)
+	}
+	if row := rowStarting(lines, "3. Tidying"); !strings.HasSuffix(row, "◆ asks you 2 questions") {
+		t.Errorf("expected Chapter 3 marked for its two questions, got:\n%s", out)
+	}
+	if row := rowStarting(lines, "1. Outline"); strings.Contains(row, "asks you") {
+		t.Errorf("expected Chapter 1, which asks nothing, left unmarked, got:\n%s", out)
+	}
+}
+
+func TestAChapterRowSaysWhenItIsUnchangedSinceThePreviousRound(t *testing.T) {
+	m := atOverview()
+	m.view.Round, m.view.PreviousRound = 3, 2
+	m.view.Chapters[0].UnchangedSincePrevious = true
+
+	lines := overviewLines(m)
+
+	out := strings.Join(lines, "\n")
+	if rowStarting(lines, "1. Outline Steps 1–2 unchanged since round 2") == "" {
+		t.Errorf("expected Chapter 1 unchanged since round 2, got:\n%s", out)
+	}
+	if strings.Count(out, "unchanged since") != 1 {
+		t.Errorf("expected only Chapter 1 to say it is unchanged, got:\n%s", out)
+	}
+}
+
+func TestTheOverviewOfARoundWithoutChaptersListsItsSteps(t *testing.T) {
+	m := atOverview()
+	m.view.Chapters = nil
+
+	lines := overviewLines(m)
+
+	out := strings.Join(lines, "\n")
+	if !slices.Contains(lines, "Steps") || slices.Contains(lines, "Chapters") {
+		t.Errorf("expected the list headed Steps, got:\n%s", out)
+	}
+	if !slices.Contains(lines, "3. STEP-c ◆ asks you a question") {
+		t.Errorf("expected every Step listed as before, got:\n%s", out)
 	}
 }
 

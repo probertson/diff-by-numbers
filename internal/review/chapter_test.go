@@ -331,3 +331,87 @@ func TestAStepNamesItsChapter(t *testing.T) {
 		t.Errorf("expected Step 3 to be in Chapter 2, got %d", chapter)
 	}
 }
+
+// The Overview's row for a Chapter is ticked only once the Reviewer has seen
+// every Step in it, so a Chapter left half-read does not look finished.
+func TestAChapterIsSeenOnceEveryStepInItIs(t *testing.T) {
+	session := chapteredSession(t)
+	for _, step := range []int{1, 2, 4} {
+		if err := session.GoTo(step); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	chapters := session.View().Chapters
+
+	var got []bool
+	for _, chapter := range chapters {
+		got = append(got, chapter.Seen)
+	}
+	if fmt.Sprint(got) != "[true false false]" {
+		t.Errorf("expected only the fully read Chapter 1 seen, got %v", got)
+	}
+}
+
+// A Chapter counts the Agent Questions its Steps ask, so the Overview can mark
+// its row; a question on the Round belongs to no Chapter.
+func TestAChapterCountsTheQuestionsItsStepsAsk(t *testing.T) {
+	walkthrough := chapteredRound()
+	walkthrough.Questions = []review.Question{{Text: "is this the right approach?"}}
+	walkthrough.Chapters[0].Steps[1].Questions = []review.Question{{Text: "why b?"}}
+	walkthrough.Chapters[2].Steps[0].Questions = []review.Question{{Text: "why d?"}}
+	walkthrough.Chapters[2].Steps[1].Questions = []review.Question{{Text: "why e?"}, {Text: "and e again?"}}
+	session := newSession()
+	mustPost(t, session, walkthrough)
+
+	chapters := session.View().Chapters
+
+	var got []int
+	for _, chapter := range chapters {
+		got = append(got, chapter.QuestionCount)
+	}
+	if fmt.Sprint(got) != "[1 0 3]" {
+		t.Errorf("expected each Chapter to count its own Steps' questions, got %v", got)
+	}
+}
+
+// A Chapter reads as unchanged since the previous round only when every Step
+// in it is: one changed Step is enough to send the Reviewer back in.
+func TestAChapterIsUnchangedSinceThePreviousRoundOnlyWhenEveryStepInItIs(t *testing.T) {
+	deriver := &roundsDeriver{
+		fixedDeriver: fixedDeriver{lines: changedApp(1, 6)},
+		touched:      map[string]bool{"app.ts:5": true},
+		edits:        map[string][]review.RoundEdit{"app.ts": {{OldFirst: 5, OldCount: 1, NewFirst: 5, NewCount: 1}}},
+	}
+	session := review.NewSession(&textResolver{text: map[string]string{}}, deriver)
+	walkthrough := appRound(nil, nil)
+	walkthrough.Chapters = []review.Chapter{
+		{Name: "Untouched", Intro: "as it was", Steps: []review.Step{appStep(1, 2), appStep(3, 3)}},
+		{Name: "Touched", Intro: "one Step changed", Steps: []review.Step{appStep(4, 4), appStep(5, 6)}},
+	}
+	mustPost(t, session, walkthrough)
+	handOffWithAComment(t, session)
+	mustRevise(t, session, revising(walkthrough))
+
+	chapters := session.View().Chapters
+
+	var got []bool
+	for _, chapter := range chapters {
+		got = append(got, chapter.UnchangedSincePrevious)
+	}
+	if fmt.Sprint(got) != "[true false]" {
+		t.Errorf("expected only the Chapter whose every Step is unchanged to say so, got %v", got)
+	}
+}
+
+func TestNoChapterIsUnchangedInAFirstRound(t *testing.T) {
+	session := chapteredSession(t)
+
+	chapters := session.View().Chapters
+
+	for _, chapter := range chapters {
+		if chapter.UnchangedSincePrevious {
+			t.Errorf("expected a first round to have nothing to compare with, but Chapter %d is unchanged", chapter.Number)
+		}
+	}
+}
