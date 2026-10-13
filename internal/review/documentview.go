@@ -44,8 +44,10 @@ type Block struct {
 	Treatment Treatment
 }
 
-// withBlocks gives a Document Excerpt its blocks, and tags each of its rows with
-// the block it belongs to. Anything else is left as it is, drawn line by line as
+// withBlocks gives a Document Excerpt its blocks, widens it so that none is
+// read in part, and tags each of its rows with the block it belongs to. The
+// rows it is widened by are real rows, so an Anchor can start or end on them.
+// Anything else is left as it is, drawn line by line as
 // code is: an Excerpt that is not of a Document's after-side, one whose
 // Document dbn could not read, and, until track changes come, one showing an
 // edit, which is any Excerpt with a removed row or a block that is part new,
@@ -65,23 +67,39 @@ func (s *Session) withBlocks(view ExcerptView) ExcerptView {
 		}
 	}
 
-	lines := slices.Clone(view.Lines)
+	lines := widened(view.Lines, doc, excerpt)
+	if len(lines) == 0 {
+		return view
+	}
+	rowOf := make(map[int]int, len(lines))
+	for i, line := range lines {
+		rowOf[line.Number] = i
+	}
 	var blocks []Block
 	for _, b := range doc.blocks {
-		if !b.lines.overlaps(excerpt.FirstLine, excerpt.LastLine) {
+		if !b.lines.overlaps(lines[0].Number, lines[len(lines)-1].Number) {
 			continue
 		}
-		changed, unchanged := false, false
-		for i := range lines {
-			if !b.lines.overlaps(lines[i].Number, lines[i].Number) {
+		shown, changed, unchanged := false, false, false
+		for n := b.lines.First; n <= b.lines.Last; n++ {
+			i, ok := rowOf[n]
+			if !ok {
 				continue
 			}
+			shown = true
 			lines[i].Block = len(blocks) + 1
-			if lines[i].Changed {
+			switch {
+			case lines[i].Widened:
+				// Context whatever it was, so it says nothing of the block's treatment.
+			case lines[i].Changed:
 				changed = true
-			} else {
+			default:
 				unchanged = true
 			}
+		}
+		if !shown {
+			// Between a table's header row and the rows an Excerpt shows of it.
+			continue
 		}
 		if changed && unchanged {
 			return view
@@ -93,5 +111,51 @@ func (s *Session) withBlocks(view ExcerptView) ExcerptView {
 		blocks = append(blocks, Block{Kind: b.kind, Level: b.level, Side: NewSide, Lines: b.lines, Treatment: treatment})
 	}
 	view.Lines, view.Blocks = lines, blocks
+	view.Plain = !isMarkdown(excerpt.File)
 	return view
+}
+
+// widened is an Excerpt's rows with the rows it needs so that no block is read
+// in part. A paragraph or list item it cuts into is shown whole. A table it cuts
+// into is not, since widening a large table would bury a one-row edit; it gains
+// its header row (and divider) instead, so its rows still read as a table. The
+// rows added are context, in source order among the rest.
+func widened(rows []Line, doc document, excerpt Excerpt) []Line {
+	shown := make(map[int]bool, len(rows))
+	for _, row := range rows {
+		shown[row.Number] = true
+	}
+	out := slices.Clone(rows)
+	add := func(r LineRange) {
+		for n := r.First; n <= r.Last && n <= len(doc.lines); n++ {
+			if !shown[n] {
+				shown[n] = true
+				out = append(out, Line{Number: n, Text: doc.lines[n-1], Side: NewSide, Widened: true})
+			}
+		}
+	}
+	for i, b := range doc.blocks {
+		if !b.lines.overlaps(excerpt.FirstLine, excerpt.LastLine) {
+			continue
+		}
+		switch b.kind {
+		case BlockParagraph, BlockListItem:
+			add(b.lines)
+		case BlockTableRow:
+			add(doc.blocks[tableHeader(doc.blocks, i)].lines)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Line) int { return a.Number - b.Number })
+	return out
+}
+
+// tableHeader is the index of the block holding the header row of the table
+// the block at i is a row of. A table's rows are contiguous, one block each, and
+// its header row and divider are its first block, so the header is the first of
+// the run of table-row blocks, each starting on the line after the last.
+func tableHeader(blocks []block, i int) int {
+	for i > 0 && blocks[i-1].kind == BlockTableRow && blocks[i-1].lines.Last+1 == blocks[i].lines.First {
+		i--
+	}
+	return i
 }

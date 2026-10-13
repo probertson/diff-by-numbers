@@ -26,6 +26,9 @@ type LineWire struct {
 	// Block is the block of a Document Excerpt the row belongs to, numbered from
 	// 1 among the Excerpt's Blocks; 0 for a row in none.
 	Block int `json:"block,omitempty"`
+	// Widened marks a row of a Document Excerpt shown so that no block is read
+	// in part, though the Excerpt does not name it: context, dimmed and unsigned.
+	Widened bool `json:"widened,omitempty"`
 }
 
 // BlockWire is one block of a Document Excerpt: what kind it is, where it is in
@@ -52,6 +55,7 @@ func toLineWire(line review.Line) LineWire {
 		Signpost: line.Signpost,
 		Emphasis: toEmphasisWire(line.Emphasis),
 		Block:    line.Block,
+		Widened:  line.Widened,
 	}
 }
 
@@ -87,6 +91,9 @@ type ExcerptWire struct {
 	ChangedOnDisk bool `json:"changed_on_disk,omitempty"`
 	// Blocks are a Document Excerpt's blocks, which its rows name; none for code.
 	Blocks []BlockWire `json:"blocks,omitempty"`
+	// Plain says a Document Excerpt's file is prose that is not Markdown, so its
+	// paragraphs are drawn without Markdown styling.
+	Plain bool `json:"plain,omitempty"`
 }
 
 type AcknowledgedFileWire struct {
@@ -448,6 +455,7 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			Problem:       view.Problem,
 			ChangedOnDisk: view.ChangedOnDisk,
 			Blocks:        toBlockWires(view.Blocks),
+			Plain:         view.Plain,
 		}
 		for _, line := range view.Lines {
 			wire.Lines = append(wire.Lines, toLineWire(line))
