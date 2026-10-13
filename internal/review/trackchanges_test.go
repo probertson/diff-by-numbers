@@ -206,6 +206,38 @@ func TestADeletionShownOnItsOwnIsARemovedBlock(t *testing.T) {
 	}
 }
 
+func TestAnEditedParagraphWidenedToWholeKeepsTheReplacedLineAboveItsReplacement(t *testing.T) {
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "A request\nis retried when\nthe transport fails."),
+		markdown("# Retries", "A request\nis resent when\nthe transport fails."),
+	)
+
+	step := viewingStep(t, files, showingLines("Resend", "docs/retries.md", review.NewSide, 4, 4))
+
+	type row struct {
+		side    review.Side
+		number  int
+		widened bool
+		runs    bool
+	}
+	var got []row
+	for _, line := range step.Excerpts[0].Lines {
+		got = append(got, row{line.Side, line.Number, line.Widened, len(line.Runs) > 0})
+	}
+	want := []row{
+		{review.NewSide, 3, true, false},
+		{review.OldSide, 4, false, false},
+		{review.NewSide, 4, false, true},
+		{review.NewSide, 5, true, false},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("expected the paragraph whole, its replaced line above its replacement\n%+v\ngot\n%+v", want, got)
+	}
+	if got := treatmentsOf(step.Excerpts[0]); !slices.Equal(got, []review.Treatment{review.TreatmentEdited}) {
+		t.Errorf("expected one edited block, got %v", got)
+	}
+}
+
 func TestAWhollyNewRunBesideAnEditIsNewAndARunWithNothingAfterItIsRemoved(t *testing.T) {
 	// The first paragraph is edited, and the second is replaced by one that
 	// shares none of its words.

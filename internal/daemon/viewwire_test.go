@@ -94,3 +94,26 @@ func TestARowOfAnEditedBlockCarriesItsTrackChanges(t *testing.T) {
 		t.Errorf("expected the runs %+v, got %+v", want, wire.Runs)
 	}
 }
+
+func TestAWidenedRowAndAPlainDocumentReachTheTUI(t *testing.T) {
+	views := []review.ExcerptView{{
+		Excerpt: review.Excerpt{File: "docs/spec.txt", Side: review.NewSide, FirstLine: 2, LastLine: 2},
+		Lines: []review.Line{
+			{Number: 1, Text: "A request is", Side: review.NewSide, Block: 1, Widened: true},
+			{Number: 2, Text: "retried.", Side: review.NewSide, Changed: true, Block: 1},
+		},
+		Blocks: []review.Block{
+			{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 1, Last: 2}, Treatment: review.TreatmentNew},
+		},
+		Plain: true,
+	}}
+
+	wire := toExcerptWires(views)[0]
+
+	if !wire.Plain {
+		t.Error("expected a plain Document's Excerpt to say so")
+	}
+	if got := []bool{wire.Lines[0].Widened, wire.Lines[1].Widened}; !slices.Equal(got, []bool{true, false}) {
+		t.Errorf("expected only the first row widened, got %v", got)
+	}
+}

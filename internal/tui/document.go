@@ -16,7 +16,6 @@ import (
 // so the bright block works as a reading bookmark. The colours are the
 // terminal's own palette, so they suit whatever theme it has.
 var (
-	docRed    = lipgloss.ANSIColor(1)
 	docGreen  = lipgloss.ANSIColor(2)
 	docYellow = lipgloss.ANSIColor(3)
 	docBlue   = lipgloss.ANSIColor(4)
@@ -31,6 +30,43 @@ type span struct {
 	text                       string
 	marker, bold, italic, code bool
 	removed, added             bool
+	// context is text of a line dbn widened the Excerpt by, so that no block is
+	// read in part: dim even on the cursor's block, and never signed.
+	context bool
+}
+
+// asContext marks spans as context, or leaves them as they are.
+func asContext(spans []span, context bool) []span {
+	if context {
+		for i := range spans {
+			spans[i].context = true
+		}
+	}
+	return spans
+}
+
+// widenedOnly reports whether a row is nothing but text dbn widened the Excerpt
+// by, which is context and so is not signed.
+func (r docRow) widenedOnly() bool {
+	widened := false
+	for _, s := range r {
+		switch {
+		case s.context:
+			widened = true
+		case strings.TrimSpace(s.text) != "":
+			return false
+		}
+	}
+	return widened
+}
+
+// blockSource is a block's source lines as its Excerpt shows them.
+type blockSource struct {
+	lines []sourceLine
+	// widened is, for each line, whether dbn widened the Excerpt by it.
+	widened []bool
+	// plain says the Document is not Markdown, so nothing in it is a marker.
+	plain bool
 }
 
 // piece is a run of a block's source text as an edit left it: kept, struck
@@ -59,7 +95,7 @@ func (l sourceLine) text() string {
 	return b.String()
 }
 
-// marked gives a word's spans the edit its piece shows.
+// marked gives spans the edit their piece shows.
 func marked(spans []span, change string) []span {
 	for i := range spans {
 		spans[i].removed = change == "removed"
@@ -68,10 +104,10 @@ func marked(spans []span, change string) []span {
 	return spans
 }
 
-// wordsOf splits a line's pieces into words of spans. Struck words are read in
-// spans of their own, so a marker the edit struck opens nothing in the text it
-// kept.
-func wordsOf(line sourceLine, st *inline) [][]span {
+// wordsOf splits a line's pieces into words of spans, each split by spans as
+// split says. Struck words are read in spans of their own, so a marker the edit
+// struck opens nothing in the text it kept.
+func wordsOf(line sourceLine, st *inline, split func(string, *inline) []span) [][]span {
 	var words [][]span
 	for _, p := range line {
 		state := st
@@ -79,12 +115,15 @@ func wordsOf(line sourceLine, st *inline) [][]span {
 			scratch := *st
 			state = &scratch
 		}
-		for _, word := range strings.Fields(p.text) {
-			words = append(words, marked(inlineSpans(word, state), p.change))
+		for _, word := range strings.Fields(expandedTabs(p.text)) {
+			words = append(words, marked(split(word, state), p.change))
 		}
 	}
 	return words
 }
+
+// plainSpans is a word of prose that is not Markdown: all of it text.
+func plainSpans(word string, _ *inline) []span { return []span{{text: word}} }
 
 // separated sets struck pieces apart from the text either side with a space,
 // for a line drawn as it stands, where nothing else would.
@@ -104,6 +143,20 @@ func separated(line sourceLine) sourceLine {
 		out = append(out, p)
 	}
 	return out
+}
+
+// leading takes what pattern matches at the start of a line off it, where the
+// line starts with text the edit did not strike.
+func leading(line sourceLine, pattern *regexp.Regexp) (string, sourceLine, bool) {
+	if len(line) == 0 || line[0].removed() {
+		return "", line, false
+	}
+	found := pattern.FindString(line[0].text)
+	if found == "" {
+		return "", line, false
+	}
+	rest := append(sourceLine{{text: line[0].text[len(found):], change: line[0].change}}, line[1:]...)
+	return found, rest, true
 }
 
 // docRow is one laid-out row of a block, before the gutter.
@@ -229,18 +282,33 @@ var (
 // layoutBlock lays a block's source lines out width cells wide. A paragraph or
 // list item is reflowed by Markdown's rules, its lines joined with spaces and
 // broken only where a line ends in a hard break. Everything else keeps its
-// source lines, each wrapped only where it is too wide for the row. An edited
+// source lines, each wrapped only where it is too wide for the row. Prose that
+// is not Markdown is reflowed with nothing in it taken for a marker. An edited
 // block's lines carry what the edit struck and added, laid out in the flow.
-func layoutBlock(kind string, source []sourceLine, width int) []docRow {
+func layoutBlock(kind string, src blockSource, width int) []docRow {
 	width = max(width, 1)
-	switch kind {
-	case "paragraph", "list-item":
-		return reflow(source, width)
-	case "heading", "table-row":
+	source := src.lines
+	switch {
+	case src.plain:
+		return reflowPlain(src, width)
+	case kind == "paragraph" || kind == "list-item":
+		return reflow(src, width)
+	case kind == "heading":
 		var rows []docRow
 		st := &inline{}
-		for _, line := range source {
-			rows = append(rows, fill(lineWords(kind, line, st), width)...)
+		for i, line := range source {
+			words := lineWords(kind, line, st)
+			for _, word := range words {
+				asContext(word, src.widened[i])
+			}
+			rows = append(rows, fill(words, width)...)
+		}
+		return rows
+	case kind == "table-row":
+		var rows []docRow
+		st := &inline{}
+		for i, line := range source {
+			rows = append(rows, wrapRow(asContext(tableRow(line, st), src.widened[i]), width)...)
 		}
 		return rows
 	}
@@ -253,104 +321,107 @@ func layoutBlock(kind string, source []sourceLine, width int) []docRow {
 			(kind == "frontmatter" && (i == 0 || i == len(source)-1) && (strings.TrimSpace(text) == "---" || strings.TrimSpace(text) == "..."))
 		if len(line) == 1 && line[0].change == "" {
 			for _, chunk := range wrapCode(expandedTabs(text), width, width, len(text)+1) {
-				rows = append(rows, docRow{{text: chunk, marker: isFence}})
+				rows = append(rows, docRow{{text: chunk, marker: isFence, context: src.widened[i]}})
 			}
 			continue
 		}
 		var row docRow
 		for _, p := range separated(line) {
-			row = append(row, marked([]span{{text: expandedTabs(p.text), marker: isFence}}, p.change)...)
+			row = append(row, marked([]span{{text: expandedTabs(p.text), marker: isFence, context: src.widened[i]}}, p.change)...)
 		}
-		rows = append(rows, cut(row, width)...)
+		rows = append(rows, wrapRow(row, width)...)
 	}
 	return rows
 }
 
-// cut breaks a row drawn as it stands into rows no wider than width.
-func cut(row docRow, width int) []docRow {
-	var rows []docRow
-	var current docRow
-	used := 0
-	for _, s := range row {
-		var run []rune
-		flush := func() {
-			if len(run) > 0 {
-				piece := s
-				piece.text = string(run)
-				current = append(current, piece)
-				run = nil
-			}
-		}
-		for _, r := range s.text {
-			w := ansi.StringWidth(string(r))
-			if used > 0 && used+w > width {
-				flush()
-				rows = append(rows, current)
-				current, used = nil, 0
-			}
-			run = append(run, r)
-			used += w
-		}
-		flush()
+// wrapRow breaks a row too wide for width as a line of code is broken, at the
+// last space that fits, keeping each piece of it in its style.
+func wrapRow(row docRow, width int) []docRow {
+	text := []rune(row.plain())
+	var out []docRow
+	at := 0
+	for _, chunk := range wrapCode(string(text), width, width, len(text)+1) {
+		end := at + len([]rune(chunk))
+		out = append(out, sliceRow(row, at, end))
+		at = skipSpaces(text, end)
 	}
-	return append(rows, current)
+	return out
+}
+
+// sliceRow is the part of a row from rune from to rune to of its text.
+func sliceRow(row docRow, from, to int) docRow {
+	var out docRow
+	at := 0
+	for _, s := range row {
+		rs := []rune(s.text)
+		lo, hi := max(from-at, 0), min(to-at, len(rs))
+		if lo < hi {
+			part := s
+			part.text = string(rs[lo:hi])
+			out = append(out, part)
+		}
+		at += len(rs)
+	}
+	return out
+}
+
+// reflowPlain lays out a paragraph of prose that is not Markdown: its lines
+// joined with spaces, every character of it text.
+func reflowPlain(src blockSource, width int) []docRow {
+	var words [][]span
+	for i, line := range src.lines {
+		for _, word := range wordsOf(line, &inline{}, plainSpans) {
+			words = append(words, asContext(word, src.widened[i]))
+		}
+	}
+	return fill(words, width)
 }
 
 func expandedTabs(line string) string { return strings.ReplaceAll(line, "\t", "    ") }
 
-// lineWords splits one heading or table line into words of spans: the heading's
-// #s, a setext underline and a table's pipes and divider are markers.
+// tableRow splits one line of a table into spans: its pipes and its divider are
+// markers. A table row is drawn as it stands in the source, so a table whose
+// columns were lined up stays lined up.
+func tableRow(line sourceLine, st *inline) []span {
+	if text := line.text(); tableDivide.MatchString(text) {
+		return []span{{text: strings.TrimSpace(text), marker: true}}
+	}
+	line = separated(line)
+	var spans []span
+	for i, p := range line {
+		state := st
+		if p.removed() {
+			scratch := *st
+			state = &scratch
+		}
+		cell := expandedTabs(p.text)
+		if i == len(line)-1 {
+			cell = strings.TrimRight(cell, " ")
+		}
+		for _, s := range marked(inlineSpans(cell, state), p.change) {
+			if !s.marker && strings.Contains(s.text, "|") {
+				spans = append(spans, pipesMuted(s)...)
+				continue
+			}
+			spans = append(spans, s)
+		}
+	}
+	return spans
+}
+
+// lineWords splits one heading line into words of spans: its #s and a setext
+// underline are markers.
 func lineWords(kind string, line sourceLine, st *inline) [][]span {
 	text := line.text()
 	switch {
 	case kind == "heading" && setextLine.MatchString(text):
 		return [][]span{{{text: strings.TrimSpace(text), marker: true}}}
-	case kind == "table-row" && tableDivide.MatchString(text):
-		return [][]span{{{text: strings.TrimSpace(text), marker: true}}}
-	case kind == "table-row":
-		// A table row is drawn as it stands in the source, so a table whose
-		// columns were lined up stays lined up.
-		line = separated(line)
-		var spans []span
-		for i, p := range line {
-			state := st
-			if p.removed() {
-				scratch := *st
-				state = &scratch
-			}
-			cell := expandedTabs(p.text)
-			if i == len(line)-1 {
-				cell = strings.TrimRight(cell, " ")
-			}
-			for _, s := range marked(inlineSpans(cell, state), p.change) {
-				if !s.marker && strings.Contains(s.text, "|") {
-					spans = append(spans, pipesMuted(s)...)
-					continue
-				}
-				spans = append(spans, s)
-			}
-		}
-		return [][]span{spans}
 	case kind == "heading":
 		if hashes, rest, ok := leading(line, headingHash); ok {
-			return append([][]span{{{text: strings.TrimSpace(hashes), marker: true}}}, wordsOf(rest, st)...)
+			return append([][]span{{{text: strings.TrimSpace(hashes), marker: true}}}, wordsOf(rest, st, inlineSpans)...)
 		}
 	}
-	return wordsOf(line, st)
-}
-
-// leading takes what pattern matches at the start of a line off it, where the
-// line starts with text the edit did not strike.
-func leading(line sourceLine, pattern *regexp.Regexp) (string, sourceLine, bool) {
-	if len(line) == 0 || line[0].removed() {
-		return "", line, false
-	}
-	found := pattern.FindString(line[0].text)
-	if found == "" {
-		return "", line, false
-	}
-	rest := append(sourceLine{{text: line[0].text[len(found):], change: line[0].change}}, line[1:]...)
-	return found, rest, true
+	return wordsOf(line, st, inlineSpans)
 }
 
 // pipesMuted splits a table cell's text at its pipes, muting them.
@@ -374,8 +445,8 @@ func pipesMuted(s span) []span {
 // reflow lays out a paragraph or list item: its block-quote markers and list
 // bullet lead its first row, its continuation rows hang beneath the text, and
 // its words flow between them.
-func reflow(source []sourceLine, width int) []docRow {
-	source = append([]sourceLine{}, source...)
+func reflow(src blockSource, width int) []docRow {
+	source := append([]sourceLine{}, src.lines...)
 	var lead, hang docRow
 	if quote, _, ok := leading(source[0], quotePrefix); ok {
 		markers := strings.Repeat("> ", strings.Count(quote, ">"))
@@ -399,7 +470,9 @@ func reflow(source []sourceLine, width int) []docRow {
 	var segments [][][]span
 	var words [][]span
 	for i, line := range source {
-		words = append(words, wordsOf(line, st)...)
+		for _, word := range wordsOf(line, st, inlineSpans) {
+			words = append(words, asContext(word, src.widened[i]))
+		}
 		text := line.text()
 		hardBreak := strings.HasSuffix(text, "  ") || strings.HasSuffix(text, "\\")
 		if hardBreak && i < len(source)-1 {
@@ -418,7 +491,9 @@ func reflow(source []sourceLine, width int) []docRow {
 		if i == 0 {
 			prefix = lead
 		}
-		rows[i] = append(append(docRow{}, prefix...), rows[i]...)
+		// A row of nothing but widened text is context, its markers included.
+		prefix = asContext(append(docRow{}, prefix...), rows[i].widenedOnly())
+		rows[i] = append(prefix, rows[i]...)
 	}
 	return rows
 }
@@ -461,8 +536,8 @@ func spanStyle(s span, heading, dim bool) lipgloss.Style {
 // renderDocRow draws a laid-out row, each run of text in one style drawn as one
 // piece: the space between two words in the same style belongs to the run.
 func renderDocRow(row docRow, heading, dim bool) string {
-	type look struct{ marker, bold, italic, code, removed, added bool }
-	lookOf := func(s span) look { return look{s.marker, s.bold, s.italic, s.code, s.removed, s.added} }
+	type look struct{ marker, bold, italic, code, removed, added, context bool }
+	lookOf := func(s span) look { return look{s.marker, s.bold, s.italic, s.code, s.removed, s.added, s.context} }
 	// A space an edit struck or added is drawn struck or underlined with the
 	// words either side of it, so it is not plain space.
 	isSpace := func(s span) bool { return strings.TrimSpace(s.text) == "" && !s.removed && !s.added }
@@ -490,7 +565,7 @@ func renderDocRow(row docRow, heading, dim bool) string {
 			}
 			break
 		}
-		b.WriteString(spanStyle(row[i], heading, dim).Render(text))
+		b.WriteString(spanStyle(row[i], heading, dim || row[i].context).Render(text))
 		i = j
 	}
 	return b.String()
@@ -523,22 +598,24 @@ func blockLabel(line codeLine, excerpt daemon.ExcerptWire) string {
 	return rangeLabel(first, last)
 }
 
-// blockSource is a block's own source lines, in pieces: an edited block's as its
-// edit kept, struck and added them; a removed block's struck whole; any other's
-// as they stand.
-func blockSource(line codeLine, excerpt daemon.ExcerptWire) []sourceLine {
+// sourceOf is a block's own source lines as its Excerpt shows them, in pieces:
+// an edited block's as its edit kept, struck and added them; a removed block's
+// struck whole; any other's, and any line the Excerpt was widened by, as they
+// stand.
+func sourceOf(line codeLine, excerpt daemon.ExcerptWire) blockSource {
 	block := excerpt.Blocks[line.block-1]
-	var source []sourceLine
+	src := blockSource{plain: excerpt.Plain}
 	for _, r := range line.rows {
 		row := excerpt.Lines[r]
 		if lineSide(row, excerpt) != block.Side {
 			continue
 		}
+		pieces := plainLine(row.Text)
 		switch {
 		case block.Treatment == "removed":
-			source = append(source, sourceLine{{text: row.Text, change: "removed"}})
+			pieces = sourceLine{{text: row.Text, change: "removed"}}
 		case len(row.Runs) > 0:
-			var pieces sourceLine
+			pieces = nil
 			for _, run := range row.Runs {
 				change := run.Change
 				if change == "kept" {
@@ -546,12 +623,11 @@ func blockSource(line codeLine, excerpt daemon.ExcerptWire) []sourceLine {
 				}
 				pieces = append(pieces, piece{text: run.Text, change: change})
 			}
-			source = append(source, pieces)
-		default:
-			source = append(source, plainLine(row.Text))
 		}
+		src.lines = append(src.lines, pieces)
+		src.widened = append(src.widened, row.Widened)
 	}
-	return source
+	return src
 }
 
 // treatmentSigns is the gutter sign for each treatment, and its colour away from
@@ -588,7 +664,7 @@ func blockRows(cur stepCursor, i int, excerpt daemon.ExcerptWire, hasComment boo
 	}
 	gutterWidth := 1 + 1 + 1 + 1 + labelWidth + 2
 	room := width - 2 - gutterWidth
-	rows := layoutBlock(block.Kind, blockSource(line, excerpt), narrationWidth(room, proseWidth))
+	rows := layoutBlock(block.Kind, sourceOf(line, excerpt), narrationWidth(room, proseWidth))
 
 	out := make([]string, 0, len(rows))
 	for ri, row := range rows {
@@ -602,7 +678,12 @@ func blockRows(cur stepCursor, i int, excerpt daemon.ExcerptWire, hasComment boo
 				mark = lipgloss.NewStyle().Foreground(commentColor).Render("●")
 			}
 		}
-		gutter := signSt.Render(sign) + " " + mark + " " + dimSt.Render(fmt.Sprintf("%-*s", labelWidth, label)) + "  "
+		rowSign := signSt.Render(sign)
+		if row.widenedOnly() {
+			// Widened in only so the block reads whole: context, so unsigned.
+			rowSign = " "
+		}
+		gutter := rowSign + " " + mark + " " + dimSt.Render(fmt.Sprintf("%-*s", labelWidth, label)) + "  "
 		text := renderDocRow(row, block.Kind == "heading", !isCursor)
 		if selected {
 			text = selSt.Render(row.plain())

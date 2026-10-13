@@ -72,6 +72,11 @@ type codeLine struct {
 	block   int
 	rows    []int
 	lastRow rowRef
+	// inBlock is, for a line of a Document shown as source, the block it
+	// belongs to, so the cursor can go from the line to its block when the
+	// Document is formatted again. A blank line between blocks belongs to the
+	// one above it, which it ends.
+	inBlock int
 }
 
 // sameExcerpt reports whether two rows lie in the same Excerpt — a narrated one,
@@ -99,15 +104,29 @@ type stepCursor struct {
 	// scroll is how many rows of the cursor's block are scrolled past, when the
 	// block is taller than the pane and is being paged through.
 	scroll int
+	// source reports whether the pane shows each Document's source rather than
+	// formatting it, so the cursor stops on its lines rather than its blocks.
+	source bool
+	// held keeps the cursor's first row on screen row heldRow of the pane, rather
+	// than centring the window on it, until the cursor moves: switching a
+	// Document's view keeps the text being read where the eye already is.
+	held    bool
+	heldRow int
 }
 
-// newStepCursor lays out a Step's pane. expanded holds the Excerpts of each
+// newStepCursor lays out a Step's pane with its Documents formatted.
+func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire) stepCursor {
+	return newStepCursorShowing(step, expanded, false)
+}
+
+// newStepCursorShowing lays out a Step's pane, its Documents formatted or, with
+// source, as their source lines. expanded holds the Excerpts of each
 // Acknowledgement the Reviewer has expanded, by index; an absent one is
 // collapsed to its stop.
-func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire) stepCursor {
+func newStepCursorShowing(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire, source bool) stepCursor {
 	var lines []codeLine
 	for ei, excerpt := range step.Excerpts {
-		lines = append(lines, stopsIn(excerpt, -1, ei)...)
+		lines = append(lines, stopsIn(excerpt, -1, ei, source)...)
 	}
 	for k := range step.Acknowledgements {
 		lines = append(lines, codeLine{kind: kindStop, ack: k, excerpt: -1})
@@ -116,7 +135,7 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 				lines = append(lines, codeLine{kind: kindNote, ack: k, excerpt: ei})
 				continue
 			}
-			lines = append(lines, stopsIn(excerpt, k, ei)...)
+			lines = append(lines, stopsIn(excerpt, k, ei, source)...)
 		}
 	}
 	// A Step can open on a row the cursor may not rest on: a Step showing the
@@ -128,20 +147,27 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire)
 	if cursor == len(lines) {
 		cursor = 0
 	}
-	return stepCursor{lines: lines, cursor: cursor, sel: -1, expanded: expanded}
+	return stepCursor{lines: lines, cursor: cursor, sel: -1, expanded: expanded, source: source}
 }
 
 // stopsIn is where the cursor stops in one Excerpt: on each line of code, or, in
 // a Document, on each block, which is the unit prose is read in. The blank lines
-// between blocks are no stop; a row of a Document in no block is a line.
+// between blocks are no stop; a row of a Document in no block is a line. A
+// Document shown as source stops on every line, as code does.
 //
 // A block's rows are one stop even where they are not together: the lines an
 // edit replaced are drawn above the lines that replaced them, and a block an
 // edit removed outright may sit between the two.
-func stopsIn(excerpt daemon.ExcerptWire, ack, ei int) []codeLine {
+func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 	var stops []codeLine
 	stopOf := map[int]int{} // by block
 	for i, line := range excerpt.Lines {
+		if source && len(excerpt.Blocks) > 0 {
+			stop := rowFor(line, excerpt, ack, ei)
+			stop.inBlock = blockNear(excerpt, i)
+			stops = append(stops, stop)
+			continue
+		}
 		if len(excerpt.Blocks) == 0 || line.Block == 0 {
 			if len(excerpt.Blocks) > 0 && strings.TrimSpace(line.Text) == "" {
 				continue
@@ -161,6 +187,22 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int) []codeLine {
 		stops = append(stops, stop)
 	}
 	return stops
+}
+
+// blockNear is the block row i of a Document lies in or, for a row in none, the
+// nearest block above it, or else below it; 0 when there are no blocks at all.
+func blockNear(excerpt daemon.ExcerptWire, i int) int {
+	for at := i; at >= 0; at-- {
+		if b := excerpt.Lines[at].Block; b > 0 {
+			return b
+		}
+	}
+	for _, line := range excerpt.Lines[i:] {
+		if line.Block > 0 {
+			return line.Block
+		}
+	}
+	return 0
 }
 
 // rowFor turns one rendered line into a cursor row, keeping a signpost out of
@@ -198,14 +240,24 @@ func (c stepCursor) excerptOf(step *daemon.StepWire, line codeLine) daemon.Excer
 	return step.Excerpts[line.excerpt]
 }
 
-// restore puts the cursor back on a remembered row. A row inside an
-// Acknowledgement that is no longer expanded falls back to that Acknowledgement's
-// stop; a row that is gone altogether leaves the cursor where it is.
+// restore puts the cursor back on a remembered row. A row remembered in the
+// other view of a Document finds its counterpart: a block its first line, and a
+// line the block it lies in. A row inside an Acknowledgement that is no longer
+// expanded falls back to that Acknowledgement's stop; a row that is gone
+// altogether leaves the cursor where it is.
 func (c *stepCursor) restore(spot codeLine) {
 	for i, line := range c.lines {
 		if line.sameSpot(spot) {
 			c.cursor = i
 			return
+		}
+	}
+	if spot.inBlock > 0 {
+		for i, line := range c.lines {
+			if line.sameExcerpt(spot) && line.block == spot.inBlock {
+				c.cursor = i
+				return
+			}
 		}
 	}
 	if spot.ack < 0 {
@@ -269,6 +321,7 @@ func (c *stepCursor) move(delta int) (blocked bool) {
 	}
 	if target != c.cursor {
 		c.scroll = 0
+		c.held = false
 	}
 	c.cursor = target
 	return false
@@ -562,75 +615,9 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	}
 
 	pane := layoutPane(header, step, cur, commented, ackCommentCounts, width, height, showRepo, wrapAll, proseWidth)
-	rows, curFirst, curLast, budget := pane.rows, pane.curFirst, pane.curLast, pane.budget
-	cursorHeight := curLast - curFirst + 1
+	rows, curFirst, curLast := pane.rows, pane.curFirst, pane.curLast
 	showIndicators := pane.showIndicators
-
-	// Centre the window on the cursor, then make room for the headers that give
-	// its top row context — the file it is in and, inside acknowledged code, the
-	// Acknowledgement's claim — since the rows that drew them have scrolled off.
-	start := curFirst
-	if budget > cursorHeight {
-		start = curFirst - (budget-cursorHeight)/2
-	}
-	if start < 0 {
-		start = 0
-	}
-	end := start + budget
-	if end > len(rows) {
-		end = len(rows)
-		start = end - budget
-		if start < 0 {
-			start = 0
-		}
-	}
-	// The headers are taken afresh at the top of every pass and the loop only
-	// ever leaves from there, so the headers drawn are always the ones for the
-	// window's final top row. The pass limit is a backstop: each pass sheds the
-	// rows its headers need, so the window is over budget again only if the
-	// next top row has more headers than the last.
-	var sticky []string
-	for attempt := 0; ; attempt++ {
-		sticky = stickyHeaders(rows[start])
-		over := len(sticky) + (end - start) - budget
-		if over <= 0 || attempt == 3 {
-			break
-		}
-		cut := curFirst - start
-		if cut > over {
-			cut = over
-		}
-		start += cut
-		end -= over - cut
-		// Keep the cursor line in the window: all of it where the rows the headers
-		// left stretch that far, and at least its first row where they do not. The
-		// headers can eat the whole budget on a very short pane, so the floor is
-		// what stops the window inverting.
-		if want := min(curLast+1, start+budget-len(sticky), len(rows)); end < want {
-			end = want
-		}
-		if end <= start {
-			end = min(start+1, len(rows))
-		}
-	}
-	// A scroll indicator already sets the pane off from the explanation, so a
-	// spacer row right under it would be a wasted row: spend it on the next row.
-	if showIndicators && len(sticky) == 0 && start < curFirst && rows[start].blank && len(stickyHeaders(rows[start+1])) == 0 {
-		start++
-		if end < len(rows) {
-			end++
-		}
-	}
-
-	// A block taller than the pane is paged through a page at a time (↓ and ↑
-	// scroll it before they move on), so the window holds a page of it, and the
-	// indicators say when there is more of the block itself.
-	blockHeight, page, tall := pane.tallBlock(cur)
-	if tall {
-		sticky = stickyHeaders(rows[curFirst])
-		offset := min(max(cur.scroll, 0), blockHeight-page)
-		start, end = curFirst+offset, curFirst+offset+page
-	}
+	start, end, sticky, tall := pane.window(cur)
 	moreAbove, moreBelow := "", ""
 	switch above := countLines(cur, rows[:start]); {
 	case tall && start > curFirst:
@@ -666,6 +653,129 @@ func renderStep(step *daemon.StepWire, cur stepCursor, commented map[string]bool
 	}
 	return b.String()
 }
+
+// window is the part of the pane on screen: rows[start:end], below the sticky
+// headers that give its top row context, and whether the cursor's block is
+// taller than the pane and being paged through. The window is centred on the
+// cursor unless the cursor is held on a screen row.
+func (p stepPane) window(cur stepCursor) (start, end int, sticky []string, tall bool) {
+	rows, curFirst, curLast, budget := p.rows, p.curFirst, p.curLast, p.budget
+	cursorHeight := curLast - curFirst + 1
+	showIndicators := p.showIndicators
+
+	// Centre the window on the cursor, then make room for the headers that give
+	// its top row context — the file it is in and, inside acknowledged code, the
+	// Acknowledgement's claim — since the rows that drew them have scrolled off.
+	start = curFirst
+	if budget > cursorHeight {
+		start = curFirst - (budget-cursorHeight)/2
+	}
+	if cur.held {
+		start = p.heldStart(cur)
+	}
+	if start < 0 {
+		start = 0
+	}
+	end = start + budget
+	if cur.held {
+		// The headers come out of the rows above the cursor, not the cursor's.
+		end -= len(stickyHeaders(rows[start]))
+	}
+	if end > len(rows) {
+		end = len(rows)
+		start = end - budget
+		if start < 0 {
+			start = 0
+		}
+	}
+	// The headers are taken afresh at the top of every pass and the loop only
+	// ever leaves from there, so the headers drawn are always the ones for the
+	// window's final top row. The pass limit is a backstop: each pass sheds the
+	// rows its headers need, so the window is over budget again only if the
+	// next top row has more headers than the last.
+	for attempt := 0; ; attempt++ {
+		sticky = stickyHeaders(rows[start])
+		over := len(sticky) + (end - start) - budget
+		if over <= 0 || attempt == 3 {
+			break
+		}
+		cut := curFirst - start
+		if cut > over {
+			cut = over
+		}
+		start += cut
+		end -= over - cut
+		// Keep the cursor line in the window: all of it where the rows the headers
+		// left stretch that far, and at least its first row where they do not. The
+		// headers can eat the whole budget on a very short pane, so the floor is
+		// what stops the window inverting.
+		if want := min(curLast+1, start+budget-len(sticky), len(rows)); end < want {
+			end = want
+		}
+		if end <= start {
+			end = min(start+1, len(rows))
+		}
+	}
+	// A scroll indicator already sets the pane off from the explanation, so a
+	// spacer row right under it would be a wasted row: spend it on the next row.
+	// A held cursor keeps its row instead.
+	if !cur.held && showIndicators && len(sticky) == 0 && start < curFirst && rows[start].blank && len(stickyHeaders(rows[start+1])) == 0 {
+		start++
+		if end < len(rows) {
+			end++
+		}
+	}
+
+	// A block taller than the pane is paged through a page at a time (↓ and ↑
+	// scroll it before they move on), so the window holds a page of it, and the
+	// indicators say when there is more of the block itself.
+	blockHeight, page, tall := p.tallBlock(cur)
+	if tall {
+		sticky = stickyHeaders(rows[curFirst])
+		offset := min(max(cur.scroll, 0), blockHeight-page)
+		start, end = curFirst+offset, curFirst+offset+page
+	}
+	return start, end, sticky, tall
+}
+
+// heldStart is the first row of a window that draws the cursor on the screen
+// row it is held on, counting the indicator and sticky header rows above it. The
+// headers depend on the window's top row, so it settles in a few passes. Too
+// close to the top of the pane there are not rows enough above the cursor, and
+// the caller clamps it.
+func (p stepPane) heldStart(cur stepCursor) int {
+	top := 0
+	if p.showIndicators {
+		top = indicatorTop
+	}
+	cursorHeight := p.curLast - p.curFirst + 1
+	above := min(max(cur.heldRow-top, 0), max(p.budget-cursorHeight, 0))
+	start := p.curFirst - above
+	for range 3 {
+		headers := len(stickyHeaders(p.rows[max(start, 0)]))
+		next := min(p.curFirst-(above-headers), p.curFirst)
+		if next == start {
+			break
+		}
+		start = next
+	}
+	return start
+}
+
+// cursorRow is the row of the pane, counted from the first row under the
+// Step's header, that the cursor's first row is drawn on.
+func (p stepPane) cursorRow(cur stepCursor) int {
+	start, _, sticky, _ := p.window(cur)
+	top := 0
+	if p.showIndicators {
+		top = indicatorTop
+	}
+	return max(top+len(sticky)+p.curFirst-start, 0)
+}
+
+// indicatorTop is the rows the scroll indicator above the pane takes: a spacer
+// and the indicator itself.
+const indicatorTop = 2
 
 // stepHeader is what sits above a Step's pane: its name, the agent's narration
 // and anything the Reviewer must not scroll past.
@@ -947,7 +1057,12 @@ func paneRows(step *daemon.StepWire, cur stepCursor, commented map[string]bool, 
 			}
 			continue
 		}
-		for _, text := range codeRows(cur, i, commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)], width, wrapCap, wrapAll) {
+		hasComment := commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)]
+		draw := codeRows
+		if cur.source && len(excerpt.Blocks) > 0 {
+			draw = sourceRows
+		}
+		for _, text := range draw(cur, i, hasComment, width, wrapCap, wrapAll) {
 			rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 		}
 	}
@@ -988,52 +1103,10 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 		note = "✎"
 	}
 	runes, changedRunes := expandTabs(line.text, line.emphasis) // tabs display wider than one cell
-	text := string(runes)
 	gutter := fmt.Sprintf("%s%s %5d │ ", note, sign, line.number)
 	isCursor := i == cur.cursor
 	room := width - 2 // leave room for the caret
-	textWidth := room - lipgloss.Width(gutter)
-
-	type wrapped struct {
-		prefix string
-		chunk  string
-		start  int // where chunk begins among runes
-		// plain is a row too narrow for the gutter and any code, clipped as a
-		// whole: its runes no longer line up with the code's, so nothing in it
-		// is emphasised.
-		plain bool
-	}
-	rows := []wrapped{{prefix: gutter, chunk: truncateTo(text, textWidth)}}
-	if textWidth < 1 {
-		rows = []wrapped{{chunk: truncateTo(gutter+text, room), plain: true}}
-	}
-	if (isCursor || wrapAll) && textWidth >= 1 {
-		// Continuation rows carry a blank gutter — the missing line number is itself
-		// the continuation signal — plus a hanging indent, so they sit under the
-		// line's own first character and a wrapped statement reads as one indented
-		// block. The hang is capped at half the code column: a deeply nested line
-		// would otherwise wrap into a sliver narrower than the indent in front of it.
-		hang := leadingSpaces(text)
-		if limit := textWidth / 2; hang > limit {
-			hang = limit
-		}
-		restWidth := textWidth - hang
-		if restWidth >= 1 {
-			chunks := wrapCode(text, textWidth, restWidth, wrapCap)
-			if len(chunks) > 1 {
-				indent := strings.Repeat(" ", lipgloss.Width(gutter)+hang)
-				starts := chunkStarts(runes, chunks)
-				rows = rows[:0]
-				for ci, chunk := range chunks {
-					prefix := indent
-					if ci == 0 {
-						prefix = gutter
-					}
-					rows = append(rows, wrapped{prefix: prefix, chunk: chunk, start: starts[ci]})
-				}
-			}
-		}
-	}
+	rows := wrapLine(runes, gutter, room, wrapCap, isCursor || wrapAll)
 
 	// The caret marks only the first row; cursor, Comment, tint and selection
 	// styling span every row so the wrapped line reads as one unit.
@@ -1092,6 +1165,60 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 		out = append(out, caret+b.String())
 	}
 	return out
+}
+
+// wrapped is one drawn row of a line of code: the gutter, or on a continuation
+// row the hanging indent, and the chunk of the line it shows.
+type wrapped struct {
+	prefix string
+	chunk  string
+	start  int // where chunk begins among the line's runes
+	// plain is a row too narrow for the gutter and any code, clipped as a
+	// whole: its runes no longer line up with the code's, so nothing in it
+	// is emphasised.
+	plain bool
+}
+
+// wrapLine lays a line out behind its gutter in room cells: one truncated row,
+// or with wrap the whole line soft-wrapped, capped at wrapCap rows.
+func wrapLine(runes []rune, gutter string, room, wrapCap int, wrap bool) []wrapped {
+	text := string(runes)
+	textWidth := room - lipgloss.Width(gutter)
+	if textWidth < 1 {
+		return []wrapped{{chunk: truncateTo(gutter+text, room), plain: true}}
+	}
+	rows := []wrapped{{prefix: gutter, chunk: truncateTo(text, textWidth)}}
+	if !wrap {
+		return rows
+	}
+	// Continuation rows carry a blank gutter — the missing line number is itself
+	// the continuation signal — plus a hanging indent, so they sit under the
+	// line's own first character and a wrapped statement reads as one indented
+	// block. The hang is capped at half the code column: a deeply nested line
+	// would otherwise wrap into a sliver narrower than the indent in front of it.
+	hang := leadingSpaces(text)
+	if limit := textWidth / 2; hang > limit {
+		hang = limit
+	}
+	restWidth := textWidth - hang
+	if restWidth < 1 {
+		return rows
+	}
+	chunks := wrapCode(text, textWidth, restWidth, wrapCap)
+	if len(chunks) == 1 {
+		return rows
+	}
+	indent := strings.Repeat(" ", lipgloss.Width(gutter)+hang)
+	starts := chunkStarts(runes, chunks)
+	rows = rows[:0]
+	for ci, chunk := range chunks {
+		prefix := indent
+		if ci == 0 {
+			prefix = gutter
+		}
+		rows = append(rows, wrapped{prefix: prefix, chunk: chunk, start: starts[ci]})
+	}
+	return rows
 }
 
 // The diff's tints: one for a changed row, and a stronger one of the same colour

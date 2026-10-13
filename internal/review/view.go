@@ -44,6 +44,12 @@ type Line struct {
 	// words it struck there put back, as track changes. The block's rows on the
 	// other side carry none; their words are among these.
 	Runs []WordRun
+	// Widened marks a row of a Document Excerpt that the Excerpt does not name
+	// but is shown so that no block is read in part: the rest of a paragraph or
+	// list item it cuts into, or the header row of a table it cuts into. It is
+	// context whatever happened to the line, so it is never Changed and carries
+	// no Runs.
+	Widened bool
 }
 
 // Content reports whether a row is code, rather than a stand-in drawn in its
@@ -100,6 +106,10 @@ type ExcerptView struct {
 	// Blocks are the blocks of a Document Excerpt, in the order its rows show
 	// them, so it can be drawn formatted; none for code.
 	Blocks []Block
+	// Plain says a Document Excerpt's file is not Markdown, but prose the agent
+	// made a Document: its blocks are paragraphs split at blank lines, drawn
+	// without Markdown styling.
+	Plain bool
 }
 
 // AcknowledgedFile is one line of an Acknowledgement's manifest: a file the
