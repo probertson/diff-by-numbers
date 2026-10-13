@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -1001,6 +1002,15 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 
 	lastAck, lastExcerpt := -2, -2
 	fileHeader, ackHeader := "", ""
+	// A Document's file header names the heading path of the row it stands
+	// over, so it changes within an Excerpt as the rows pass a heading.
+	label, headerPath := "", []string(nil)
+	headerOver := func(excerpt daemon.ExcerptWire, line codeLine) {
+		if path := headingPathOf(excerpt, line); !slices.Equal(path, headerPath) {
+			headerPath = path
+			fileHeader = dimSt.Render(fileHeaderText(label, path, width))
+		}
+	}
 	// warned records each expanded file already warned about, per Acknowledgement:
 	// an expansion shows a file as several Excerpts, but one warning says it.
 	type expandedFile struct {
@@ -1046,7 +1056,8 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 			e := cur.excerptOf(step, line)
 			// No side in the header: a new-side Excerpt renders as a unified diff, so
 			// the -/+ signs carry before/after per line, not the file header.
-			fileHeader = dimSt.Render("── " + fileLabel(e.Repository, e.File, showRepo))
+			label, headerPath = fileLabel(e.Repository, e.File, showRepo), headingPathOf(e, line)
+			fileHeader = dimSt.Render(fileHeaderText(label, headerPath, width))
 			decor("", "", ackHeader)
 			rows = append(rows, paneRow{text: fileHeader, line: -1, fileHeader: fileHeader, isFileHeader: true, ackHeader: ackHeader})
 			lastAck, lastExcerpt = line.ack, line.excerpt
@@ -1081,11 +1092,13 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 					decor("", fileHeader, ackHeader)
 				}
 			}
+			headerOver(excerpt, line)
 			for _, text := range in.blockRows(i, excerpt, blockCommented(excerpt, line, commented), labelWidth) {
 				rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 			}
 			continue
 		}
+		headerOver(excerpt, line)
 		hasComment := commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)]
 		draw := codeRows
 		if cur.source && len(excerpt.Blocks) > 0 {

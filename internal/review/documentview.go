@@ -49,11 +49,17 @@ type Block struct {
 	Side      Side
 	Lines     LineRange
 	Treatment Treatment
+	// Path is the heading path: the texts of the headings the block sits
+	// under, outermost first, read from the whole Document on the block's own
+	// side, so a heading far outside the Excerpt still counts. A heading's own
+	// block sits under its parents. It is empty outside every heading, and in
+	// a Document that is not Markdown (#145).
+	Path []string
 }
 
 // shown is a parsed block as an Excerpt shows it: on side, and treated so.
 func (b block) shown(side Side, treatment Treatment) Block {
-	return Block{Kind: b.kind, Level: b.level, Side: side, Lines: b.lines, Treatment: treatment}
+	return Block{Kind: b.kind, Level: b.level, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
 }
 
 // withDocumentBlocks is view drawn as a Document: its rows, tagged with their
@@ -135,13 +141,18 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 
 	lines := widened(view.Lines, doc, excerpt)
 	var blocks []Block
-	numbered := map[Block]int{}
+	// A block is numbered by where it is, which is what identifies it.
+	type place struct {
+		side  Side
+		first int
+	}
+	numbered := map[place]int{}
 	number := func(b Block) int {
-		if n, ok := numbered[b]; ok {
+		if n, ok := numbered[place{b.Side, b.Lines.First}]; ok {
 			return n
 		}
 		blocks = append(blocks, b)
-		numbered[b] = len(blocks)
+		numbered[place{b.Side, b.Lines.First}] = len(blocks)
 		return len(blocks)
 	}
 	// nodeAt is the node of the block a row is in, or -1.

@@ -1,6 +1,7 @@
 package review_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -53,26 +54,30 @@ func viewingStep(t *testing.T, files workingFiles, steps ...review.Step) *review
 	return openDocumentRound(t, files, steps...).View().Step
 }
 
+// sameBlocks reports whether two Excerpts' blocks are the same, heading paths
+// and all.
+func sameBlocks(a, b []review.Block) bool { return reflect.DeepEqual(a, b) }
+
 func TestANewDocumentsExcerptCarriesItsBlocksWithTheirKindsRangesAndTreatment(t *testing.T) {
 	files := adding("docs/retries.md", retriesDocument)
 
 	step := viewingStep(t, files, showingWhole("Retries", files, review.NewSide, "docs/retries.md"))
 
-	newBlock := func(kind review.BlockKind, level, first, last int) review.Block {
+	newBlock := func(kind review.BlockKind, level, first, last int, path ...string) review.Block {
 		return review.Block{Kind: kind, Level: level, Side: review.NewSide,
-			Lines: review.LineRange{First: first, Last: last}, Treatment: review.TreatmentNew}
+			Lines: review.LineRange{First: first, Last: last}, Treatment: review.TreatmentNew, Path: path}
 	}
 	want := []review.Block{
 		newBlock(review.BlockFrontmatter, 0, 1, 3),
 		newBlock(review.BlockHeading, 1, 5, 5),
-		newBlock(review.BlockParagraph, 0, 7, 8),
-		newBlock(review.BlockListItem, 0, 10, 10),
-		newBlock(review.BlockListItem, 0, 11, 11),
-		newBlock(review.BlockTableRow, 0, 13, 14),
-		newBlock(review.BlockTableRow, 0, 15, 15),
-		newBlock(review.BlockCode, 0, 17, 19),
+		newBlock(review.BlockParagraph, 0, 7, 8, "Retries"),
+		newBlock(review.BlockListItem, 0, 10, 10, "Retries"),
+		newBlock(review.BlockListItem, 0, 11, 11, "Retries"),
+		newBlock(review.BlockTableRow, 0, 13, 14, "Retries"),
+		newBlock(review.BlockTableRow, 0, 15, 15, "Retries"),
+		newBlock(review.BlockCode, 0, 17, 19, "Retries"),
 	}
-	if got := step.Excerpts[0].Blocks; !slices.Equal(got, want) {
+	if got := step.Excerpts[0].Blocks; !sameBlocks(got, want) {
 		t.Errorf("expected the Document's blocks\n%+v\ngot\n%+v", want, got)
 	}
 }
@@ -174,8 +179,8 @@ func TestAnExcerptCuttingIntoAParagraphIsWidenedToItWithTheExtraLinesAsContext(t
 		}
 	}
 	wantBlocks := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
-		Lines: review.LineRange{First: 3, Last: 8}, Treatment: review.TreatmentNew}}
-	if !slices.Equal(excerpt.Blocks, wantBlocks) {
+		Lines: review.LineRange{First: 3, Last: 8}, Treatment: review.TreatmentNew, Path: []string{"Retries"}}}
+	if !sameBlocks(excerpt.Blocks, wantBlocks) {
 		t.Errorf("expected the paragraph new, as the lines the Excerpt names are\n%+v\ngot\n%+v", wantBlocks, excerpt.Blocks)
 	}
 }
@@ -218,10 +223,10 @@ func TestAnExcerptCuttingIntoATableKeepsItsRowsAndGainsTheHeaderRowAsContext(t *
 	})
 	row := func(first, last int, treatment review.Treatment) review.Block {
 		return review.Block{Kind: review.BlockTableRow, Side: review.NewSide,
-			Lines: review.LineRange{First: first, Last: last}, Treatment: treatment}
+			Lines: review.LineRange{First: first, Last: last}, Treatment: treatment, Path: []string{"Retries"}}
 	}
 	wantBlocks := []review.Block{row(3, 4, review.TreatmentContext), row(7, 7, review.TreatmentNew), row(8, 8, review.TreatmentNew)}
-	if !slices.Equal(excerpt.Blocks, wantBlocks) {
+	if !sameBlocks(excerpt.Blocks, wantBlocks) {
 		t.Errorf("expected the header row as a block of context before the rows\n%+v\ngot\n%+v", wantBlocks, excerpt.Blocks)
 	}
 }

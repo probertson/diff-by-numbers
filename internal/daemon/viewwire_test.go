@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -61,7 +62,8 @@ func TestADocumentExcerptCarriesItsBlocksAndEachRowsBlock(t *testing.T) {
 		},
 		Blocks: []review.Block{
 			{Kind: review.BlockHeading, Level: 1, Side: review.NewSide, Lines: review.LineRange{First: 1, Last: 1}, Treatment: review.TreatmentNew},
-			{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentContext},
+			{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentContext,
+				Path: []string{"Retries"}},
 		},
 	}}
 
@@ -69,9 +71,9 @@ func TestADocumentExcerptCarriesItsBlocksAndEachRowsBlock(t *testing.T) {
 
 	want := []BlockWire{
 		{Kind: "heading", Level: 1, Side: "new", FirstLine: 1, LastLine: 1, Treatment: "new"},
-		{Kind: "paragraph", Side: "new", FirstLine: 3, LastLine: 3, Treatment: "context"},
+		{Kind: "paragraph", Side: "new", FirstLine: 3, LastLine: 3, Treatment: "context", Path: []string{"Retries"}},
 	}
-	if !slices.Equal(wire.Blocks, want) {
+	if !reflect.DeepEqual(wire.Blocks, want) {
 		t.Errorf("expected the blocks %+v, got %+v", want, wire.Blocks)
 	}
 	if got := []int{wire.Lines[0].Block, wire.Lines[1].Block, wire.Lines[2].Block}; !slices.Equal(got, []int{1, 0, 2}) {

@@ -55,6 +55,9 @@ type BlockWire struct {
 	FirstLine int    `json:"first_line"`
 	LastLine  int    `json:"last_line"`
 	Treatment string `json:"treatment"`
+	// Path is the block's heading path, outermost heading first, which the TUI
+	// draws in the Excerpt's sticky file header (#145).
+	Path []string `json:"path,omitempty"`
 }
 
 // toLineWire carries one rendered row to the TUI, including whether it is code
@@ -88,6 +91,7 @@ func toBlockWires(blocks []review.Block) []BlockWire {
 		out = append(out, BlockWire{
 			Kind: string(b.Kind), Level: b.Level, Side: string(b.Side),
 			FirstLine: b.Lines.First, LastLine: b.Lines.Last, Treatment: string(b.Treatment),
+			Path: b.Path,
 		})
 	}
 	return out

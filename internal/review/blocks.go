@@ -1,6 +1,7 @@
 package review
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -26,6 +27,14 @@ type block struct {
 	// kind): what a Reviewer's surface needs to lay the block out.
 	kind  BlockKind
 	level int
+	// section and title are a parsedBlock's: whether the block is a heading
+	// that opens a section of the Document, and its text.
+	section bool
+	title   string
+	// path is the texts of the headings the block sits under, outermost first:
+	// for a heading, those of the headings it sits under itself. It is nil
+	// outside every heading, and in a Document that is not Markdown.
+	path []string
 	// words are the block's words in order: its source's whitespace-separated
 	// tokens with a letter or digit in them. Markers on their own (`#`, `-`,
 	// `|`, `>`, `---`) carry neither, so they are not words; everything else,
@@ -68,7 +77,45 @@ func markdownBlocks(source []string) []block {
 		parsed = append(make([]string, last), source[last:]...)
 	}
 	ranges = append(ranges, parsedRanges(parsed)...)
-	return blocksOver(source, claimUnclaimed(source, ranges))
+	return withHeadingPaths(blocksOver(source, claimUnclaimed(source, ranges)))
+}
+
+// withHeadingPaths gives each block, in source order, the path of the headings
+// it sits under. A heading closes every section at its own level or deeper, so
+// it sits under the headings still open above it, and opens a section of its
+// own below them. Only a Document's own headings make sections: a heading
+// inside a block quote is part of what is quoted.
+func withHeadingPaths(blocks []block) []block {
+	type section struct {
+		level int
+		title string
+	}
+	var open []section
+	// titles is the path of the sections open: nil when there are none, and a
+	// heading with no text names none.
+	titles := func() []string {
+		var out []string
+		for _, s := range open {
+			if s.title != "" {
+				out = append(out, s.title)
+			}
+		}
+		return slices.Clip(out)
+	}
+	var path []string
+	for i, b := range blocks {
+		if b.section {
+			for len(open) > 0 && open[len(open)-1].level >= b.level {
+				open = open[:len(open)-1]
+			}
+			blocks[i].path = titles()
+			open = append(open, section{b.level, b.title})
+			path = titles()
+			continue
+		}
+		blocks[i].path = path
+	}
+	return blocks
 }
 
 // frontmatterEnd finds YAML frontmatter: a `---` on the first line, closed by a
@@ -92,6 +139,10 @@ type parsedBlock struct {
 	lines LineRange
 	kind  BlockKind
 	level int
+	// section marks a heading of the Document's own, which opens a section,
+	// and title is its text, its inline markup read as plain text.
+	section bool
+	title   string
 }
 
 // ofKind makes blocks of one kind from ranges.
@@ -141,7 +192,11 @@ func parsedRanges(source []string) []parsedBlock {
 		default:
 			if r, ok := spanOf(n, n, lineOf); ok {
 				kind, level := kindOf(n)
-				ranges = append(ranges, parsedBlock{lines: r, kind: kind, level: level})
+				p := parsedBlock{lines: r, kind: kind, level: level}
+				if kind == BlockHeading && n.Parent() != nil && n.Parent().Kind() == ast.KindDocument {
+					p.section, p.title = true, plainText(n, content)
+				}
+				ranges = append(ranges, p)
 			}
 		}
 	}
@@ -150,6 +205,34 @@ func parsedRanges(source []string) []parsedBlock {
 	parser := goldmark.New(goldmark.WithExtensions(extension.Table)).Parser()
 	visit(parser.Parse(text.NewReader(content)))
 	return ranges
+}
+
+// plainText is the text of a node's inline content with its markup read away
+// (emphasis markers, code span backticks, link targets), its runs of
+// whitespace, line breaks included, made single spaces.
+func plainText(n ast.Node, source []byte) string {
+	var b strings.Builder
+	_ = ast.Walk(n, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch n := n.(type) {
+		case *ast.Text:
+			b.Write(n.Segment.Value(source))
+			if n.SoftLineBreak() || n.HardLineBreak() {
+				b.WriteByte(' ')
+			}
+		case *ast.String:
+			b.Write(n.Value)
+		case *ast.AutoLink:
+			b.Write(n.Label(source))
+			return ast.WalkSkipChildren, nil
+		case *ast.RawHTML:
+			return ast.WalkSkipChildren, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // listItemRanges makes a list item's own content one block, starting at its
@@ -279,7 +362,7 @@ func orphans(first, last int, blank func(int) bool) []LineRange {
 func blocksOver(source []string, parsed []parsedBlock) []block {
 	blocks := make([]block, 0, len(parsed))
 	for _, p := range parsed {
-		b := block{lines: p.lines, kind: p.kind, level: p.level}
+		b := block{lines: p.lines, kind: p.kind, level: p.level, section: p.section, title: p.title}
 		for _, line := range source[p.lines.First-1 : p.lines.Last] {
 			b.words = append(b.words, wordsIn(line)...)
 		}

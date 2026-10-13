@@ -215,8 +215,8 @@ func TestAnExpandedAcknowledgementOverAnEditedDocumentReadsAsTrackChanges(t *tes
 		t.Fatalf("expected the Document's edit and its removal, got %d: %+v", len(document), document)
 	}
 	edited := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
-		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited}}
-	if !slices.Equal(document[0].Blocks, edited) {
+		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited, Path: []string{"Retries"}}}
+	if !sameBlocks(document[0].Blocks, edited) {
 		t.Errorf("expected the paragraph edited\n%+v\ngot\n%+v", edited, document[0].Blocks)
 	}
 	runs := []review.WordRun{kept("A request is "), struck("retried"), inserted("resent"), kept(" when the transport fails.")}
@@ -224,8 +224,9 @@ func TestAnExpandedAcknowledgementOverAnEditedDocumentReadsAsTrackChanges(t *tes
 		t.Errorf("expected the merged flow\n%+v\ngot\n%+v", runs, got)
 	}
 	removed := []review.Block{{Kind: review.BlockParagraph, Side: review.OldSide,
-		Lines: review.LineRange{First: 7, Last: 8}, Treatment: review.TreatmentRemoved}}
-	if !slices.Equal(document[1].Blocks, removed) {
+		Lines: review.LineRange{First: 7, Last: 8}, Treatment: review.TreatmentRemoved,
+		Path: []string{"Retries", "Limits"}}}
+	if !sameBlocks(document[1].Blocks, removed) {
 		t.Errorf("expected the dropped paragraph removed\n%+v\ngot\n%+v", removed, document[1].Blocks)
 	}
 }

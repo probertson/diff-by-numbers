@@ -55,8 +55,8 @@ func TestAnEditedParagraphCarriesTheMergedFlowOfItsKeptStruckAndAddedWords(t *te
 
 	view := step.Excerpts[0]
 	want := []review.Block{{Kind: review.BlockParagraph, Side: review.NewSide,
-		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited}}
-	if !slices.Equal(view.Blocks, want) {
+		Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited, Path: []string{"Retries"}}}
+	if !sameBlocks(view.Blocks, want) {
 		t.Fatalf("expected the paragraph edited\n%+v\ngot\n%+v", want, view.Blocks)
 	}
 	runs := []review.WordRun{kept("A request is "), struck("retried"), inserted("resent"), kept(" when the transport fails.")}
@@ -195,8 +195,8 @@ func TestADeletionShownOnItsOwnIsARemovedBlock(t *testing.T) {
 
 	view := step.Excerpts[0]
 	want := []review.Block{{Kind: review.BlockParagraph, Side: review.OldSide,
-		Lines: review.LineRange{First: 5, Last: 6}, Treatment: review.TreatmentRemoved}}
-	if !slices.Equal(view.Blocks, want) {
+		Lines: review.LineRange{First: 5, Last: 6}, Treatment: review.TreatmentRemoved, Path: []string{"Retries"}}}
+	if !sameBlocks(view.Blocks, want) {
 		t.Fatalf("expected the deleted paragraph removed\n%+v\ngot\n%+v", want, view.Blocks)
 	}
 	for _, line := range view.Lines {
@@ -250,11 +250,14 @@ func TestAWhollyNewRunBesideAnEditIsNewAndARunWithNothingAfterItIsRemoved(t *tes
 
 	view := step.Excerpts[0]
 	want := []review.Block{
-		{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited},
-		{Kind: review.BlockParagraph, Side: review.OldSide, Lines: review.LineRange{First: 5, Last: 5}, Treatment: review.TreatmentRemoved},
-		{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 5, Last: 5}, Treatment: review.TreatmentNew},
+		{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 3, Last: 3}, Treatment: review.TreatmentEdited,
+			Path: []string{"Retries"}},
+		{Kind: review.BlockParagraph, Side: review.OldSide, Lines: review.LineRange{First: 5, Last: 5}, Treatment: review.TreatmentRemoved,
+			Path: []string{"Retries"}},
+		{Kind: review.BlockParagraph, Side: review.NewSide, Lines: review.LineRange{First: 5, Last: 5}, Treatment: review.TreatmentNew,
+			Path: []string{"Retries"}},
 	}
-	if !slices.Equal(view.Blocks, want) {
+	if !sameBlocks(view.Blocks, want) {
 		t.Fatalf("expected an edited, a removed and a new block\n%+v\ngot\n%+v", want, view.Blocks)
 	}
 	if runs := trackedRuns(view, 2); len(runs) != 0 {
