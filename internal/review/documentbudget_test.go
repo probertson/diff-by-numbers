@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sergi/go-diff/diffmatchpatch"
+
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -82,7 +84,79 @@ func (w workingFiles) Derive(repo review.Repository) (review.Derivation, error) 
 	}
 	derive(added, review.NewSide)
 	derive(deleted, review.OldSide)
+	for file, after := range w.after {
+		if before, ok := w.before[file]; ok && before != after {
+			deriveEdits(&d, repo.Root, file, before, after)
+		}
+	}
+	// A constant base, so a Revision Round finds old-side lines where it left
+	// them.
+	d.Base = "base"
 	return d, nil
+}
+
+// deriveEdits diffs a modified file line by line, as git would, reporting each
+// removed and added line as changed and each run of them as one edit.
+func deriveEdits(d *review.Derivation, root, file, before, after string) {
+	beforeLines := strings.Split(strings.TrimSuffix(before, "\n"), "\n")
+	afterLines := strings.Split(strings.TrimSuffix(after, "\n"), "\n")
+	encoded := map[string]rune{}
+	encode := func(lines []string) []rune {
+		out := make([]rune, len(lines))
+		for i, line := range lines {
+			if _, ok := encoded[line]; !ok {
+				encoded[line] = rune(0xF0000 + len(encoded))
+			}
+			out[i] = encoded[line]
+		}
+		return out
+	}
+	diffs := diffmatchpatch.New().DiffMainRunes(encode(beforeLines), encode(afterLines), false)
+
+	var edit review.Correspondence
+	flush := func() {
+		if edit.OldFirst > 0 || edit.NewFirst > 0 {
+			d.Correspondences = append(d.Correspondences, edit)
+		}
+		edit = review.Correspondence{Repository: root, File: file}
+	}
+	flush()
+	changed := func(side review.Side, n int, text string) {
+		line := review.ChangedLine{Repository: root, File: file, Side: side, Line: n}
+		d.Lines = append(d.Lines, line)
+		if strings.TrimSpace(text) == "" {
+			d.Whitespace = append(d.Whitespace, line)
+		}
+	}
+	oldAt, newAt := 1, 1
+	for _, diff := range diffs {
+		n := len([]rune(diff.Text))
+		switch diff.Type {
+		case diffmatchpatch.DiffEqual:
+			flush()
+			oldAt += n
+			newAt += n
+		case diffmatchpatch.DiffDelete:
+			if edit.OldFirst == 0 {
+				edit.OldFirst = oldAt
+			}
+			for range n {
+				changed(review.OldSide, oldAt, beforeLines[oldAt-1])
+				edit.OldLast = oldAt
+				oldAt++
+			}
+		case diffmatchpatch.DiffInsert:
+			if edit.NewFirst == 0 {
+				edit.NewFirst = newAt
+			}
+			for range n {
+				changed(review.NewSide, newAt, afterLines[newAt-1])
+				edit.NewLast = newAt
+				newAt++
+			}
+		}
+	}
+	flush()
 }
 
 // adding is a Change Set that adds the given files, path then content.
@@ -311,7 +385,8 @@ func TestOneRefusalListsEveryOversizedStepInWordsForDocumentsAndLinesForCode(t *
   Step 2 ("The retrier") counts 31 changed lines
   Step 3 ("Backoff") counts 40 changed lines and 1201 words
 `)
-	assertDetailContains(t, err, "Document text costs every word of each changed block a Step's Excerpts touch")
+	assertDetailContains(t, err, "Document text costs every word of each changed block a Step's Excerpts touch, "+
+		"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing")
 	assertDetailOmits(t, err, "Limits")
 }
 

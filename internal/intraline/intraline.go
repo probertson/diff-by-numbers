@@ -1,7 +1,8 @@
 // Package intraline finds the words that changed within one edit, so the
 // Reviewer is pointed at a one-word edit in a long line rather than left to
 // compare the two word by word (#81), and a rewrapped passage lights only what
-// was rewritten (#125).
+// was rewritten (#125). The same word diff says which words an edit to a
+// Document struck and added, which is what the edit costs to read (#157).
 //
 // It delegates the algorithm, not the rendering (ADR-0005): it answers with
 // ranges of runes, and whatever draws the rows styles them. dbn owns every row it
@@ -94,25 +95,19 @@ func isWord(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsD
 func Emphasis(removed, added []string) ([][]Range, [][]Range) {
 	before := passageTokens(removed, carriedMarkers(added))
 	after := passageTokens(added, carriedMarkers(removed))
-	encoded := map[string]rune{}
-	encode := func(tokens []token) []rune {
-		out := make([]rune, len(tokens))
+	keys := func(tokens []token) []string {
+		out := make([]string, len(tokens))
 		for i, t := range tokens {
-			key := t.text
+			out[i] = t.text
 			if t.isSpace() {
-				key = " "
+				out[i] = " "
 			}
-			r, ok := encoded[key]
-			if !ok {
-				r = firstEncoded + rune(len(encoded))
-				encoded[key] = r
-			}
-			out[i] = r
 		}
 		return out
 	}
-	beforeRunes, afterRunes := encode(before), encode(after)
-	if len(encoded) > encodable {
+	encoded := encoder{}
+	beforeRunes, afterRunes := encoded.encode(keys(before)), encoded.encode(keys(after))
+	if encoded.overflowed() {
 		return litWhole(removed), litWhole(added)
 	}
 	diffs := diffmatchpatch.New().DiffMainRunes(beforeRunes, afterRunes, false)
@@ -135,6 +130,65 @@ func Emphasis(removed, added []string) ([][]Range, [][]Range) {
 	trimWhitespace(added, addedOut)
 	return removedOut, addedOut
 }
+
+// Matched diffs two sequences of words, as whole words, and says for each word
+// of before the index of the word of after it was kept as, or -1 where the edit
+// struck it. A word of after that no word of before was kept as is one the edit
+// added. Unlike Emphasis it neither merges nearby edits nor judges whether the
+// two are alike: it is the plain shortest edit, for counting what an edit removed
+// and added rather than lighting it.
+//
+// Two sequences with too many distinct words to diff faithfully are reported as
+// sharing none: every word struck and every word added.
+func Matched(before, after []string) []int {
+	out := make([]int, len(before))
+	for i := range out {
+		out[i] = -1
+	}
+	encoded := encoder{}
+	beforeRunes, afterRunes := encoded.encode(before), encoded.encode(after)
+	if encoded.overflowed() {
+		return out
+	}
+	var i, j int
+	for _, d := range diffmatchpatch.New().DiffMainRunes(beforeRunes, afterRunes, false) {
+		n := len([]rune(d.Text))
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			for k := range n {
+				out[i+k] = j + k
+			}
+			i += n
+			j += n
+		case diffmatchpatch.DiffDelete:
+			i += n
+		case diffmatchpatch.DiffInsert:
+			j += n
+		}
+	}
+	return out
+}
+
+// encoder gives each distinct key a rune of its own, so that a diff of runes is a
+// diff of whole tokens.
+type encoder map[string]rune
+
+func (e encoder) encode(keys []string) []rune {
+	out := make([]rune, len(keys))
+	for i, key := range keys {
+		r, ok := e[key]
+		if !ok {
+			r = firstEncoded + rune(len(e))
+			e[key] = r
+		}
+		out[i] = r
+	}
+	return out
+}
+
+// overflowed reports more distinct keys than there are runes to encode them in,
+// past which two tokens can no longer be told apart.
+func (e encoder) overflowed() bool { return len(e) > encodable }
 
 // token is one token of a passage and where it sits: runes [start, end) of line.
 // A line break sits on no line; it stands for the whitespace around the break
