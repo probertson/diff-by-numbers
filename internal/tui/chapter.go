@@ -27,22 +27,23 @@ func (m model) chapter(n int) (daemon.ChapterWire, bool) {
 	return m.view.Chapters[n-1], true
 }
 
+// sameStop reports whether two views stand at the same stop. Position and
+// ChapterIntro name a stop together: a Chapter's intro shares its position
+// with the Step before it, or with the Overview for the first Chapter.
+func sameStop(a, b *daemon.ViewWire) bool {
+	return a.Position == b.Position && a.ChapterIntro == b.ChapterIntro
+}
+
 // chapterHeading names a Chapter by number and name, e.g. "3 · EL-7 Pack
-// holds". Numbers and names do the work, so the word "Chapter" is left out.
+// holds". Numbers and names do the work, so the word "Chapter" is left out: on
+// screen it is the Overview's heading and the keybar's "go to Chapter" only.
 func chapterHeading(chapter daemon.ChapterWire) string {
 	return fmt.Sprintf("%d · %s", chapter.Number, chapter.Name)
 }
 
-// chapterSpan places a Chapter among the Round's Steps, for the header line.
-func (m model) chapterSpan(chapter daemon.ChapterWire) string {
-	if chapter.FirstStep == chapter.LastStep {
-		return fmt.Sprintf("Step %d of %d", chapter.FirstStep, m.view.StepCount)
-	}
-	return fmt.Sprintf("Steps %d–%d of %d", chapter.FirstStep, chapter.LastStep, m.view.StepCount)
-}
-
 // stepRange names the Steps a Chapter holds, e.g. "Steps 12–16", or "Step 3"
-// for a Chapter of one.
+// for a Chapter of one. The Overview's rows show it alone; an intro's header
+// places it among the Round's Steps, e.g. "Steps 12–16 of 40".
 func stepRange(chapter daemon.ChapterWire) string {
 	if chapter.FirstStep == chapter.LastStep {
 		return fmt.Sprintf("Step %d", chapter.FirstStep)

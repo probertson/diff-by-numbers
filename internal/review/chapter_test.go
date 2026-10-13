@@ -198,14 +198,24 @@ func TestGoingBackFromAChaptersFirstStepLandsOnItsOwnIntro(t *testing.T) {
 func TestGoingToAChapterLandsOnItsIntro(t *testing.T) {
 	session := chapteredSession(t)
 
-	if err := session.GoToChapter(3); err != nil {
+	err := session.GoToChapter(3)
+
+	if err != nil {
 		t.Fatalf("expected to go to Chapter 3, got %v", err)
 	}
-
 	if got := stop(session.View()); got != "intro 3" {
 		t.Errorf("expected to land on Chapter 3's intro, got %s", got)
 	}
+}
+
+func TestAChaptersIntroLeadsToItsFirstStep(t *testing.T) {
+	session := chapteredSession(t)
+	if err := session.GoToChapter(3); err != nil {
+		t.Fatal(err)
+	}
+
 	mustAdvance(t, session)
+
 	if got := stop(session.View()); got != "step 4" {
 		t.Errorf("expected Chapter 3's intro to lead to its first Step, got %s", got)
 	}

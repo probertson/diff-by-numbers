@@ -261,14 +261,17 @@ type ViewWire struct {
 	Brief     BriefWire `json:"brief"`
 	StepNames []string  `json:"step_names"`
 	StepCount int       `json:"step_count"`
-	Position  int       `json:"position"`
-	Step      *StepWire `json:"step,omitempty"`
+	// Position and ChapterIntro together name the stop the Reviewer is at.
+	// Position is how far through the Steps they have come: 0 before Step 1,
+	// else the Step on screen. ChapterIntro is 0 except on a Chapter's intro,
+	// where it numbers the Chapter from 1 and Position is the Step before the
+	// Chapter's first. So Position 0 with ChapterIntro 0 is the Overview, and
+	// Position 0 with ChapterIntro 1 is the first Chapter's intro.
+	Position     int       `json:"position"`
+	ChapterIntro int       `json:"chapter_intro,omitempty"`
+	Step         *StepWire `json:"step,omitempty"`
 	// Chapters are the Round's Chapters, none for a Round without them.
-	Chapters []ChapterWire `json:"chapters,omitempty"`
-	// ChapterIntro is the Chapter whose intro is on screen, numbered from 1, or
-	// 0 when none is. On an intro, Position is the Step before the Chapter's
-	// first and Step is absent.
-	ChapterIntro int               `json:"chapter_intro,omitempty"`
+	Chapters     []ChapterWire     `json:"chapters,omitempty"`
 	Coverage     CoverageWire      `json:"coverage"`
 	Repositories []RepositoryWire  `json:"repositories"`
 	Seen         []bool            `json:"seen"`
@@ -424,9 +427,13 @@ func toViewWire(v review.ViewModel) ViewWire {
 	}
 	for _, chapter := range v.Chapters {
 		wire.Chapters = append(wire.Chapters, ChapterWire{
-			Number: chapter.Number, Name: chapter.Name, Intro: chapter.Intro,
-			FirstStep: chapter.FirstStep, LastStep: chapter.LastStep,
-			Seen: chapter.Seen, QuestionCount: chapter.QuestionCount,
+			Number:                 chapter.Number,
+			Name:                   chapter.Name,
+			Intro:                  chapter.Intro,
+			FirstStep:              chapter.FirstStep,
+			LastStep:               chapter.LastStep,
+			Seen:                   chapter.Seen,
+			QuestionCount:          chapter.QuestionCount,
 			UnchangedSincePrevious: chapter.UnchangedSincePrevious,
 		})
 	}

@@ -122,8 +122,8 @@ func (m model) asksMark(step int) string {
 	return askedMark(asked)
 }
 
-// askedMark says that a Step or a Chapter asks the Reviewer asked questions,
-// or nothing when it asks none.
+// askedMark is the mark for a Step or a Chapter that asks the Reviewer the
+// given number of questions: how many, never what. It is "" when it asks none.
 func askedMark(asked int) string {
 	switch asked {
 	case 0:

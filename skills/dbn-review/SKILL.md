@@ -190,23 +190,23 @@ moved code is otherwise invisible.
 
 ### Grouping Steps into Chapters
 
-**Group a long Round into Chapters when its Steps fall into natural groups.** A
+**Put a long Round into Chapters when runs of its Steps belong together.** A
 **Chapter** is a named run of consecutive Steps, opened by an intro in your own
 words that the reviewer reads on a screen of its own, before the Chapter's first
 Step. The Overview then lists one row per Chapter instead of every Step. Use
-Chapters once a Round runs past about 15 Steps and has groups to show — a
-subsystem of a refactor, a stage of a data flow, a Document or a few closely
-related ones — in any Review, code or Documents. A shorter Round, or one with
-no natural seams, stays a flat list: Chapters wrapped around a handful of Steps
-only add stops.
+Chapters once a Round runs past about 15 Steps and its Steps fall into runs that
+belong together — one subsystem of a refactor, one layer a request passes
+through, a Document or a few closely related ones — in any Review, code or
+Documents. A shorter Round, or one with no natural seams, stays a flat list:
+Chapters wrapped around a handful of Steps only add stops.
 
 **The name is what the reviewer will know the Chapter by:** a story's key and
-title ("EL-7 Pack holds"), a subsystem, a stage. dbn shows it with the
+title ("EL-7 Pack holds"), a subsystem, a layer. dbn shows it with the
 Chapter's number on the intro and on the header of every Step inside it, so
 number nothing yourself, and leave the Chapter's name out of its Steps' names.
 
 **The intro says what the Chapter covers and why it comes where it does.** It
-grounds the Steps inside it as the Brief grounds the whole Round: what this
+grounds the Steps inside it as the Overview grounds the whole Round: what this
 stretch of the change is about, and why it sits here — the storage layer before
 its callers, say, because every later Chapter calls it. It is not a restatement
 of the Step names: the intro screen lists the Steps beneath it. It asks nothing
@@ -231,8 +231,8 @@ number as they always do. A Chapter with no Steps, or with an empty name or
 intro, is refused, along with anything else wrong in the post.
 
 **Each Round declares its own Chapters, or none.** Nothing carries forward: a
-Revision Round or a Replacement groups its Steps afresh, by the same test, so a
-four-fix Revision Round is a flat list even when the Round it revises had
+Revision Round or a Replacement decides its Chapters afresh, by the same test,
+so a four-fix Revision Round is a flat list even when the Round it revises had
 Chapters. Chapters change nothing about coverage, the budgets or Agent
 Questions.
 

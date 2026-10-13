@@ -626,32 +626,9 @@ func (d *Daemon) Handler() http.Handler {
 	mux.HandleFunc("POST /reviews/{review}/advance", d.navHandler((*review.Session).Advance))
 	mux.HandleFunc("POST /reviews/{review}/since-previous", d.navHandler((*review.Session).ToggleSincePreviousRound))
 	mux.HandleFunc("POST /reviews/{review}/back", d.navHandler((*review.Session).Back))
-	mux.HandleFunc("POST /reviews/{review}/goto/{n}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
-		n, err := strconv.Atoi(r.PathValue("n"))
-		if err != nil {
-			http.Error(w, "position must be a number", http.StatusBadRequest)
-			return
-		}
-		if err := d.locked(func() error { return session.GoTo(n) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		fmt.Fprintln(w, "ok")
-	}))
-
+	mux.HandleFunc("POST /reviews/{review}/goto/{n}", d.numberedNavHandler("position", (*review.Session).GoTo))
 	// Going to a Chapter lands on its intro, where the Chapter is entered.
-	mux.HandleFunc("POST /reviews/{review}/chapter/{n}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
-		n, err := strconv.Atoi(r.PathValue("n"))
-		if err != nil {
-			http.Error(w, "chapter must be a number", http.StatusBadRequest)
-			return
-		}
-		if err := d.locked(func() error { return session.GoToChapter(n) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		fmt.Fprintln(w, "ok")
-	}))
+	mux.HandleFunc("POST /reviews/{review}/chapter/{n}", d.numberedNavHandler("chapter", (*review.Session).GoToChapter))
 
 	// Dismissal is the Reviewer's act, so it is theirs to reach and not exposed
 	// as an MCP tool: an agent cannot dismiss a review of its own work. The
@@ -769,6 +746,24 @@ func (d *Daemon) withActivity(next http.Handler) http.Handler {
 func (d *Daemon) navHandler(intent func(*review.Session) error) http.HandlerFunc {
 	return d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
 		if err := d.locked(func() error { return intent(session) }); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+}
+
+// numberedNavHandler adapts a navigation intent that takes a number, the path's
+// {n}, to an HTTP handler, as navHandler does one that takes none. what names
+// the number for the answer to a path that does not give one.
+func (d *Daemon) numberedNavHandler(what string, intent func(*review.Session, int) error) http.HandlerFunc {
+	return d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.PathValue("n"))
+		if err != nil {
+			http.Error(w, what+" must be a number", http.StatusBadRequest)
+			return
+		}
+		if err := d.locked(func() error { return intent(session, n) }); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

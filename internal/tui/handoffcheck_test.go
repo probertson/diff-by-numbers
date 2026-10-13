@@ -36,9 +36,9 @@ func (r *pathRecorder) all() []string {
 	return append([]string(nil), r.paths...)
 }
 
-// checkingModel is a review on its last Step with the given questions in the
-// Round, talking to a server that records what it is sent.
-func checkingModel(t *testing.T, mode mode, questions ...daemon.QuestionWire) (model, *pathRecorder) {
+// recordingClient is a client for review a1 talking to a server that records
+// the path of every request it is sent.
+func recordingClient(t *testing.T) (client, *pathRecorder) {
 	t.Helper()
 	rec := &pathRecorder{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,8 +47,16 @@ func checkingModel(t *testing.T, mode mode, questions ...daemon.QuestionWire) (m
 		rec.mu.Unlock()
 	}))
 	t.Cleanup(server.Close)
+	return client{base: server.URL, review: "a1"}, rec
+}
+
+// checkingModel is a review on its last Step with the given questions in the
+// Round, talking to a server that records what it is sent.
+func checkingModel(t *testing.T, mode mode, questions ...daemon.QuestionWire) (model, *pathRecorder) {
+	t.Helper()
+	c, rec := recordingClient(t)
 	m := model{
-		client: client{base: server.URL, review: "a1"},
+		client: c,
 		mode:   mode,
 		view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2,
 			Step: tallStep(), Questions: questions},

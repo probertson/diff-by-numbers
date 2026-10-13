@@ -970,10 +970,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		} else {
-			// A Chapter's intro sits at the position of the Step before it, so
-			// moving between the two changes the stop but not the position.
-			if m.view != nil && msg.view != nil &&
-				(m.view.Position != msg.view.Position || m.view.ChapterIntro != msg.view.ChapterIntro) {
+			if m.view != nil && msg.view != nil && !sameStop(m.view, msg.view) {
 				positionChanged = true
 			}
 			// How the Reviewer left each Step belongs to one Round: a new
@@ -1278,9 +1275,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	// Only the Brief and a Chapter's intro scroll through the viewport; a Step
-	// is cursor-driven.
-	if m.view == nil || m.view.Position == 0 || m.onIntro() {
+	// Only the Overview and a Chapter's intro scroll through the viewport; a
+	// Step is cursor-driven.
+	if m.view == nil || !m.view.Posted || m.onOverview() || m.onIntro() {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
@@ -1842,7 +1839,7 @@ func (m model) modeKeys() string {
 	if m.onIntro() {
 		return keybar("enter continue", "↑/↓ scroll")
 	}
-	if m.view.Position == 0 {
+	if m.onOverview() {
 		tokens := []string{"enter begin", "↑/↓ scroll"}
 		if len(m.questionsHere()) > 0 {
 			tokens = append(tokens, "a answer")
@@ -2555,8 +2552,9 @@ func (m model) headerLine() string {
 		return headerSt.Render("dbn — End of review") + dimSt.Render(m.coverageSuffix())
 	case m.onIntro():
 		chapter, _ := m.chapter(m.view.ChapterIntro)
-		return headerSt.Render("dbn — "+m.chapterSpan(chapter)) + dimSt.Render(m.coverageSuffix())
-	case m.view.Position == 0:
+		return headerSt.Render(fmt.Sprintf("dbn — %s of %d", stepRange(chapter), m.view.StepCount)) +
+			dimSt.Render(m.coverageSuffix())
+	case m.onOverview():
 		return headerSt.Render("dbn — Overview") + dimSt.Render("  ·  "+pluralize(m.view.StepCount, "Step")+" ahead"+m.coverageSuffix())
 	default:
 		return headerSt.Render(fmt.Sprintf("dbn — Step %d of %d", m.view.Position, m.view.StepCount)) +
@@ -2665,7 +2663,7 @@ func (m model) content() string {
 	if m.onIntro() {
 		return m.intro()
 	}
-	if m.view.Position == 0 {
+	if m.onOverview() {
 		return m.brief()
 	}
 	return m.step()

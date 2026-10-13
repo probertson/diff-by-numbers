@@ -106,14 +106,14 @@ the Step where it jumps, or, in a Round with Chapters, in the intro of the
 Chapter it jumps to. A jump that is right but unexplained still leaves the
 reviewer working out why.
 
-**In a document Round, give each Document a Chapter, or each closely related
-group.** When a Round of Documents runs long enough for Chapters (see *Grouping
-Steps into Chapters* in SKILL.md), make one Chapter per Document, or per group
-you show together: a story and the story that fixes the issue it raises, say.
-Each Chapter's first Step is its grounding, such as the story's acceptance
-criteria, so a Document's own outline Step, when it still needs one, comes
-straight after it. An outline of the whole set is the Round's opening outline,
-in a Chapter of its own.
+**In a document Round, give each Document a Chapter, or closely related
+Documents one between them.** When a Round of Documents runs long enough for
+Chapters (see *Grouping Steps into Chapters* in SKILL.md), make one Chapter per
+Document, or one for Documents you show together: a story and the story that
+fixes the issue it raises, say. Each Chapter's first Step is its grounding,
+such as the story's acceptance criteria, so a Document's own outline Step, when
+it still needs one, comes straight after it. An outline of the whole set is the
+Round's opening outline, in a Chapter of its own.
 
 ## Context in a Document is its enclosing paragraph
 

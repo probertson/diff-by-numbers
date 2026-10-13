@@ -64,9 +64,6 @@ func (w Round) flattened() (Round, []chapterSpan) {
 // and that each Chapter has something to say and something to show. Each kind of
 // fault is one Problem naming every Chapter that has it, so the agent fixes them
 // all before posting again.
-//
-// None of these faults leaves the rest of the post unreadable, so they are
-// reported with whatever else the post gets wrong rather than on their own.
 func validateChapters(w Round) []Problem {
 	if len(w.Chapters) == 0 {
 		return nil
@@ -132,8 +129,13 @@ func (s *Session) chapterViews() []ChapterView {
 	var views []ChapterView
 	for i, span := range s.chapters {
 		view := ChapterView{
-			Number: i + 1, Name: span.name, Intro: span.intro, FirstStep: span.first, LastStep: span.last,
-			Seen: true, UnchangedSincePrevious: unchanged != nil,
+			Number:                 i + 1,
+			Name:                   span.name,
+			Intro:                  span.intro,
+			FirstStep:              span.first,
+			LastStep:               span.last,
+			Seen:                   true,
+			UnchangedSincePrevious: unchanged != nil,
 		}
 		for step := span.first; step <= span.last; step++ {
 			view.Seen = view.Seen && s.seen[step]

@@ -482,7 +482,7 @@ func (s *Session) scopedLedger(set ChangeSet, earlier *earlierRound, overruled o
 }
 
 // moveTo places the Reviewer at a position and records a Step as seen. It is the
-// single path every navigation to the Brief or a Step goes through, so
+// single path every navigation to the Overview or a Step goes through, so
 // seen-tracking cannot be skipped. A Chapter's intro is reached by toIntro.
 func (s *Session) moveTo(position int) {
 	s.position = position
@@ -649,7 +649,7 @@ func (s *Session) chapterOpenedBy(step int) int {
 	return 0
 }
 
-// stepInView is the Step on screen, or 0 on the Brief or a Chapter's intro.
+// stepInView is the Step on screen, or 0 on the Overview or a Chapter's intro.
 func (s *Session) stepInView() int {
 	if s.intro > 0 {
 		return 0

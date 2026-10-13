@@ -93,7 +93,7 @@ func (s *Session) Anchor(target AnchorTarget) (Anchor, error) {
 		return Anchor{}, reject(RejectedNoRound, "there is no Round to anchor into")
 	}
 	if s.stepInView() == 0 {
-		return Anchor{}, reject(RejectedNoSuchStep, "you can only anchor within a Step, not the Brief or a Chapter's intro")
+		return Anchor{}, reject(RejectedNoSuchStep, "you can only anchor within a Step, not the Overview or an intro")
 	}
 
 	step := s.current.Steps[s.stepInView()-1]

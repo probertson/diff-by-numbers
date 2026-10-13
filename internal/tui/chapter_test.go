@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -117,15 +115,9 @@ func TestAStepHeaderNamesItsChapter(t *testing.T) {
 // records what it is sent.
 func recordingIntro(t *testing.T, chapter int) (model, *pathRecorder) {
 	t.Helper()
-	rec := &pathRecorder{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec.mu.Lock()
-		rec.paths = append(rec.paths, r.URL.Path)
-		rec.mu.Unlock()
-	}))
-	t.Cleanup(server.Close)
 	m := atIntro(chapter)
-	m.client = client{base: server.URL, review: "a1"}
+	c, rec := recordingClient(t)
+	m.client = c
 	return m, rec
 }
 
@@ -154,31 +146,43 @@ func TestTheKeysOnAnIntroAskTheDaemonToMove(t *testing.T) {
 	}
 }
 
+// arriveAt is m once the daemon reports the Reviewer at a stop of
+// chapteredView's Round: a position, a Chapter's intro or 0, and the Step in
+// view, nil on an intro.
+func arriveAt(m model, position, intro int, step *daemon.StepWire) model {
+	view := chapteredView()
+	view.Position, view.ChapterIntro, view.Step = position, intro, step
+	after, _ := m.Update(refreshMsg{view: view})
+	return after.(model)
+}
+
 // Advancing from a Chapter's last Step lands on the next Chapter's intro, at
-// the same position: the Step is left as it would be for any other stop.
+// the same position, so the move must still count as leaving the Step.
+func TestAnIntroAtTheLastStepsPositionIsNotThatStep(t *testing.T) {
+	m := arriveAt(model{mode: modeReview}, 2, 0, oneLineStep("held"))
+
+	m = arriveAt(m, 2, 2, nil)
+
+	if m.inStep() {
+		t.Error("expected no Step in view on the intro")
+	}
+}
+
+// The Step is left as it would be for any other stop, so coming back to it
+// through the intro finds the cursor where the Reviewer left it.
 func TestReturningFromAnIntroPutsTheCursorWhereItWasLeft(t *testing.T) {
 	step := tallStep()
 	m := model{client: client{base: expandServer(t).URL, review: "a1"}, mode: modeReview}
-	arriveAt := func(m model, position, intro int, step *daemon.StepWire) model {
-		view := chapteredView()
-		view.Position, view.ChapterIntro, view.Step = position, intro, step
-		after, _ := m.Update(refreshMsg{view: view})
-		return after.(model)
-	}
 	m = arriveAt(m, 2, 0, step)
 	for i := 0; i < 25; i++ {
 		m = press(m, "down")
 	}
 
-	m = arriveAt(m, 2, 2, nil) // on to Chapter 2's intro
-	inStepOnIntro := m.inStep()
+	m = arriveAt(m, 2, 2, nil)         // on to Chapter 2's intro
 	m = arriveAt(m, 3, 0, otherStep()) // on to Step 3
 	m = arriveAt(m, 2, 2, nil)         // back to the intro
 	m = arriveAt(m, 2, 0, step)        // back to Step 2
 
-	if inStepOnIntro {
-		t.Error("expected no Step in view on the intro")
-	}
 	if got := m.cursor.lines[m.cursor.cursor].number; got != 26 {
 		t.Errorf("expected the cursor back on line 26, got line %d", got)
 	}
