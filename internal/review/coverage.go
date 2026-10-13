@@ -150,10 +150,10 @@ type ledger struct {
 	// the round's own scope, not of the raw Change Set.
 	preShown       map[ChangedLine]bool
 	preShownOpaque map[fileRef]bool
-	// documents holds the blocks of each side of each Document with Changed
-	// Lines, as the round holds it. A Document's Changed Lines are charged in
-	// words, by the blocks they fall in, rather than as lines of code.
-	documents map[documentSide][]block
+	// documents holds the text and blocks of each side of each Document with
+	// Changed Lines, as the round holds it. A Document's Changed Lines are
+	// charged in words, by the blocks they fall in, rather than as lines of code.
+	documents map[documentSide]document
 	// overruled is how the agent has overruled dbn's classification of files as
 	// Documents, for this round: what the Review has recorded with what the call
 	// in hand gives on top.
@@ -383,7 +383,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 	// Step, every Excerpt — to find out about the next, and they were all
 	// present on the first attempt. The coverage check has always aggregated;
 	// the budget was the outlier.
-	costing := l.costingBlocks()
+	costs := l.costedBlocks()
 	var over []oversizedStep
 	documentOver := false
 	for i, step := range steps {
@@ -394,7 +394,7 @@ func (l ledger) validateBudget(steps []Step) *Rejection {
 		if count := l.changedLinesIn(step, steps); count > StepBudget {
 			offender.lines = count
 		}
-		if words := documentWordsIn(step, costing); words > DocumentBudget {
+		if words := l.documentWordsIn(step, steps, costs); words > DocumentBudget {
 			offender.words = words
 			documentOver = true
 		}
@@ -449,12 +449,14 @@ func (o oversizedStep) String() string {
 // says why the count can be lower than the lines a Step shows, so an agent
 // tallying its own Excerpts is not left with a number it cannot reproduce. When
 // Document text is over, it also says how words are counted, since a block is
-// charged whole however little of it an Excerpt shows.
+// charged whole however little of it an Excerpt shows, and a rewrap that changed
+// every line of one is charged nothing.
 func splitFirst(documents bool) string {
 	advice := "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
 		"whitespace-only lines and lines already shown last round are not counted"
 	if documents {
-		advice += "; Document text costs every word of each changed block a Step's Excerpts touch"
+		advice += "; Document text costs every word of each changed block a Step's Excerpts touch, " +
+			"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing"
 	}
 	return advice
 }
