@@ -1085,7 +1085,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "q":
 			return m.quit()
-		case "enter", "n", "right":
+		case "enter", "right":
 			m.status = ""
 			// Advancing past the last Step lands on the conclusion screen — the
 			// pre-finish bookend to the Overview — rather than silently no-opping.
@@ -1096,7 +1096,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.client.intent("/advance")
 			return m, m.refresh()
-		case "p", "left":
+		case "left":
 			m.status = ""
 			m.client.intent("/back")
 			return m, m.refresh()
@@ -1446,7 +1446,7 @@ func (m model) updateReraise(key string) (tea.Model, tea.Cmd) {
 // on a review not yet handed off.
 func (m model) updateConclusion(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "left", "p", "esc":
+	case "left", "esc":
 		m.mode = modeReview // the daemon never left the last Step
 		return m, nil
 	case "g":

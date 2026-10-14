@@ -382,6 +382,110 @@ func TestAdvanceBeforeTheLastStepDoesNotEnterTheConclusionScreen(t *testing.T) {
 	}
 }
 
+// midRoundModel is a review on the second of three Steps, talking to a server
+// that records what it is sent.
+func midRoundModel(t *testing.T) (model, *pathRecorder) {
+	t.Helper()
+	c, rec := recordingClient(t)
+	m := model{
+		client: c,
+		mode:   modeReview,
+		view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 3,
+			Step: tallStep()},
+		width: 100, height: 30, ready: true,
+	}
+	m.syncCursor()
+	return m, rec
+}
+
+// p is kept for opening the Browser Renderer, and n only ever answers "no", so
+// neither moves the Reviewer off the Step they are on.
+func TestPAndNDoNotMoveOffAStep(t *testing.T) {
+	for _, key := range []string{"p", "n"} {
+		m, rec := midRoundModel(t)
+
+		after := press(m, key)
+
+		if sent := rec.all(); len(sent) != 0 {
+			t.Errorf("expected %s on a Step to ask the daemon for nothing, sent %v", key, sent)
+		}
+		if after.mode != modeReview {
+			t.Errorf("expected %s on a Step to stay on it, got mode %v", key, after.mode)
+		}
+	}
+}
+
+// Navigation has one set of keys: the left arrow goes back, and the right
+// arrow and enter go on.
+func TestTheArrowsAndEnterMoveBetweenSteps(t *testing.T) {
+	for _, tc := range []struct {
+		key  tea.KeyMsg
+		path string
+	}{
+		{tea.KeyMsg{Type: tea.KeyLeft}, "/back"},
+		{tea.KeyMsg{Type: tea.KeyRight}, "/advance"},
+		{tea.KeyMsg{Type: tea.KeyEnter}, "/advance"},
+	} {
+		m, rec := midRoundModel(t)
+
+		_, _ = m.Update(tc.key)
+
+		if sent := rec.all(); len(sent) != 1 || !rec.sent(tc.path) {
+			t.Errorf("expected %s on a Step to send only %s, sent %v", tc.key, tc.path, sent)
+		}
+	}
+}
+
+func TestPOnTheConclusionScreenDoesNotGoBack(t *testing.T) {
+	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
+
+	after, _ := m.updateConclusion("p")
+
+	if after.(model).mode != modeConclusion {
+		t.Error("p is not a navigation key, so it should leave the conclusion screen showing")
+	}
+}
+
+// n left navigation but still answers "no" wherever dbn asks, just as esc
+// does. (The Inbox's dismiss guard is covered beside the Inbox.)
+func TestNStillSaysNoInEveryConfirmation(t *testing.T) {
+	t.Run("deleting from the editor", func(t *testing.T) {
+		m := model{mode: modeNote, editingID: 7, confirmingDelete: true, note: newNote(80)}
+
+		after := press(m, "n")
+
+		if after.confirmingDelete || after.mode != modeNote {
+			t.Errorf("expected n to cancel the delete and stay editing, got armed=%v mode %v", after.confirmingDelete, after.mode)
+		}
+	})
+	t.Run("withdrawing from the list", func(t *testing.T) {
+		m := model{
+			mode:             modeList,
+			confirmingDelete: true,
+			view:             &daemon.ViewWire{Comments: []daemon.CommentWire{{ID: 3, Step: 1, Note: "n"}}},
+		}
+
+		after := press(m, "n")
+
+		if after.confirmingDelete || after.mode != modeList {
+			t.Errorf("expected n to cancel the withdrawal and stay in the list, got armed=%v mode %v", after.confirmingDelete, after.mode)
+		}
+	})
+	t.Run("handing off with questions unanswered", func(t *testing.T) {
+		m, rec := checkingModel(t, modeReview, onStep(1, 1, "3 or 5?", ""))
+		checking := press(m, "h")
+
+		after := press(checking, "n")
+
+		if after.mode != modeReview {
+			t.Errorf("expected n to return to the Step, got mode %v", after.mode)
+		}
+		if rec.sent("/finish") {
+			t.Error("saying no must not hand off")
+		}
+	})
+}
+
 func TestConclusionBackReturnsToTheStep(t *testing.T) {
 	m := model{mode: modeConclusion, view: &daemon.ViewWire{Posted: true, Position: 2, StepCount: 2}}
 

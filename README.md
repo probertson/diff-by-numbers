@@ -150,7 +150,7 @@ You can open it before your agent is ready: with no daemon yet, the TUI waits fo
 
 dbn opens on the "Inbox": every review that has been posted to dbn, and whether it's waiting on you or the agent. Move with the arrows, `enter` opens the one under the cursor where you left it, and `i` returns you to the inbox, leaving your review as-is. `d` dismisses a review you don't want, after a y/n confirmation — it discards the comments you raised, and the agent is told you dismissed it.
 
-Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate through screens, and `g` to return to the Overview. If the agent grouped its Steps into Chapters, `1`–`9` go to that Chapter's intro. Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions mid-review) or to add a comment. Press `a` to answer an agent question where the agent asked it. When you're done, press `h` to hand off the review.
+Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate through screens (`enter` also goes forward), and `g` to return to the Overview. If the agent grouped its Steps into Chapters, `1`–`9` go to that Chapter's intro. Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions mid-review) or to add a comment. Press `a` to answer an agent question where the agent asked it. When you're done, press `h` to hand off the review.
 
 If your agent's harness can wait on a background command, the agent is told directly and the screen says so; otherwise it tells you to let the agent know. Either way, the agent then retrieves your comments.
 
