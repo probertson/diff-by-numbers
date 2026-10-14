@@ -22,6 +22,8 @@ import (
 //     page's script swaps in
 //   - /reviews/{review}/page/events  the review's change stream (server-sent
 //     events)
+//   - /reviews/{review}/page/image/{file}?repository={root}  an image a
+//     Document refers to (browserimage.go)
 //
 // and one the TUI posts to: /reviews/{review}/screen, its report of a screen
 // dbn holds no stop for, which the page then names. It changes nothing of the
@@ -155,6 +157,7 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 		d.servePage(w, "stop", d.pageOf(session).Stop)
 	}))
 	mux.HandleFunc("GET /reviews/{review}/page/events", d.onReview(d.serveEvents))
+	mux.HandleFunc("GET /reviews/{review}/page/image/{file...}", d.onReview(d.serveImage))
 	mux.HandleFunc("POST /reviews/{review}/screen", d.onReview(d.reportScreen))
 }
 
@@ -163,12 +166,14 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 func (d *Daemon) pageOf(session *review.Session) pageData {
 	var view ViewWire
 	label := ""
+	images := documentImages{reviewID: session.ReviewID()}
 	_ = d.locked(func() error {
 		view = toViewWire(session.View())
 		label = session.Label()
+		images.files = session.RoundFiles()
 		return nil
 	})
-	return newPageData(label, view, d.screens.get(session.ReviewID()))
+	return newPageData(label, view, images, d.screens.get(session.ReviewID()))
 }
 
 // servePage renders one of the page's templates. It renders into a buffer
