@@ -18,11 +18,26 @@ import (
 )
 
 // documentRow is one source row of a Document stretch the page renders: its
-// text, the block it belongs to (0 for none), and whether a Comment covers it.
+// text, the block it belongs to (0 for none), whether a Comment covers it,
+// and whether the TUI's cursor is on it.
 type documentRow struct {
 	text      string
 	block     int
 	commented bool
+	cursor    bool
+}
+
+// classes is the class attribute a block's element carries for its first
+// row, or "" for none.
+func (r documentRow) classes() string {
+	var names []string
+	if r.commented {
+		names = append(names, "commented")
+	}
+	if r.cursor {
+		names = append(names, "cursor")
+	}
+	return strings.Join(names, " ")
 }
 
 // renderDocument renders a stretch of a Markdown Document as HTML with the
@@ -31,8 +46,8 @@ type documentRow struct {
 // shown as their alt text and path until the page can serve them (#189).
 //
 // Each element that starts a block carries the block's number as data-block,
-// so the page can find the block the TUI's cursor is on (#187), and a block a
-// Comment covers carries the class "commented".
+// so the page can find the block the TUI's cursor is on (#187). A block a
+// Comment covers carries the class "commented", and the cursor's "cursor".
 func renderDocument(rows []documentRow) template.HTML {
 	var source strings.Builder
 	starts := make([]int, 0, len(rows))
@@ -74,8 +89,8 @@ func renderPlain(rows []documentRow) template.HTML {
 			words = append(words, strings.TrimSpace(rows[j].text))
 		}
 		out.WriteString(`<p data-block="` + strconv.Itoa(rows[i].block) + `"`)
-		if rows[i].commented {
-			out.WriteString(` class="commented"`)
+		if classes := rows[i].classes(); classes != "" {
+			out.WriteString(` class="` + classes + `"`)
 		}
 		out.WriteString(">" + template.HTMLEscapeString(strings.Join(words, " ")) + "</p>\n")
 		i = j
@@ -97,7 +112,7 @@ var blockElements = map[ast.NodeKind]bool{
 }
 
 // tagBlocks marks each element that starts a block with its number, and the
-// class "commented" where a Comment covers it. An element inside one already
+// classes its first row gives it (commented, cursor). An element inside one already
 // marked with the same block is left alone, so a list item's paragraph is
 // not marked a second time.
 func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
@@ -122,8 +137,8 @@ func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
 			return ast.WalkContinue, nil
 		}
 		n.SetAttributeString("data-block", strconv.Itoa(row.block))
-		if row.commented {
-			n.SetAttributeString("class", "commented")
+		if classes := row.classes(); classes != "" {
+			n.SetAttributeString("class", classes)
 		}
 		marked, blocks = append(marked, n), append(blocks, row.block)
 		return ast.WalkContinue, nil

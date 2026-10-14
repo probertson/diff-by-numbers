@@ -201,6 +201,17 @@ func (c client) intent(path string) {
 	response.Body.Close()
 }
 
+// reportCursor tells the daemon where the cursor is, for the review's page to
+// follow. Like an intent it is fire and forget.
+func (c client) reportCursor(at daemon.CursorWire) {
+	body, _ := json.Marshal(at)
+	response, err := http.Post(c.url("/cursor"), "application/json", bytes.NewReader(body))
+	if err != nil {
+		return // the next poll will surface the daemon being gone
+	}
+	response.Body.Close()
+}
+
 // dismiss asks the daemon to discard the review this client is about.
 func (c client) dismiss() error {
 	response, err := http.Post(c.url("/dismiss"), "text/plain", nil)
@@ -880,7 +891,20 @@ func (m model) refresh() tea.Cmd {
 	}
 }
 
+// Update handles a message, then tells dbn where the cursor is if that moved:
+// keys move it, and so do a new Step arriving, a Document switching view and
+// an Acknowledgement expanding, so the one place to see every move is after
+// any message.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	before, _ := m.cursorAt()
+	next, cmd := m.update(msg)
+	if after, ok := next.(model); ok {
+		after.reportCursorMove(before)
+	}
+	return next, cmd
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

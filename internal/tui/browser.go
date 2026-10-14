@@ -89,3 +89,42 @@ func (m model) pageLine() string {
 	}
 	return labelSt.Render("In your browser") + "\n  " + hyperlink(url, url) + dimSt.Render("  (p opens it)") + "\n\n"
 }
+
+// cursorPlace is where the cursor is, as the page finds it, in the review it
+// is on.
+type cursorPlace struct {
+	review string
+	cursor daemon.CursorWire
+}
+
+// cursorAt is where the cursor is, or false off a Step. The page draws each
+// Document rendered, so in a Document the cursor is its block, even where the
+// pane shows the Document as source; in code it is the line. Anywhere the page
+// does not draw, an Acknowledgement, is in no Excerpt.
+func (m model) cursorAt() (cursorPlace, bool) {
+	if !m.inStep() || len(m.cursor.lines) == 0 {
+		return cursorPlace{}, false
+	}
+	line := m.cursor.lines[m.cursor.cursor]
+	at := daemon.CursorWire{Step: m.view.Position, Excerpt: -1}
+	switch {
+	case line.ack >= 0 || line.excerpt < 0:
+	case line.block > 0:
+		at.Excerpt, at.Block = line.excerpt, line.block
+	case m.cursor.source && line.inBlock > 0:
+		at.Excerpt, at.Block = line.excerpt, line.inBlock
+	default:
+		at.Excerpt, at.Side, at.Line = line.excerpt, line.side, line.number
+	}
+	return cursorPlace{review: m.client.review, cursor: at}, true
+}
+
+// reportCursorMove tells dbn where the cursor is, for the review's page to
+// follow, when it is somewhere other than before.
+func (m model) reportCursorMove(before cursorPlace) {
+	at, ok := m.cursorAt()
+	if !ok || at == before {
+		return
+	}
+	m.client.reportCursor(at.cursor)
+}

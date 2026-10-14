@@ -1,5 +1,5 @@
 {{define "stop" -}}
-<div class="stop" data-key="{{.Key}}">
+<div class="stop{{if .Following}} following{{end}}" data-key="{{.Key}}">
 {{- if .Step}}{{template "step" .Step}}{{else}}
 <p class="notice">{{.Notice}}</p>
 {{- end}}
@@ -48,7 +48,7 @@
 {{- end}}
 
 {{define "excerpt" -}}
-<section class="excerpt">
+<section class="excerpt" data-excerpt="{{.Index}}">
 <h2 class="file-header">{{.Label}}</h2>
 {{- if .ChangedOnDisk}}
 <p class="warning">This file has changed on disk since the round was posted. These are the lines as posted.</p>
@@ -60,7 +60,7 @@
 {{- if .Rows}}
 <div class="source">
 {{- range .Rows}}
-<div class="row {{.Class}}{{if .Commented}} commented{{end}}"><span class="mark">{{if .Commented}}●{{end}}</span><span class="number">{{if .Number}}{{.Number}}{{end}}</span><span class="sign">{{.Sign}}</span><span class="text">{{range .Parts}}{{if .Changed}}<span class="changed">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</span></div>
+<div class="row {{.Class}}{{if .Commented}} commented{{end}}{{if .Cursor}} cursor{{end}}" data-side="{{.Side}}"{{if .Number}} data-line="{{.Number}}"{{end}}{{if .Block}} data-block="{{.Block}}"{{end}}><span class="mark">{{if .Commented}}●{{end}}</span><span class="number">{{if .Number}}{{.Number}}{{end}}</span><span class="sign">{{.Sign}}</span><span class="text">{{range .Parts}}{{if .Changed}}<span class="changed">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</span></div>
 {{- end}}
 </div>
 {{- else}}

@@ -37,6 +37,7 @@ type pageData struct {
 	Title     string
 	StopURL   string
 	EventsURL string
+	CursorURL string
 	Style     template.CSS
 	Script    template.JS
 	Stop      stopData
@@ -49,6 +50,9 @@ type stopData struct {
 	Key    string
 	Notice string
 	Step   *stepData
+	// Following is the TUI's cursor being on something this stop draws, which
+	// it brightens and dims the rest around (#187).
+	Following bool
 }
 
 type stepData struct {
@@ -87,6 +91,9 @@ type commentData struct {
 // stretch of a Document rendered as HTML. A Comment's note follows the piece
 // holding the last row it covers.
 type excerptData struct {
+	// Index is the Excerpt's place among the Step's own, by which the TUI's
+	// cursor names it.
+	Index         int
 	Label         string
 	Problem       string
 	ChangedOnDisk bool
@@ -100,13 +107,17 @@ type pieceData struct {
 }
 
 // rowData is one row in the source view's style: a sign, a line number, and
-// the text, with what the edit changed coloured.
+// the text, with what the edit changed coloured. Side, Number and Block are
+// how the TUI's cursor names the row: by its line, or by the block it is in.
 type rowData struct {
 	Number    int
+	Side      string
+	Block     int
 	Sign      string
 	Class     string
 	Parts     []partData
 	Commented bool
+	Cursor    bool
 }
 
 type partData struct {
@@ -115,7 +126,8 @@ type partData struct {
 }
 
 // newPageData lays out a review's page from the view the TUI is sent.
-func newPageData(label string, view ViewWire) pageData {
+// cursor is where the TUI last said its cursor is, or nil.
+func newPageData(label string, view ViewWire, cursor *CursorWire) pageData {
 	base := PagePath(view.ReviewID)
 	title := "dbn"
 	if label != "" {
@@ -125,18 +137,24 @@ func newPageData(label string, view ViewWire) pageData {
 		Title:     title,
 		StopURL:   base + "/stop",
 		EventsURL: base + "/events",
+		CursorURL: base + "/cursor",
 		Style:     pageStyle,
 		Script:    pageScript,
-		Stop:      newStopData(view),
+		Stop:      newStopData(view, cursor),
 	}
 }
 
 // newStopData is the stop the Reviewer is at. Anywhere but a Step is, for
-// now, a notice that the page is following (#190 draws the rest).
-func newStopData(view ViewWire) stopData {
+// now, a notice that the page is following (#190 draws the rest). The TUI's
+// cursor is drawn only on the Step it was reported on.
+func newStopData(view ViewWire, cursor *CursorWire) stopData {
 	switch {
 	case view.Step != nil:
-		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view)}
+		if cursor != nil && cursor.Step != view.Position {
+			cursor = nil
+		}
+		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view, cursor),
+			Following: cursor != nil && cursor.Excerpt >= 0}
 	case view.ChapterIntro > 0:
 		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro),
 			Notice: fmt.Sprintf("On Chapter %d's intro. This page shows each Step as you reach it.", view.ChapterIntro)}
@@ -144,7 +162,7 @@ func newStopData(view ViewWire) stopData {
 	return stopData{Key: "overview", Notice: "On the Overview. This page shows each Step as you reach it."}
 }
 
-func newStepData(view ViewWire) *stepData {
+func newStepData(view ViewWire, cursor *CursorWire) *stepData {
 	step := view.Step
 	data := &stepData{
 		Number:      step.Number,
@@ -171,8 +189,8 @@ func newStepData(view ViewWire) *stepData {
 	}
 
 	placed := map[int]bool{}
-	for _, excerpt := range step.Excerpts {
-		data.Excerpts = append(data.Excerpts, newExcerptData(excerpt, own, placed))
+	for ei, excerpt := range step.Excerpts {
+		data.Excerpts = append(data.Excerpts, newExcerptData(ei, excerpt, own, placed, cursor.in(ei)))
 	}
 	for _, comment := range own {
 		if !placed[comment.ID] {
@@ -193,9 +211,10 @@ func toCommentData(comment CommentWire) commentData {
 
 // newExcerptData lays an Excerpt out as pieces and puts each Comment's note
 // after the piece holding the last row it covers, marking placed the Comments
-// it found a row for.
-func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool) excerptData {
+// it found a row for. cursor is the TUI's cursor if it is in this Excerpt.
+func newExcerptData(index int, excerpt ExcerptWire, comments []CommentWire, placed map[int]bool, cursor *CursorWire) excerptData {
 	data := excerptData{
+		Index:         index,
 		Label:         fmt.Sprintf("%s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine),
 		Problem:       excerpt.Problem,
 		ChangedOnDisk: excerpt.ChangedOnDisk,
@@ -203,7 +222,7 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 	if excerpt.Problem != "" {
 		return data
 	}
-	pieces, pieceOfRow := layoutExcerpt(excerpt, comments)
+	pieces, pieceOfRow := layoutExcerpt(excerpt, comments, cursor)
 	last := map[int]int{}
 	for i, line := range excerpt.Lines {
 		for _, comment := range comments {
@@ -239,7 +258,9 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 // and unchanged blocks is rendered; an edited or removed block, and any row in
 // no block, is drawn as source until the page draws edits as the TUI does
 // (#188).
-func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire) ([]pieceData, []int) {
+//
+// The rows cursor is on, when it is in this Excerpt, are marked as its.
+func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, cursor *CursorWire) ([]pieceData, []int) {
 	pieceOfRow := make([]int, len(excerpt.Lines))
 	commentedBlocks := map[int]bool{}
 	for _, line := range excerpt.Lines {
@@ -276,7 +297,8 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire) ([]pieceData, []
 			if len(rows) > 0 {
 				flush()
 			}
-			stretch = append(stretch, documentRow{text: line.Text, block: line.Block, commented: commentedBlocks[line.Block]})
+			stretch = append(stretch, documentRow{text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
+				cursor: cursor.on(line, excerpt)})
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
 			// A blank line between blocks belongs to the stretch it sits in,
 			// where it keeps two paragraphs apart; on its own it draws nothing.
@@ -290,7 +312,9 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire) ([]pieceData, []
 			if len(stretch) > 0 {
 				flush()
 			}
-			rows = append(rows, sourceRow(line, excerpt, comments))
+			row := sourceRow(line, excerpt, comments)
+			row.Cursor = cursor.on(line, excerpt)
+			rows = append(rows, row)
 		}
 		pending = append(pending, i)
 	}
@@ -326,7 +350,7 @@ func blankBetweenBlocks(line LineWire, excerpt ExcerptWire) bool {
 // changed row, with only the text the edit changed coloured where dbn says
 // which, and never struck through.
 func sourceRow(line LineWire, excerpt ExcerptWire, comments []CommentWire) rowData {
-	row := rowData{Number: line.Number, Sign: " ", Class: "context"}
+	row := rowData{Number: line.Number, Side: sideOf(line, excerpt), Block: line.Block, Sign: " ", Class: "context"}
 	for _, comment := range comments {
 		if covers(comment, excerpt, line) {
 			row.Commented = true

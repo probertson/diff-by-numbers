@@ -69,6 +69,9 @@ type Daemon struct {
 	// pages are the Browser Renderer pages open on each review, following its
 	// change stream.
 	pages pageFeed
+	// cursors are where the TUI last said its cursor is on each review, keyed
+	// by review id, for the review's page to brighten (#187).
+	cursors map[string]CursorWire
 }
 
 // Option configures a Daemon at construction.
@@ -121,6 +124,7 @@ func (d *Daemon) hold(session *review.Session) {
 func (d *Daemon) release(id string) {
 	delete(d.reviews, id)
 	delete(d.waiting, id)
+	delete(d.cursors, id)
 	for i, held := range d.order {
 		if held == id {
 			d.order = append(d.order[:i], d.order[i+1:]...)
