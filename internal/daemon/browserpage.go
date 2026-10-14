@@ -49,11 +49,30 @@ type stopData struct {
 	Key    string
 	Notice string
 	Step   *stepData
+	Intro  *introData
+}
+
+// introData is a Chapter's intro, as the TUI draws it: the Chapter's number and
+// name, where its Steps sit among the Round's, the agent's intro, and the
+// Steps it holds.
+type introData struct {
+	Heading string
+	Range   string
+	Intro   string
+	Steps   []introStepData
+}
+
+type introStepData struct {
+	Number int
+	Name   string
 }
 
 type stepData struct {
-	Number      int
-	Count       int
+	Number int
+	Count  int
+	// Chapter names the Step's Chapter by number and name, "" in a Round
+	// without Chapters.
+	Chapter     string
 	Name        string
 	Explanation string
 	Oversize    string
@@ -87,7 +106,10 @@ type commentData struct {
 // stretch of a Document rendered as HTML. A Comment's note follows the piece
 // holding the last row it covers.
 type excerptData struct {
-	Label         string
+	Label string
+	// Path is the heading path a Document Excerpt opens under, which its file
+	// header names after the file, as the TUI's does.
+	Path          []string
 	Problem       string
 	ChangedOnDisk bool
 	Pieces        []pieceData
@@ -114,8 +136,9 @@ type partData struct {
 	Changed bool
 }
 
-// newPageData lays out a review's page from the view the TUI is sent.
-func newPageData(label string, view ViewWire) pageData {
+// newPageData lays out a review's page from the view the TUI is sent and the
+// screen it last reported showing.
+func newPageData(label string, view ViewWire, screen string) pageData {
 	base := PagePath(view.ReviewID)
 	title := "dbn"
 	if label != "" {
@@ -127,21 +150,47 @@ func newPageData(label string, view ViewWire) pageData {
 		EventsURL: base + "/events",
 		Style:     pageStyle,
 		Script:    pageScript,
-		Stop:      newStopData(view),
+		Stop:      newStopData(view, screen),
 	}
 }
 
-// newStopData is the stop the Reviewer is at. Anywhere but a Step is, for
-// now, a notice that the page is following (#190 draws the rest).
-func newStopData(view ViewWire) stopData {
-	switch {
-	case view.Step != nil:
+// newStopData is the stop the Reviewer is at: a Step or a Chapter's intro, or
+// a notice of where they are for anywhere else.
+func newStopData(view ViewWire, screen string) stopData {
+	switch screen {
+	case ScreenConclusion:
+		return stopData{Key: "conclusion", Notice: "At the end of the review. This page shows each Step as you reach it."}
+	case ScreenInbox:
+		return stopData{Key: "inbox", Notice: "At the Inbox. This page shows this review again when you open it."}
+	}
+	if view.Step != nil {
 		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view)}
-	case view.ChapterIntro > 0:
-		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro),
-			Notice: fmt.Sprintf("On Chapter %d's intro. This page shows each Step as you reach it.", view.ChapterIntro)}
+	}
+	if chapter, ok := chapterOf(view, view.ChapterIntro); ok {
+		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro), Intro: newIntroData(view, chapter)}
 	}
 	return stopData{Key: "overview", Notice: "On the Overview. This page shows each Step as you reach it."}
+}
+
+func newIntroData(view ViewWire, chapter ChapterWire) *introData {
+	data := &introData{
+		Heading: chapterHeading(chapter),
+		Range:   fmt.Sprintf("%s of %d", stepRange(chapter), view.StepCount),
+		Intro:   chapter.Intro,
+	}
+	for step := chapter.FirstStep; step <= chapter.LastStep && step <= len(view.StepNames); step++ {
+		data.Steps = append(data.Steps, introStepData{Number: step, Name: view.StepNames[step-1]})
+	}
+	return data
+}
+
+// stepRange names the Steps a Chapter holds, e.g. "Steps 12–16", or "Step 3"
+// for a Chapter of one, as the TUI does.
+func stepRange(chapter ChapterWire) string {
+	if chapter.FirstStep == chapter.LastStep {
+		return fmt.Sprintf("Step %d", chapter.FirstStep)
+	}
+	return fmt.Sprintf("Steps %d–%d", chapter.FirstStep, chapter.LastStep)
 }
 
 func newStepData(view ViewWire) *stepData {
@@ -152,6 +201,9 @@ func newStepData(view ViewWire) *stepData {
 		Name:        step.Name,
 		Explanation: step.Explanation,
 		Oversize:    step.OversizeJustification,
+	}
+	if chapter, ok := chapterOf(view, step.Chapter); ok {
+		data.Chapter = chapterHeading(chapter)
 	}
 	for _, question := range step.Questions {
 		data.Questions = append(data.Questions, questionData{Text: question.Text, Answer: question.Answer})
@@ -187,6 +239,21 @@ func newStepData(view ViewWire) *stepData {
 	return data
 }
 
+// chapterOf is the Round's Chapter numbered n, from 1, and whether there is
+// one.
+func chapterOf(view ViewWire, n int) (ChapterWire, bool) {
+	if n < 1 || n > len(view.Chapters) {
+		return ChapterWire{}, false
+	}
+	return view.Chapters[n-1], true
+}
+
+// chapterHeading names a Chapter by number and name, e.g. "3 · EL-7 Pack
+// holds", as the TUI does.
+func chapterHeading(chapter ChapterWire) string {
+	return fmt.Sprintf("%d · %s", chapter.Number, chapter.Name)
+}
+
 func toCommentData(comment CommentWire) commentData {
 	return commentData{ID: comment.ID, Location: comment.Location, Note: comment.Note}
 }
@@ -197,6 +264,7 @@ func toCommentData(comment CommentWire) commentData {
 func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool) excerptData {
 	data := excerptData{
 		Label:         fmt.Sprintf("%s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine),
+		Path:          openingPath(excerpt),
 		Problem:       excerpt.Problem,
 		ChangedOnDisk: excerpt.ChangedOnDisk,
 	}
@@ -220,6 +288,17 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 	}
 	data.Pieces = pieces
 	return data
+}
+
+// openingPath is the heading path of an Excerpt's first row, as dbn decides it:
+// none for code.
+func openingPath(excerpt ExcerptWire) []string {
+	for _, line := range excerpt.Lines {
+		if !line.Signpost {
+			return line.Path
+		}
+	}
+	return nil
 }
 
 func covers(comment CommentWire, excerpt ExcerptWire, line LineWire) bool {

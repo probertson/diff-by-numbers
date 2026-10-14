@@ -69,6 +69,9 @@ type Daemon struct {
 	// pages are the Browser Renderer pages open on each review, following its
 	// change stream.
 	pages pageFeed
+	// screens are the screens TUIs report showing for each review, which the
+	// page names where dbn holds no stop for them.
+	screens pageScreens
 }
 
 // Option configures a Daemon at construction.

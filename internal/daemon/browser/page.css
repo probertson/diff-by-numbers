@@ -67,7 +67,7 @@ main {
 .dim { color: var(--dim); }
 .warning { color: var(--warn); font-weight: 600; }
 
-.step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
+.chapter, .step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
 .step-header h1 { margin: 0.25rem 0 1rem; font-size: 1.5rem; }
 .explanation { white-space: pre-wrap; max-width: 48rem; }
 .oversize { color: var(--warn); }

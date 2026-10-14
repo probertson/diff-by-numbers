@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"os/exec"
 	"runtime"
 
@@ -68,6 +71,50 @@ func (m model) openPage() model {
 	}
 	m.pageNotice = "opened " + link + " in your browser"
 	return m
+}
+
+// screen is which of the screens the page tells apart this window shows for
+// the review it has open: the conclusion screen, or anything reached from it,
+// which dbn holds no stop for since it stays on the last Step; or any other,
+// which the page draws from where dbn holds the Reviewer.
+func (m model) screen() string {
+	if m.pastTheLastStep() {
+		return daemon.ScreenConclusion
+	}
+	return daemon.ScreenReview
+}
+
+// reportScreenChange tells dbn what changed between the window as it was and
+// as it is: a review set aside for the Inbox, a review opened, or a move to or
+// from the conclusion screen. Nothing else is reported, since the page follows
+// every other move from dbn itself.
+func (m model) reportScreenChange(was model) {
+	if m.screenReport == nil {
+		return
+	}
+	if was.openReview == m.openReview {
+		if m.openReview != "" && was.screen() != m.screen() {
+			m.screenReport(m.openReview, m.screen())
+		}
+		return
+	}
+	if was.openReview != "" {
+		m.screenReport(was.openReview, daemon.ScreenInbox)
+	}
+	if m.openReview != "" {
+		m.screenReport(m.openReview, m.screen())
+	}
+}
+
+// reportScreen tells dbn which screen the window shows for a review. Like an
+// intent, a failure is left for the next poll to surface.
+func (c client) reportScreen(reviewID, screen string) {
+	body, _ := json.Marshal(daemon.ScreenWire{Screen: screen})
+	response, err := http.Post(c.on(reviewID).url("/screen"), "application/json", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	response.Body.Close()
 }
 
 // pageKey is the keybar entry for opening the page, itself a link to it, or
