@@ -1,0 +1,28 @@
+Mermaid, embedded in dbn to draw diagrams in the Browser Renderer (#191)
+
+Version:  12.2.0
+Licence:  MIT, Copyright (c) 2014 - 2022 Knut Sveidqvist (see LICENSE beside
+          this file). The libraries Mermaid bundles keep their own licence
+          notices in a comment at the end of the bundle ("Bundled license
+          information"): DOMPurify (Apache-2.0 or MPL-2.0), lodash (MIT) and
+          cytoscape (MIT), among others.
+Source:   https://registry.npmjs.org/mermaid/-/mermaid-12.2.0.tgz
+          integrity sha512-w7nr/SFrLO7BaVTs3dQTvYSV6nYSBj0Yy9DjBhsIJtAcHqRzXSq4Pg32ujHZ/AdWsAMNEvvhbm5dt9E2tOiHzw==
+File:     package/dist/mermaid.min.js, the single-file browser bundle, which
+          sets globalThis.mermaid
+          sha256 a8a6a6f805b074a8261a2825c86f99c8054acb3b35f50bb7e24a4f9f2c3c3b9f
+Stored:   mermaid.min.js.gz, compressed with `gzip -9 -n` (sha256 of the .gz
+          603e929eb31f44553474b0f617ed92fe28d865a55ceef15bda232ded60604106).
+          The daemon serves it compressed to a browser that accepts gzip and
+          decompressed to anything else.
+
+Upgrading is a deliberate change in a release, so every Reviewer on a release
+sees diagrams drawn the same way:
+
+  npm pack mermaid@<version>
+  tar xzf mermaid-<version>.tgz
+  gzip -9 -n -c package/dist/mermaid.min.js > internal/daemon/mermaid/mermaid.min.js.gz
+  cp package/LICENSE internal/daemon/mermaid/LICENSE
+
+then set mermaidVersion in internal/daemon/browserdiagram.go, and update this
+file's version, source, integrity and checksums.

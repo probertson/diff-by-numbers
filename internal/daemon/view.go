@@ -55,8 +55,11 @@ type RunWire struct {
 // out only the inline styling within it (markers, bullets, pipes); the block's
 // structure is decided here, never again in the TUI (ADR-0005, #166).
 type BlockWire struct {
-	Kind      string `json:"kind"`
-	Level     int    `json:"level,omitempty"`
+	Kind  string `json:"kind"`
+	Level int    `json:"level,omitempty"`
+	// Diagram marks a code block that is a Mermaid diagram, which the Browser
+	// Renderer draws (#191).
+	Diagram   bool   `json:"diagram,omitempty"`
 	Side      string `json:"side"`
 	FirstLine int    `json:"first_line"`
 	LastLine  int    `json:"last_line"`
@@ -96,7 +99,7 @@ func toBlockWires(blocks []review.Block) []BlockWire {
 	var out []BlockWire
 	for _, b := range blocks {
 		out = append(out, BlockWire{
-			Kind: string(b.Kind), Level: b.Level, Side: string(b.Side),
+			Kind: string(b.Kind), Level: b.Level, Diagram: b.Diagram, Side: string(b.Side),
 			FirstLine: b.Lines.First, LastLine: b.Lines.Last, Treatment: string(b.Treatment),
 			Path: b.Path,
 		})

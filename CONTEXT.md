@@ -308,7 +308,7 @@ _Avoid_: queue, dashboard, list
 
 **Browser Renderer**:
 A page in the Reviewer's browser that draws the Step they are on in the TUI, for
-what a terminal can't draw: real tables, images and typography. It shows what the
+what a terminal can't draw: real tables, images, Mermaid diagrams and typography. It shows what the
 Step shows (its title, the agent's text, every Excerpt, Documents and code alike,
 and the Reviewer's Comments) and follows the Reviewer as they move, to the next
 Step and to the block under the cursor. It only ever draws: the Reviewer reads

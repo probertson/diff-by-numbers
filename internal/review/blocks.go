@@ -134,6 +134,8 @@ type parsedBlock struct {
 	// kind): what a Reviewer's surface needs to lay the block out.
 	kind  BlockKind
 	level int
+	// diagram marks a fenced code block holding a Mermaid diagram (#191).
+	diagram bool
 	// section marks a heading of the Document's own, which opens a section,
 	// and title is its text, its inline markup read as plain text.
 	section bool
@@ -166,6 +168,14 @@ func kindOf(n ast.Node) (BlockKind, int) {
 	return BlockOther, 0
 }
 
+// isDiagram reports whether a node is a fenced code block whose info string
+// names Mermaid, which the Browser Renderer draws as a picture (#191). dbn
+// reads no further: what the diagram says is Mermaid's to parse.
+func isDiagram(n ast.Node, source []byte) bool {
+	fence, ok := n.(*ast.FencedCodeBlock)
+	return ok && string(fence.Language(source)) == "mermaid"
+}
+
 // parsedRanges is every block goldmark finds, in no particular order.
 func parsedRanges(source []string) []parsedBlock {
 	content := []byte(strings.Join(source, "\n"))
@@ -187,7 +197,7 @@ func parsedRanges(source []string) []parsedBlock {
 		default:
 			if r, ok := spanOf(n, n, lineOf); ok {
 				kind, level := kindOf(n)
-				p := parsedBlock{lines: r, kind: kind, level: level}
+				p := parsedBlock{lines: r, kind: kind, level: level, diagram: isDiagram(n, content)}
 				if kind == BlockHeading && n.Parent() != nil && n.Parent().Kind() == ast.KindDocument {
 					p.section, p.title = true, plainText(n, content)
 				}

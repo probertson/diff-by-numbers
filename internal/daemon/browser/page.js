@@ -61,6 +61,162 @@
     reveal(targets);
   }
 
+  // Diagrams. dbn holds each Mermaid diagram's source in a diagram container
+  // (figure.diagram); Mermaid draws it in dbn's diagrams frame, which allows
+  // the inline style Mermaid draws with where this page allows none, and the
+  // drawing is shown here as an image, the author's own styles applying
+  // inside it. Each drawing is kept by theme and source, so a redraw of the
+  // stop shows it again without Mermaid drawing it again.
+  var dark = window.matchMedia("(prefers-color-scheme: dark)");
+  var drawer = null; // a promise of the diagrams frame's window, once Mermaid has loaded in it
+  var drawings = {}; // promises of drawings, by theme and source
+  var drawingQueue = Promise.resolve(); // Mermaid draws one at a time
+  var mermaidTheme = ""; // the theme Mermaid was last set up with
+  var drawn = 0; // diagrams Mermaid has drawn, which name the next
+  // Mermaid draws text at 16px. A wide diagram is shrunk to fit the page down
+  // to text of 10px, and scrolls sideways past that.
+  var legible = 10 / 16;
+
+  // loadDrawer makes the diagrams frame the first time a stop shows a
+  // diagram, and gives its window once Mermaid has loaded in it.
+  function loadDrawer() {
+    if (drawer !== null) {
+      return drawer;
+    }
+    drawer = new Promise(function (resolve, reject) {
+      var frame = document.createElement("iframe");
+      frame.className = "diagrams-frame";
+      frame.setAttribute("aria-hidden", "true");
+      frame.tabIndex = -1;
+      frame.addEventListener("load", function () {
+        if (frame.contentWindow.mermaid === undefined) {
+          reject(new Error("dbn could not load Mermaid to draw this diagram."));
+          return;
+        }
+        resolve(frame.contentWindow);
+      });
+      frame.src = body.getAttribute("data-diagrams-url");
+      body.appendChild(frame);
+    });
+    // A frame that failed to load is made again for the next diagram.
+    drawer.catch(function () {
+      drawer = null;
+    });
+    return drawer;
+  }
+
+  // drawWithMermaid has Mermaid draw a diagram's source in a theme, as an SVG.
+  function drawWithMermaid(theme, source) {
+    var drawing = drawingQueue
+      .then(loadDrawer)
+      .then(function (frame) {
+        if (mermaidTheme !== theme) {
+          frame.mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: "strict",
+            suppressErrorRendering: true,
+            theme: theme,
+          });
+          mermaidTheme = theme;
+        }
+        drawn++;
+        return frame.mermaid.render("dbn-diagram-" + drawn, source).then(function (result) {
+          return pictureOf(frame, result.svg);
+        });
+      });
+    drawingQueue = drawing.catch(function () {});
+    return drawing;
+  }
+
+  // pictureOf makes an image of Mermaid's SVG, at the size Mermaid drew it.
+  // The SVG is read in the diagrams frame, whose policy allows the inline
+  // style it holds: read here, each style in it would be reported as refused.
+  function pictureOf(frame, svg) {
+    var root = new frame.DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+    if (root.localName !== "svg" || root.getElementsByTagName("parsererror").length > 0) {
+      throw new Error("Mermaid drew something dbn could not show.");
+    }
+    var box = root.viewBox.baseVal;
+    var width = Math.ceil(box.width);
+    var height = Math.ceil(box.height);
+    // Mermaid sizes its SVG to the page it is drawn in; as an image it is
+    // sized here, by the page's style.
+    root.setAttribute("width", String(width));
+    root.setAttribute("height", String(height));
+    root.removeAttribute("style");
+    var blob = new Blob([new frame.XMLSerializer().serializeToString(root)], { type: "image/svg+xml" });
+    return { url: URL.createObjectURL(blob), width: width, height: height };
+  }
+
+  // drawingOf is a diagram's drawing in a theme, or what stopped Mermaid
+  // drawing it. A diagram that cannot be drawn is not tried again; a frame
+  // that failed to load is.
+  function drawingOf(theme, source) {
+    var key = theme + "\n" + source;
+    if (drawings[key] === undefined) {
+      drawings[key] = drawWithMermaid(theme, source).catch(function (error) {
+        if (drawer === null) {
+          delete drawings[key];
+        }
+        return { error: messageOf(error) };
+      });
+    }
+    return drawings[key];
+  }
+
+  function messageOf(error) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  // showDrawing puts a drawing in its diagram container, in place of the
+  // source; or what stopped Mermaid drawing it, above the source.
+  function showDrawing(figure, drawing) {
+    var picture = figure.querySelector(".diagram-picture");
+    if (picture === null) {
+      picture = document.createElement("div");
+      picture.className = "diagram-picture";
+      figure.insertBefore(picture, figure.firstChild);
+    }
+    picture.textContent = "";
+    var failed = drawing.error !== undefined;
+    figure.classList.toggle("drawn", !failed);
+    figure.classList.toggle("failed", failed);
+    if (failed) {
+      var problem = document.createElement("div");
+      problem.className = "diagram-error";
+      var heading = document.createElement("p");
+      heading.className = "diagram-error-heading";
+      heading.textContent = "Mermaid could not draw this diagram";
+      var message = document.createElement("pre");
+      message.textContent = drawing.error;
+      problem.appendChild(heading);
+      problem.appendChild(message);
+      picture.appendChild(problem);
+      return;
+    }
+    var image = document.createElement("img");
+    image.src = drawing.url;
+    image.width = drawing.width;
+    image.height = drawing.height;
+    image.alt = "Mermaid diagram";
+    image.style.minWidth = Math.min(drawing.width, Math.round(drawing.width * legible)) + "px";
+    picture.appendChild(image);
+  }
+
+  // drawDiagrams draws each diagram on the stop in the browser's theme.
+  function drawDiagrams() {
+    var theme = dark.matches ? "dark" : "default";
+    all("figure.diagram").forEach(function (figure) {
+      var source = figure.querySelector(".diagram-source").textContent;
+      drawingOf(theme, source).then(function (drawing) {
+        showDrawing(figure, drawing);
+      });
+    });
+  }
+
   function redraw() {
     var seen = moves;
     fetch(body.getAttribute("data-stop-url"), { cache: "no-store" })
@@ -80,6 +236,7 @@
           window.scrollTo(0, 0);
         }
         say("");
+        drawDiagrams();
         // The stop was drawn with the cursor marked as it was then, which a
         // move reported while it was on its way may have overtaken.
         if (moves !== seen) {
@@ -92,6 +249,9 @@
         say(error.message);
       });
   }
+
+  drawDiagrams();
+  dark.addEventListener("change", drawDiagrams);
 
   var events = new EventSource(body.getAttribute("data-events-url"));
   events.addEventListener("redraw", redraw);

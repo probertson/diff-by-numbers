@@ -300,6 +300,7 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /reviews/{review}/page/image/{file...}", d.onReview(d.serveImage))
 	mux.HandleFunc("POST /reviews/{review}/screen", d.onReview(d.reportScreen))
 	mux.HandleFunc("POST /reviews/{review}/cursor", d.onReview(d.reportCursor))
+	d.diagramRoutes(mux)
 }
 
 // pageOf reads what a review's page draws, under the lock, from the view the
@@ -322,10 +323,15 @@ func (d *Daemon) pageOf(session *review.Session) pageData {
 // runs or is styled but the page's own script and style, inlined and allowed
 // by their hashes; images, the stop and the change stream come from dbn only;
 // and nothing else is loaded, framed or posted anywhere.
+//
+// Two allowances are for Mermaid diagrams (browserdiagram.go): the page frames
+// dbn's own diagrams frame, which draws them, and shows each drawing as an
+// image it makes from what the frame hands back (a blob: URL). Neither lets
+// the page run a script or apply a style of anything but its own.
 var pagePolicy = "default-src 'none'; " +
 	"script-src " + inlineHash(string(pageScript)) + "; " +
 	"style-src " + inlineHash(string(pageStyle)) + "; " +
-	"img-src 'self'; connect-src 'self'; " +
+	"img-src 'self' blob:; connect-src 'self'; frame-src 'self'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // inlineHash is how a Content-Security-Policy names an inline script or style

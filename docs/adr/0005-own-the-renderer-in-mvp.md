@@ -149,3 +149,21 @@ its output back to a source line.
   dbn serves a file as an image only if its extension names an image type, and sandboxed, so a
   Document cannot have dbn serve a page, or an SVG carrying a script, that runs in dbn's origin.
   The page allows no script or style but its own.
+
+## Amendment (#191): Mermaid draws diagrams, in a frame of its own
+
+The Browser Renderer draws a Document's Mermaid diagrams (#191): the second borrowed
+renderer, and the first that runs in the browser. dbn still decides where every block is: the
+review package marks a fence whose info string is `mermaid` as a diagram, and the page holds
+its source in a diagram container carrying the block's attributes, like any other block. dbn
+never parses Mermaid. Mermaid only draws, and nothing it draws can be selected or anchored, so
+the constraint above holds as it does for goldmark's HTML.
+
+Mermaid is embedded in dbn, a pinned release served by the daemon, and the page loads nothing
+from outside it. Mermaid draws by putting a `<style>` into the document it draws in and style
+attributes on what it draws, which the page's policy refuses. Rather than widen that policy,
+Mermaid runs in a frame dbn serves for it alone, whose policy allows inline style and runs no
+script but the embedded library. The page hands the frame each diagram's source and shows the
+SVG it gets back as an image made in the page (a `blob:` URL), so the author's own styles apply
+inside the image without the page allowing any. The page's policy gains only `frame-src 'self'`
+and `blob:` images; it still runs no script and applies no style but its own.

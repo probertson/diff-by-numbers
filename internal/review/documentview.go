@@ -44,6 +44,9 @@ type Block struct {
 	Kind BlockKind
 	// Level is a heading's level, 1 to 6; 0 for any other kind.
 	Level int
+	// Diagram marks a code block that is a Mermaid diagram: a fence whose
+	// info string is `mermaid`, which the Browser Renderer draws (#191).
+	Diagram bool
 	// Side and Lines are the block's place in the file: the side it is on and
 	// the source lines it spans there, which is what identifies it.
 	Side      Side
@@ -59,7 +62,7 @@ type Block struct {
 
 // shown is a parsed block as an Excerpt shows it: on side, and treated so.
 func (b block) shown(side Side, treatment Treatment) Block {
-	return Block{Kind: b.kind, Level: b.level, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
+	return Block{Kind: b.kind, Level: b.level, Diagram: b.diagram, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
 }
 
 // withDocumentBlocks is view drawn as a Document: its rows, tagged with their

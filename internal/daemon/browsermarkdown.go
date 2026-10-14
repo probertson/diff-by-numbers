@@ -37,6 +37,9 @@ type documentRow struct {
 	// tracked is, for a row of an edited or removed block, how the page draws
 	// it as track changes; nil for a row rendered as Markdown.
 	tracked *trackedLine
+	// diagram marks a row of a Mermaid diagram the stretch shows whole, which
+	// the page draws as a picture (#191).
+	diagram bool
 }
 
 // classes is the class attribute a block's element carries for its first
@@ -277,6 +280,7 @@ func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindText, d.renderText)
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
+	reg.Register(ast.KindFencedCodeBlock, d.renderFencedCode)
 }
 
 // htmlFuncs are goldmark's own renderers, for what is drawn as it would be.
@@ -383,6 +387,37 @@ func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node
 	}
 	return ast.WalkSkipChildren, nil
 }
+
+// renderFencedCode draws a fence dbn marked as a Mermaid diagram as a diagram
+// container holding its source as authored, which the page's script has
+// Mermaid draw (page.js); any other fence is drawn as goldmark draws it. The
+// container carries the block's attributes, as the fence would have.
+func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	offset, ok := firstOffset(node)
+	if !ok || !d.rowAt(offset).diagram {
+		return htmlFuncs[ast.KindFencedCodeBlock](w, source, node, entering)
+	}
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	class := "diagram"
+	if classes, ok := node.AttributeString("class"); ok {
+		class += " " + classes.(string)
+	}
+	_, _ = w.WriteString(`<figure class="` + template.HTMLEscapeString(class) + `"`)
+	html.RenderAttributes(w, node, onlyData) // the block's data attributes
+	_, _ = w.WriteString(`><pre class="diagram-source"><code>`)
+	lines := node.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		line := lines.At(i)
+		_, _ = w.Write(util.EscapeHTML(line.Value(source)))
+	}
+	_, _ = w.WriteString("</code></pre></figure>\n")
+	return ast.WalkSkipChildren, nil
+}
+
+// onlyData lets html.RenderAttributes write a node's data attributes alone.
+var onlyData = util.NewBytesFilter()
 
 func renderRawHTMLAsText(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {

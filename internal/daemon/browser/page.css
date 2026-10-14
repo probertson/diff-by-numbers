@@ -184,6 +184,40 @@ h2 { font-size: 1rem; }
 .document ins { color: var(--added); background: var(--added-bg); text-decoration: underline; }
 .document del .md, .document ins .md { color: inherit; opacity: 0.7; }
 
+/* A Mermaid diagram: its source until it is drawn, then the drawing, shrunk
+   to fit the page and scrolling sideways past where its text stays legible
+   (page.js sets that width). A diagram Mermaid cannot draw shows why, above
+   its source. The diagram may use the page's whole width, beyond the prose. */
+.document figure.diagram {
+  margin: 1rem 0;
+  width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
+}
+.document .diagram.drawn .diagram-source { display: none; }
+.document .diagram-picture { overflow-x: auto; }
+.document .diagram-picture img { display: block; max-width: 100%; height: auto; border: 0; }
+.document .diagram-error {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid var(--removed);
+  background: var(--removed-bg);
+  color: var(--removed);
+  font-family: var(--sans);
+}
+.document .diagram-error-heading { margin: 0 0 0.25rem; font-weight: 700; }
+.document .diagram-error pre { margin: 0; padding: 0; background: none; color: inherit; }
+
+/* The frame Mermaid draws in: laid out, so Mermaid can measure its text, but
+   never seen. */
+.diagrams-frame {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 1200px;
+  height: 800px;
+  border: 0;
+  visibility: hidden;
+}
+
 /* What an Excerpt was widened by, so that no block is read in part. */
 .document .widened { color: var(--dim); }
 

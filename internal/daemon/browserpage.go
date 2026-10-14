@@ -39,9 +39,12 @@ type pageData struct {
 	Title     string
 	StopURL   string
 	EventsURL string
-	Style     template.CSS
-	Script    template.JS
-	Stop      stopData
+	// DiagramsURL is the diagrams frame, which draws the page's Mermaid
+	// diagrams (browserdiagram.go).
+	DiagramsURL string
+	Style       template.CSS
+	Script      template.JS
+	Stop        stopData
 }
 
 // stopData is what the page draws for where the Reviewer is: a Step, or a
@@ -208,12 +211,13 @@ func newPageData(label string, view ViewWire, ctx pageContext) pageData {
 		title = label + " · dbn"
 	}
 	return pageData{
-		Title:     title,
-		StopURL:   base + "/stop",
-		EventsURL: base + "/events",
-		Style:     pageStyle,
-		Script:    pageScript,
-		Stop:      newStopData(view, ctx),
+		Title:       title,
+		StopURL:     base + "/stop",
+		EventsURL:   base + "/events",
+		DiagramsURL: DiagramsPath,
+		Style:       pageStyle,
+		Script:      pageScript,
+		Stop:        newStopData(view, ctx),
 	}
 }
 
@@ -422,6 +426,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
+				diagram: excerpt.Blocks[line.Block-1].Diagram && shownWhole(line.Block, excerpt),
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
@@ -486,6 +491,20 @@ func rendered(line LineWire, excerpt ExcerptWire) bool {
 		return false
 	}
 	return sideOf(line, excerpt) == block.Side
+}
+
+// shownWhole reports whether an Excerpt shows every line of one of its blocks
+// (numbered from 1), on the block's own side. A diagram an Excerpt cuts into
+// is not drawn, since a part of one is not the diagram its author drew.
+func shownWhole(block int, excerpt ExcerptWire) bool {
+	b := excerpt.Blocks[block-1]
+	shown := 0
+	for _, line := range excerpt.Lines {
+		if line.Block == block && !line.Signpost && sideOf(line, excerpt) == b.Side {
+			shown++
+		}
+	}
+	return shown == b.LastLine-b.FirstLine+1
 }
 
 // blankBetweenBlocks reports whether a row is a blank line in no block, on the
