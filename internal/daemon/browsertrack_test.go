@@ -24,6 +24,14 @@ type lines struct {
 // moves onto it.
 func onAnEditedDocument(t *testing.T, baseURL, before, after string, shown ...lines) string {
 	t.Helper()
+	return onAnEditedFile(t, baseURL, "spec.md", before, after, shown...)
+}
+
+// onAnEditedFile posts a Round whose one Step shows a file the Change Set
+// edits from before to after, or deletes when after is "", in Excerpts of the
+// lines given, and moves onto it.
+func onAnEditedFile(t *testing.T, baseURL, file, before, after string, shown ...lines) string {
+	t.Helper()
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -34,17 +42,21 @@ func onAnEditedDocument(t *testing.T, baseURL, before, after string, shown ...li
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	os.WriteFile(filepath.Join(root, "spec.md"), []byte(before), 0o644)
+	os.WriteFile(filepath.Join(root, file), []byte(before), 0o644)
 	git("init", "-q", "-b", "main")
 	git("add", ".")
 	git("commit", "-qm", "initial")
 	git("checkout", "-q", "-b", "feature")
-	os.WriteFile(filepath.Join(root, "spec.md"), []byte(after), 0o644)
+	if after == "" {
+		os.Remove(filepath.Join(root, file))
+	} else {
+		os.WriteFile(filepath.Join(root, file), []byte(after), 0o644)
+	}
 	git("add", ".")
 	var excerpts []any
 	for _, l := range shown {
 		excerpts = append(excerpts, map[string]any{
-			"repository": root, "file": "spec.md", "side": l.side, "first_line": l.first, "last_line": l.last,
+			"repository": root, "file": file, "side": l.side, "first_line": l.first, "last_line": l.last,
 		})
 	}
 	posted := postRound(t, baseURL, map[string]any{

@@ -382,11 +382,11 @@ func TestTheCursorAndACommentOnADiagramFilesLinesAreOnTheDiagram(t *testing.T) {
 	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Side: "new", Line: 3})
 
 	out := stop(t, server.URL, reviewID)
-	figure := regexp.MustCompile(`(?s)<figure[^>]*>.*?</figure>`).FindStringIndex(out)
-	if figure == nil {
+	drawn := regexp.MustCompile(`(?s)<figure[^>]*>.*?</figure>`).FindStringIndex(out)
+	if drawn == nil {
 		t.Fatalf("expected the diagram file drawn, got:\n%s", out)
 	}
-	tag := regexp.MustCompile(`<figure[^>]*>`).FindString(out[figure[0]:])
+	tag := regexp.MustCompile(`<figure[^>]*>`).FindString(out[drawn[0]:])
 	class := regexp.MustCompile(`class="([^"]*)"`).FindStringSubmatch(tag)
 	if class == nil || !strings.Contains(" "+class[1]+" ", " commented ") || !isTheCursors(tag) {
 		t.Errorf("expected the diagram's container marked as commented and the cursor's, got %q", tag)
@@ -394,7 +394,53 @@ func TestTheCursorAndACommentOnADiagramFilesLinesAreOnTheDiagram(t *testing.T) {
 	if !strings.Contains(tag, `data-place="1.0.new1 1.0.new2 1.0.new3"`) {
 		t.Errorf("expected the diagram's container at the place of each of the file's lines, got %q", tag)
 	}
-	if note := strings.Index(out, "the daemon calls the TUI too"); note < figure[1] {
+	if note := strings.Index(out, "the daemon calls the TUI too"); note < drawn[1] {
 		t.Errorf("expected the Comment's note to follow the diagram, got:\n%s", out)
+	}
+}
+
+// A changed diagram file is drawn as a changed fenced diagram is, before and
+// after, labelled; the edit to its source beneath is the file's rows, in the
+// source view's style, as for any code (#194).
+func TestAChangedDiagramFileIsHeldBeforeAndAfterWithTheEditToItsSourceBeneath(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedFile(t, server.URL, "flow.mmd", "flowchart LR\n  tui --> daemon\n", diagramFile, lines{"new", 1, 3})
+
+	out := stop(t, server.URL, reviewID)
+
+	before, beforeHolds, _ := figure(t, out, "diagram before")
+	after, afterHolds, afterEnds := figure(t, out, "diagram after")
+	if !strings.Contains(beforeHolds, ">before<") || !strings.Contains(afterHolds, ">after<") {
+		t.Errorf("expected the containers labelled before and after, got:\n%s\n%s", before, after)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n</code>"; !strings.Contains(beforeHolds, want) {
+		t.Errorf("expected before to hold the file as it was, %q, got:\n%s", want, before)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n  style daemon fill:#f9f\n</code>"; !strings.Contains(afterHolds, want) {
+		t.Errorf("expected after to hold the file as it is, %q, got:\n%s", want, after)
+	}
+	edit := regexp.MustCompile(`(?s)<div class="row added"[^>]*>.*?style daemon fill:#f9f`).FindString(out[afterEnds:])
+	if edit == "" {
+		t.Errorf("expected the edit to the file beneath the drawings, as source rows, got:\n%s", out)
+	}
+}
+
+func TestARemovedDiagramFileIsHeldBeforeOnlyAndDimmed(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedFile(t, server.URL, "flow.mmd", diagramFile, "", lines{"old", 1, 3})
+
+	out := stop(t, server.URL, reviewID)
+
+	before, holds, _ := figure(t, out, "diagram before")
+	if !strings.Contains(before, `class="diagram before removed`) {
+		t.Errorf("expected the removed diagram file marked dimmed, got:\n%s", before)
+	}
+	if !strings.Contains(holds, ">before<") || !strings.Contains(holds, "style daemon fill:#f9f\n</code>") {
+		t.Errorf("expected the removed diagram file labelled before, holding its source, got:\n%s", before)
+	}
+	if strings.Contains(out, `class="diagram after`) || strings.Contains(out, `class="row`) {
+		t.Errorf("expected nothing but before for a removed diagram file, got:\n%s", out)
 	}
 }

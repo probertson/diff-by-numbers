@@ -179,3 +179,65 @@ func TestInARevisionRoundAChangedDiagramsBeforeIsThePreviousRounds(t *testing.T)
 		t.Errorf("expected after to be this Round's diagram %q, got %q", want, diagram.AfterSource)
 	}
 }
+
+// A changed diagram file is drawn before and after as a fenced diagram is
+// (#194), so its Excerpt's diagram block carries the whole file's source on
+// both sides.
+func TestAChangedDiagramFileCarriesItsSourceBeforeAndAfterTheChange(t *testing.T) {
+	files := modifying("docs/flow.mmd", "flowchart LR\n  tui --> daemon\n", flowDiagram)
+
+	step := viewingStep(t, files, showingWhole("The flow", files, review.NewSide, "docs/flow.mmd"))
+
+	diagram := step.Excerpts[0].DiagramFile
+	if diagram == nil || diagram.Treatment != review.TreatmentEdited {
+		t.Fatalf("expected the diagram file edited, got %+v", diagram)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n"; diagram.BeforeSource != want {
+		t.Errorf("expected the file's source before the change %q, got %q", want, diagram.BeforeSource)
+	}
+	if diagram.AfterSource != flowDiagram {
+		t.Errorf("expected the file's source after the change %q, got %q", flowDiagram, diagram.AfterSource)
+	}
+}
+
+func TestARemovedDiagramFileCarriesOnlyItsSourceBefore(t *testing.T) {
+	files := workingFiles{after: map[string]string{}, before: map[string]string{"docs/flow.mmd": flowDiagram}}
+
+	step := viewingStep(t, files, showingWhole("No flow", files, review.OldSide, "docs/flow.mmd"))
+
+	diagram := step.Excerpts[0].DiagramFile
+	if diagram == nil || diagram.Treatment != review.TreatmentRemoved {
+		t.Fatalf("expected the diagram file removed, got %+v", diagram)
+	}
+	if diagram.BeforeSource != flowDiagram || diagram.AfterSource != "" {
+		t.Errorf("expected only the removed file's source before, %q, got before %q and after %q",
+			flowDiagram, diagram.BeforeSource, diagram.AfterSource)
+	}
+}
+
+func TestInARevisionRoundAChangedDiagramFilesBeforeIsThePreviousRounds(t *testing.T) {
+	// A diagram file added in Round 1 and changed for Round 2: against the
+	// merge-base it is new, but since Round 1 it changed.
+	files := newDocumentRounds(adding("docs/flow.mmd", "flowchart LR\n  tui --> daemon\n"))
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(showingWhole("The flow", files.workingFiles, review.NewSide, "docs/flow.mmd")))
+	handOffWithAComment(t, session)
+	files.after["docs/flow.mmd"] = flowDiagram
+	if err := session.Revise(session.ReviewID(), revising(documentRound(
+		showingWhole("The flow, to git", files.workingFiles, review.NewSide, "docs/flow.mmd")))); err != nil {
+		t.Fatal(err)
+	}
+
+	mustAdvance(t, session)
+	diagram := session.View().Step.Excerpts[0].DiagramFile
+
+	if diagram == nil || diagram.Treatment != review.TreatmentEdited {
+		t.Fatalf("expected the diagram file edited since Round 1, got %+v", diagram)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n"; diagram.BeforeSource != want {
+		t.Errorf("expected before to be Round 1's diagram %q, got %q", want, diagram.BeforeSource)
+	}
+	if diagram.AfterSource != flowDiagram {
+		t.Errorf("expected after to be this Round's diagram %q, got %q", flowDiagram, diagram.AfterSource)
+	}
+}

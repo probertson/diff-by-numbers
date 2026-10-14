@@ -42,18 +42,7 @@ func renderDiagramChange(rows []documentRow) template.HTML {
 	}
 	out.WriteString(`" data-block="` + strconv.Itoa(first.block) + `" data-place="` +
 		template.HTMLEscapeString(first.place) + `" data-treatment="` + template.HTMLEscapeString(first.treatment) + `">`)
-	out.WriteString(`<div class="diagram-pair">`)
-	if first.change.before != "" {
-		class := "diagram before"
-		if removed {
-			class += " removed"
-		}
-		out.WriteString(diagramFigure(class, "before", first.change.before))
-	}
-	if !removed {
-		out.WriteString(diagramFigure("diagram after", "after", first.change.after))
-	}
-	out.WriteString("</div>")
+	out.WriteString(diagramPair(*first.change, removed))
 	if !removed {
 		out.WriteString(`<div class="tracked code diagram-edit">`)
 		out.WriteString(string(trackedLines(rows, false)))
@@ -61,6 +50,26 @@ func renderDiagramChange(rows []documentRow) template.HTML {
 	}
 	out.WriteString("</div>\n")
 	return template.HTML(out.String())
+}
+
+// diagramPair is a changed diagram's "before" and "after" diagram containers,
+// which the page's script lays side by side when both fit: "before" alone,
+// dimmed, for a removed diagram, and no "before" for one that had none.
+func diagramPair(change diagramChange, removed bool) string {
+	var out strings.Builder
+	out.WriteString(`<div class="diagram-pair">`)
+	if change.before != "" {
+		class := "diagram before"
+		if removed {
+			class += " removed"
+		}
+		out.WriteString(diagramFigure(class, "before", change.before))
+	}
+	if !removed {
+		out.WriteString(diagramFigure("diagram after", "after", change.after))
+	}
+	out.WriteString("</div>")
+	return out.String()
 }
 
 // diagramFigure is a labelled diagram container holding a diagram's source as
