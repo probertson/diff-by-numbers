@@ -47,6 +47,15 @@ type Block struct {
 	// Diagram marks a code block that is a Mermaid diagram: a fence whose
 	// info string is `mermaid`, which the Browser Renderer draws (#191).
 	Diagram bool
+	// BeforeSource and AfterSource are a changed diagram's Mermaid source,
+	// between its fences, before and after the change, so the Browser Renderer
+	// draws both pictures whole (#193). Before is what the changes are read
+	// against: the merge-base, or the previous Round's Snapshot in a Revision
+	// Round. An edited diagram carries both, a removed one only BeforeSource,
+	// and an edited one made from something that was no diagram only
+	// AfterSource. Any other block carries neither.
+	BeforeSource string
+	AfterSource  string
 	// Side and Lines are the block's place in the file: the side it is on and
 	// the source lines it spans there, which is what identifies it.
 	Side      Side
@@ -60,9 +69,14 @@ type Block struct {
 	Path []string
 }
 
-// shown is a parsed block as an Excerpt shows it: on side, and treated so.
+// shown is a parsed block as an Excerpt shows it: on side, and treated so. A
+// removed diagram carries its source as BeforeSource.
 func (b block) shown(side Side, treatment Treatment) Block {
-	return Block{Kind: b.kind, Level: b.level, Diagram: b.diagram, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
+	shown := Block{Kind: b.kind, Level: b.level, Diagram: b.diagram, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
+	if b.diagram && treatment == TreatmentRemoved {
+		shown.BeforeSource = b.diagramSource
+	}
+	return shown
 }
 
 // withDocumentBlocks is view drawn as a Document: its rows, tagged with their
@@ -204,7 +218,11 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		if named[n] {
 			treatment = t.afterTreatment(n)
 		}
-		return t.after.blocks[n].shown(NewSide, treatment)
+		b := t.after.blocks[n].shown(NewSide, treatment)
+		if b.Diagram && treatment == TreatmentEdited {
+			b.BeforeSource, b.AfterSource = t.diagramBefore(n), t.after.blocks[n].diagramSource
+		}
+		return b
 	}
 
 	// namedLines are the after-side lines the Excerpt names, which carry runs; a

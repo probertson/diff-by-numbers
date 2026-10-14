@@ -178,7 +178,8 @@
     if (picture === null) {
       picture = document.createElement("div");
       picture.className = "diagram-picture";
-      figure.insertBefore(picture, figure.firstChild);
+      // Below the container's label, if it has one.
+      figure.insertBefore(picture, figure.querySelector(".diagram-source"));
     }
     picture.textContent = "";
     var failed = drawing.error !== undefined;
@@ -206,6 +207,19 @@
     picture.appendChild(image);
   }
 
+  // arrangePair lays a changed diagram's "before" and "after" side by side
+  // when both drawings fit across the page at full size, and one above the
+  // other otherwise, where each can shrink to the page's width.
+  function arrangePair(pair) {
+    var images = pair.querySelectorAll(".diagram-picture img");
+    var fits = false;
+    if (pair.querySelectorAll("figure.diagram").length === 2 && images.length === 2) {
+      var gap = 24; // page.css's gap between the two
+      fits = Number(images[0].getAttribute("width")) + Number(images[1].getAttribute("width")) + gap <= pair.clientWidth;
+    }
+    pair.classList.toggle("side-by-side", fits);
+  }
+
   // drawDiagrams draws each diagram on the stop in the browser's theme.
   function drawDiagrams() {
     var theme = dark.matches ? "dark" : "default";
@@ -213,6 +227,10 @@
       var source = figure.querySelector(".diagram-source").textContent;
       drawingOf(theme, source).then(function (drawing) {
         showDrawing(figure, drawing);
+        var pair = figure.closest(".diagram-pair");
+        if (pair !== null) {
+          arrangePair(pair);
+        }
       });
     });
   }
@@ -252,6 +270,9 @@
 
   drawDiagrams();
   dark.addEventListener("change", drawDiagrams);
+  window.addEventListener("resize", function () {
+    all(".diagram-pair").forEach(arrangePair);
+  });
 
   var events = new EventSource(body.getAttribute("data-events-url"));
   events.addEventListener("redraw", redraw);

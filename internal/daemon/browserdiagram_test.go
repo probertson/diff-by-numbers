@@ -164,6 +164,94 @@ func TestThePagesPolicyAllowsOnlyDbnsDiagramFrameAndTheImagesItDraws(t *testing.
 	}
 }
 
+// A changed diagram is drawn twice, before and after, each as authored, with
+// the edit to its source beneath as track changes (#193). dbn marks nothing on
+// either drawing, so its colours are never mistaken for the author's.
+
+const (
+	diagramBefore = "# Architecture\n" +
+		"\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  tui --> daemon\n" +
+		"```\n"
+	diagramAfter = "# Architecture\n" +
+		"\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  tui --> daemon\n" +
+		"  daemon --> store\n" +
+		"```\n"
+)
+
+// figure is the diagram container whose class starts with class, and what it
+// holds; it fails the test if there is none.
+func figure(t *testing.T, out, class string) (string, string, int) {
+	t.Helper()
+	pattern := regexp.MustCompile(`(?s)<figure class="` + regexp.QuoteMeta(class) + `[" ][^>]*>(.*?)</figure>`)
+	at := pattern.FindStringSubmatchIndex(out)
+	if at == nil {
+		t.Fatalf("expected a diagram container of class %q, got:\n%s", class, out)
+	}
+	return out[at[0]:at[1]], out[at[2]:at[3]], at[1]
+}
+
+func TestAChangedDiagramIsHeldBeforeAndAfterLabelledWithTheEditToItsSourceBeneath(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL, diagramBefore, diagramAfter, lines{"new", 1, 7})
+
+	out := stop(t, server.URL, reviewID)
+
+	before, beforeHolds, _ := figure(t, out, "diagram before")
+	after, afterHolds, afterEnds := figure(t, out, "diagram after")
+	if !strings.Contains(beforeHolds, ">before<") || !strings.Contains(afterHolds, ">after<") {
+		t.Errorf("expected the containers labelled before and after, got:\n%s\n%s", before, after)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n</code>"; !strings.Contains(beforeHolds, want) {
+		t.Errorf("expected before to hold the source as it was, %q, got:\n%s", want, before)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n  daemon --&gt; store\n</code>"; !strings.Contains(afterHolds, want) {
+		t.Errorf("expected after to hold the source as it is, %q, got:\n%s", want, after)
+	}
+	if strings.Index(out, before) > strings.Index(out, after) {
+		t.Errorf("expected before ahead of after, got:\n%s", out)
+	}
+	for _, drawing := range []string{before, after} {
+		for _, mark := range []string{"data-treatment", "<ins>", "<del>"} {
+			if strings.Contains(drawing, mark) {
+				t.Errorf("expected no change mark on a diagram, found %s in:\n%s", mark, drawing)
+			}
+		}
+	}
+	edit := regexp.MustCompile(`(?s)<div class="tracked code[^"]*"[^>]*>.*?<ins>store</ins>`).FindString(out[afterEnds:])
+	if edit == "" {
+		t.Errorf("expected the edit to the source beneath the drawings, as track changes, got:\n%s", out)
+	}
+}
+
+func TestARemovedDiagramIsHeldBeforeOnlyAndDimmed(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"# Architecture\n\nThe parts.\n\n```mermaid\nflowchart LR\n  tui --> daemon\n```\n\nThe end.\n",
+		"# Architecture\n\nThe parts.\n\nThe end.\n",
+		lines{"new", 1, 5}, lines{"old", 4, 9})
+
+	out := stop(t, server.URL, reviewID)
+
+	before, holds, _ := figure(t, out, "diagram before")
+	if !strings.Contains(before, `class="diagram before removed`) {
+		t.Errorf("expected the removed diagram marked dimmed, got:\n%s", before)
+	}
+	if !strings.Contains(holds, ">before<") || !strings.Contains(holds, "flowchart LR\n  tui --&gt; daemon\n</code>") {
+		t.Errorf("expected the removed diagram labelled before, holding its source, got:\n%s", before)
+	}
+	if strings.Contains(out, `class="diagram after`) {
+		t.Errorf("expected no after for a removed diagram, got:\n%s", out)
+	}
+}
+
 // Part of a diagram is not the diagram its author drew, so a diagram an
 // Excerpt cuts into is shown as its source, as code.
 func TestADiagramAnExcerptCutsIntoIsShownAsCode(t *testing.T) {

@@ -70,6 +70,34 @@ func (t trackedDocument) afterTreatment(n int) Treatment {
 	}
 }
 
+// diagramBefore is the Mermaid source an edited after-side diagram block was
+// before the edit: the before-side diagram of its group. A group holding more
+// than one diagram pairs them in file order, the first after-side diagram with
+// the first before-side one. It is "" when the block was made from something
+// that was no diagram.
+func (t trackedDocument) diagramBefore(n int) string {
+	group := t.group[len(t.before.blocks)+n]
+	at := 0
+	for _, other := range t.afterBlocksOf(group) {
+		if other == n {
+			break
+		}
+		if t.after.blocks[other].diagram {
+			at++
+		}
+	}
+	for b, before := range t.before.blocks {
+		if t.group[b] != group || !before.diagram {
+			continue
+		}
+		if at == 0 {
+			return before.diagramSource
+		}
+		at--
+	}
+	return ""
+}
+
 // track works out the merged runs of every line of every edited block.
 //
 // A struck word is put back beside the text it stood with: just before the next

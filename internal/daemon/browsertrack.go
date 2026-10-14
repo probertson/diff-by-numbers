@@ -47,6 +47,9 @@ func trackedRow(line LineWire, block BlockWire, commented bool) documentRow {
 // as track changes. Prose that is not Markdown (plain) has no markers.
 func renderTracked(rows []documentRow, plain bool) template.HTML {
 	first := rows[0]
+	if first.change != nil {
+		return renderDiagramChange(rows)
+	}
 	var out strings.Builder
 	out.WriteString(`<div class="tracked ` + template.HTMLEscapeString(first.tracked.kind))
 	if first.commented {
