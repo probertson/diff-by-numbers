@@ -141,12 +141,13 @@ h2 { font-size: 1rem; }
 .document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
 
 /* The TUI's cursor: its block or line drawn bright, the rest of the Excerpts
-   dimmed. An element holding the cursor (a table holding its row) stays bright. */
+   dimmed. An element holding the cursor (a table holding its row) stays bright.
+   A diagram file's diagram is in no block, but dims as a block does. */
 .stop.following .excerpt .row:not(.cursor),
-.stop.following .excerpt .document [data-block]:not(.cursor):not(:has(.cursor)) {
+.stop.following .excerpt .document :is([data-block], figure.diagram):not(.cursor):not(:has(.cursor)) {
   opacity: 0.4;
 }
-.stop .excerpt .row, .stop .excerpt .document [data-block] { transition: opacity 120ms ease-out; }
+.stop .excerpt .row, .stop .excerpt .document :is([data-block], figure.diagram) { transition: opacity 120ms ease-out; }
 .row.cursor, .document .cursor { background: var(--cursor-bg); }
 
 /* Each new, edited or removed block marked as the TUI's gutter marks it. */

@@ -282,3 +282,31 @@ func TestACommentOnADiagramsBlockIsMarkedOnTheDiagram(t *testing.T) {
 		t.Errorf("expected the Comment's note to follow the diagram, got:\n%s", out)
 	}
 }
+
+// A diagram file's rows are code, in no block, so the TUI's cursor and a
+// Comment are on its lines; the drawn diagram is at every one of them (#194).
+func TestTheCursorAndACommentOnADiagramFilesLinesAreOnTheDiagram(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onExcerptsOfANewFile(t, server.URL, "flow.mmd", diagramFile, [2]int{1, 3})
+	raiseComment(t, reviewURL(server.URL, reviewID), 0, 2, 2, "the daemon calls the TUI too")
+
+	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Side: "new", Line: 3})
+
+	out := stop(t, server.URL, reviewID)
+	figure := regexp.MustCompile(`(?s)<figure[^>]*>.*?</figure>`).FindStringIndex(out)
+	if figure == nil {
+		t.Fatalf("expected the diagram file drawn, got:\n%s", out)
+	}
+	tag := regexp.MustCompile(`<figure[^>]*>`).FindString(out[figure[0]:])
+	class := regexp.MustCompile(`class="([^"]*)"`).FindStringSubmatch(tag)
+	if class == nil || !strings.Contains(" "+class[1]+" ", " commented ") || !isTheCursors(tag) {
+		t.Errorf("expected the diagram's container marked as commented and the cursor's, got %q", tag)
+	}
+	if !strings.Contains(tag, `data-place="1.0.new1 1.0.new2 1.0.new3"`) {
+		t.Errorf("expected the diagram's container at the place of each of the file's lines, got %q", tag)
+	}
+	if note := strings.Index(out, "the daemon calls the TUI too"); note < figure[1] {
+		t.Errorf("expected the Comment's note to follow the diagram, got:\n%s", out)
+	}
+}
