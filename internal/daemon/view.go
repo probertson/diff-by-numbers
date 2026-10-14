@@ -59,11 +59,17 @@ type BlockWire struct {
 	Level int    `json:"level,omitempty"`
 	// Diagram marks a code block that is a Mermaid diagram, which the Browser
 	// Renderer draws (#191).
-	Diagram   bool   `json:"diagram,omitempty"`
-	Side      string `json:"side"`
-	FirstLine int    `json:"first_line"`
-	LastLine  int    `json:"last_line"`
-	Treatment string `json:"treatment"`
+	Diagram bool `json:"diagram,omitempty"`
+	// BeforeSource and AfterSource are a changed diagram's Mermaid source
+	// before and after the change, which the Browser Renderer draws side by
+	// side or stacked (#193): both for an edited diagram, BeforeSource alone
+	// for a removed one.
+	BeforeSource string `json:"before_source,omitempty"`
+	AfterSource  string `json:"after_source,omitempty"`
+	Side         string `json:"side"`
+	FirstLine    int    `json:"first_line"`
+	LastLine     int    `json:"last_line"`
+	Treatment    string `json:"treatment"`
 	// Path is the block's heading path, outermost heading first, which the TUI
 	// draws in the Excerpt's sticky file header (#145).
 	Path []string `json:"path,omitempty"`
@@ -99,7 +105,8 @@ func toBlockWires(blocks []review.Block) []BlockWire {
 	var out []BlockWire
 	for _, b := range blocks {
 		out = append(out, BlockWire{
-			Kind: string(b.Kind), Level: b.Level, Diagram: b.Diagram, Side: string(b.Side),
+			Kind: string(b.Kind), Level: b.Level, Diagram: b.Diagram,
+			BeforeSource: b.BeforeSource, AfterSource: b.AfterSource, Side: string(b.Side),
 			FirstLine: b.Lines.First, LastLine: b.Lines.Last, Treatment: string(b.Treatment),
 			Path: b.Path,
 		})

@@ -134,8 +134,11 @@ type parsedBlock struct {
 	// kind): what a Reviewer's surface needs to lay the block out.
 	kind  BlockKind
 	level int
-	// diagram marks a fenced code block holding a Mermaid diagram (#191).
-	diagram bool
+	// diagram marks a fenced code block holding a Mermaid diagram (#191), and
+	// diagramSource is what it holds: the Mermaid source between its fences,
+	// each line ending in a newline.
+	diagram       bool
+	diagramSource string
 	// section marks a heading of the Document's own, which opens a section,
 	// and title is its text, its inline markup read as plain text.
 	section bool
@@ -168,12 +171,26 @@ func kindOf(n ast.Node) (BlockKind, int) {
 	return BlockOther, 0
 }
 
-// isDiagram reports whether a node is a fenced code block whose info string
-// names Mermaid, which the Browser Renderer draws as a picture (#191). dbn
-// reads no further: what the diagram says is Mermaid's to parse.
-func isDiagram(n ast.Node, source []byte) bool {
+// diagramOf reports whether a node is a fenced code block whose info string
+// names Mermaid, which the Browser Renderer draws as a picture (#191), and the
+// Mermaid source it holds. dbn reads no further: what the diagram says is
+// Mermaid's to parse.
+func diagramOf(n ast.Node, source []byte) (string, bool) {
 	fence, ok := n.(*ast.FencedCodeBlock)
-	return ok && string(fence.Language(source)) == "mermaid"
+	if !ok || string(fence.Language(source)) != "mermaid" {
+		return "", false
+	}
+	var out strings.Builder
+	lines := fence.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		segment := lines.At(i)
+		line := string(segment.Value(source))
+		out.WriteString(line)
+		if !strings.HasSuffix(line, "\n") {
+			out.WriteByte('\n')
+		}
+	}
+	return out.String(), true
 }
 
 // parsedRanges is every block goldmark finds, in no particular order.
@@ -197,7 +214,8 @@ func parsedRanges(source []string) []parsedBlock {
 		default:
 			if r, ok := spanOf(n, n, lineOf); ok {
 				kind, level := kindOf(n)
-				p := parsedBlock{lines: r, kind: kind, level: level, diagram: isDiagram(n, content)}
+				p := parsedBlock{lines: r, kind: kind, level: level}
+				p.diagramSource, p.diagram = diagramOf(n, content)
 				if kind == BlockHeading && n.Parent() != nil && n.Parent().Kind() == ast.KindDocument {
 					p.section, p.title = true, plainText(n, content)
 				}

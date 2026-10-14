@@ -442,6 +442,9 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				}
 				row := trackedRow(line, block, commentedBlocks[line.Block])
 				row.place, row.cursor = x.blockPlace(line.Block), drawn(x.onCursor(x.blockPlace(line.Block)))
+				if block.Diagram && shownWhole(line.Block, excerpt) {
+					row.change = &diagramChange{before: block.BeforeSource, after: block.AfterSource}
+				}
 				stretch = append(stretch, row)
 			}
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):

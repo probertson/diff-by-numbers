@@ -90,3 +90,92 @@ func TestADiagramFileCountsAgainstTheLineBudgetNotTheWordBudget(t *testing.T) {
 	assertDetailContains(t, err, `Step 1 ("The flow") counts 31 changed lines`)
 	assertDetailOmits(t, err, "words")
 }
+
+// A changed diagram is drawn twice, before and after, each as authored (#193),
+// so the Step view carries the Mermaid source of both.
+
+// diagramOf is a Document whose one section holds a Mermaid diagram of these
+// lines.
+func diagramOf(lines ...string) string {
+	return markdown("# Architecture", "```mermaid\n"+strings.Join(lines, "\n")+"\n```")
+}
+
+// diagramBlock is the one diagram block an Excerpt shows.
+func diagramBlock(t *testing.T, view review.ExcerptView) review.Block {
+	t.Helper()
+	for _, block := range view.Blocks {
+		if block.Diagram {
+			return block
+		}
+	}
+	t.Fatalf("expected a diagram block, got %+v", view.Blocks)
+	return review.Block{}
+}
+
+func TestAChangedDiagramCarriesItsSourceBeforeAndAfterTheChange(t *testing.T) {
+	files := modifying("docs/architecture.md",
+		diagramOf("flowchart LR", "  tui --> daemon"),
+		diagramOf("flowchart LR", "  tui --> daemon", "  daemon --> store"),
+	)
+
+	step := viewingStep(t, files, showingWhole("Architecture", files, review.NewSide, "docs/architecture.md"))
+
+	diagram := diagramBlock(t, step.Excerpts[0])
+	if diagram.Treatment != review.TreatmentEdited {
+		t.Fatalf("expected the diagram edited, got %+v", diagram)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n"; diagram.BeforeSource != want {
+		t.Errorf("expected the diagram's source before the change %q, got %q", want, diagram.BeforeSource)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n  daemon --> store\n"; diagram.AfterSource != want {
+		t.Errorf("expected the diagram's source after the change %q, got %q", want, diagram.AfterSource)
+	}
+}
+
+func TestARemovedDiagramCarriesOnlyItsSourceBefore(t *testing.T) {
+	files := modifying("docs/architecture.md",
+		markdown("# Architecture", "The parts.", "```mermaid\nflowchart LR\n  tui --> daemon\n```", "The end."),
+		markdown("# Architecture", "The parts.", "The end."),
+	)
+
+	// The diagram ran over lines 5-8, a blank line after it.
+	step := viewingStep(t, files, showingLines("No diagram", "docs/architecture.md", review.OldSide, 5, 9))
+
+	diagram := diagramBlock(t, step.Excerpts[0])
+	if diagram.Treatment != review.TreatmentRemoved {
+		t.Fatalf("expected the diagram removed, got %+v", diagram)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n"; diagram.BeforeSource != want {
+		t.Errorf("expected the removed diagram's source %q, got %q", want, diagram.BeforeSource)
+	}
+	if diagram.AfterSource != "" {
+		t.Errorf("expected a removed diagram to have no source after, got %q", diagram.AfterSource)
+	}
+}
+
+func TestInARevisionRoundAChangedDiagramsBeforeIsThePreviousRounds(t *testing.T) {
+	// A Document added in Round 1, its diagram changed for Round 2: against the
+	// merge-base the diagram is new, but since Round 1 it changed.
+	files := newDocumentRounds(adding("docs/architecture.md", diagramOf("flowchart LR", "  tui --> daemon")))
+	session := review.NewSession(files, files)
+	mustPost(t, session, documentRound(showingWhole("Architecture", files.workingFiles, review.NewSide, "docs/architecture.md")))
+	handOffWithAComment(t, session)
+	files.after["docs/architecture.md"] = diagramOf("flowchart LR", "  tui --> daemon", "  daemon --> store")
+	if err := session.Revise(session.ReviewID(), revising(documentRound(
+		showingWhole("Architecture, with a store", files.workingFiles, review.NewSide, "docs/architecture.md")))); err != nil {
+		t.Fatal(err)
+	}
+
+	mustAdvance(t, session)
+	diagram := diagramBlock(t, session.View().Step.Excerpts[0])
+
+	if diagram.Treatment != review.TreatmentEdited {
+		t.Fatalf("expected the diagram edited since Round 1, got %+v", diagram)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n"; diagram.BeforeSource != want {
+		t.Errorf("expected before to be Round 1's diagram %q, got %q", want, diagram.BeforeSource)
+	}
+	if want := "flowchart LR\n  tui --> daemon\n  daemon --> store\n"; diagram.AfterSource != want {
+		t.Errorf("expected after to be this Round's diagram %q, got %q", want, diagram.AfterSource)
+	}
+}

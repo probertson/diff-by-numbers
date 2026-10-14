@@ -41,6 +41,10 @@ type documentRow struct {
 	// diagram marks a row of a Mermaid diagram the stretch shows whole, which
 	// the page draws as a picture (#191).
 	diagram bool
+	// change is, for a row of an edited or removed Mermaid diagram the stretch
+	// shows whole, the diagram's source before and after, which the page draws
+	// as pictures above the edit (#193); nil for any other row.
+	change *diagramChange
 }
 
 // classes is the class attribute a block's element carries for its first
