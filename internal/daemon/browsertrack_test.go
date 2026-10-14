@@ -136,9 +136,9 @@ func TestANewBlockIsMarkedNewAndUnchangedTextIsNot(t *testing.T) {
 	out := html.UnescapeString(stop(t, server.URL, reviewID))
 
 	wantIn(t, out,
-		`<h1 data-block="1">Policy</h1>`,
-		`<p data-block="2">The kept rule.</p>`,
-		`<p data-block="3" data-treatment="new">An added rule.</p>`,
+		`<h1 data-block="1" data-place="1.0.b1">Policy</h1>`,
+		`<p data-block="2" data-place="1.0.b2">The kept rule.</p>`,
+		`<p data-block="3" data-place="1.0.b3" data-treatment="new">An added rule.</p>`,
 	)
 }
 

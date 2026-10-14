@@ -19,11 +19,13 @@ import (
 )
 
 // documentRow is one source row of a Document stretch the page renders: its
-// text, the block it belongs to (0 for none), whether a Comment covers it,
-// and whether the TUI's cursor is on it.
+// text, the block it belongs to (0 for none) and that block's place on the
+// page (placeOfBlock), whether a Comment covers it, and whether the TUI's
+// cursor is on it.
 type documentRow struct {
 	text      string
 	block     int
+	place     string
 	commented bool
 	cursor    bool
 	// treatment is how an edit changed the row's block: a new block is marked
@@ -59,7 +61,8 @@ func (r documentRow) classes() string {
 // from where images finds it, or as its alt text with why it is not shown.
 //
 // Each element that starts a block carries the block's number as data-block,
-// so the page can find the block the TUI's cursor is on (#187). A block a
+// and its place as data-place, where the page finds the block the TUI's cursor
+// is on (#187). A block a
 // Comment covers carries the class "commented", and the cursor's "cursor". A
 // new, edited or removed block carries its treatment as data-treatment; an
 // edited or removed one is drawn as track changes, an edited table row as a
@@ -137,7 +140,7 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 	// does, so concurrent pages never share its state.
 	draw := &drawnSafely{images: images, rowAt: rowAt, tracked: tracked, drawn: map[int]bool{}}
 	md := goldmark.New(
-		goldmark.WithExtensions(extension.Table),
+		goldmark.WithExtensions(extension.NewTable(tableAlignment)),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(draw, 100))),
 	)
 	document := md.Parser().Parse(text.NewReader(content))
@@ -173,7 +176,8 @@ func renderPlain(rows []documentRow) template.HTML {
 			}
 			words = append(words, line)
 		}
-		out.WriteString(`<p data-block="` + strconv.Itoa(rows[i].block) + `"`)
+		out.WriteString(`<p data-block="` + strconv.Itoa(rows[i].block) + `" data-place="` +
+			template.HTMLEscapeString(rows[i].place) + `"`)
 		if rows[i].treatment == string(review.TreatmentNew) {
 			out.WriteString(` data-treatment="new"`)
 		}
@@ -199,8 +203,8 @@ var blockElements = map[ast.NodeKind]bool{
 	east.KindTableHeader:    true,
 }
 
-// tagBlocks marks each element that starts a block with its number, its
-// treatment, and the classes its first row gives it (tracked, commented,
+// tagBlocks marks each element that starts a block with its number, its place,
+// its treatment, and the classes its first row gives it (tracked, commented,
 // cursor). An element inside one already marked with the same block is left
 // alone, so a list item's paragraph is not marked a second time.
 func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
@@ -225,6 +229,7 @@ func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
 			return ast.WalkContinue, nil
 		}
 		n.SetAttributeString("data-block", strconv.Itoa(row.block))
+		n.SetAttributeString("data-place", row.place)
 		if row.treatment != "" && row.treatment != string(review.TreatmentContext) {
 			n.SetAttributeString("data-treatment", row.treatment)
 		}
@@ -300,10 +305,14 @@ func (d *drawnSafely) renderText(w util.BufWriter, source []byte, node ast.Node,
 	return ast.WalkContinue, nil
 }
 
+// tableAlignment draws a column's alignment as an align attribute rather
+// than goldmark's inline style, which the page's policy refuses (pagePolicy).
+var tableAlignment = extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute)
+
 // tableFuncs are goldmark's own table renderers, for the rows no edit changed.
 var tableFuncs = func() registered {
 	funcs := registered{}
-	extension.NewTableHTMLRenderer().RegisterFuncs(funcs)
+	extension.NewTableHTMLRenderer(tableAlignment).RegisterFuncs(funcs)
 	return funcs
 }()
 

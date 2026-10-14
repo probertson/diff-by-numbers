@@ -32,14 +32,9 @@ type documentImages struct {
 	files    review.RoundFiles
 }
 
-// imagesOf reads, under the lock, where a review's files are read from.
-func (d *Daemon) imagesOf(session *review.Session) documentImages {
-	images := documentImages{reviewID: session.ReviewID()}
-	_ = d.locked(func() error {
-		images.files = session.RoundFiles()
-		return nil
-	})
-	return images
+// imagesOf is where a review's images are found. The caller holds the lock.
+func imagesOf(session *review.Session) documentImages {
+	return documentImages{reviewID: session.ReviewID(), files: session.RoundFiles()}
 }
 
 // imageFile is an image found, by its path in its repository: in a Round
@@ -132,7 +127,12 @@ func (d documentImages) imageURL(repository, file string) string {
 
 // serveImage serves an image a page draws: GET /reviews/{review}/page/image/{file...}?repository=root.
 func (d *Daemon) serveImage(session *review.Session, w http.ResponseWriter, r *http.Request) {
-	found, err := d.imagesOf(session).find(r.URL.Query().Get("repository"), r.PathValue("file"))
+	var images documentImages
+	_ = d.locked(func() error {
+		images = imagesOf(session)
+		return nil
+	})
+	found, err := images.find(r.URL.Query().Get("repository"), r.PathValue("file"))
 	if err != nil {
 		http.NotFound(w, r)
 		return

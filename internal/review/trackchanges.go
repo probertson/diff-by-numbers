@@ -2,6 +2,7 @@ package review
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -41,6 +42,14 @@ type trackedDocument struct {
 	// runs are the merged runs of each line of an edited block, by after-side
 	// line.
 	runs map[int][]WordRun
+	// added and struck are what runs were merged from, by after-side line: the
+	// byte ranges of added words, and the struck words put back on it.
+	added  map[int][][2]int
+	struck map[int][]struckAt
+	// later are struck words put on an earlier line that go on this one
+	// instead, by after-side line, when an Excerpt shows that earlier line only
+	// as context, or not at all, so it carries no runs.
+	later map[int][]movedStruck
 }
 
 // afterBlocksOf is the after-side blocks in a group, in file order.
@@ -67,10 +76,12 @@ func (t trackedDocument) afterTreatment(n int) Treatment {
 // word the edit kept or added in its group, where that is on the same line as
 // the word before it, so a struck word reads before the word that replaced it;
 // otherwise just after the word before it, so a word struck at the end of a line
-// stays on that line. A group with no after-side is removed whole and drawn on
+// stays on that line, unless an Excerpt shows that line only as context, or not at all (runsOn).
+// A group with no after-side is removed whole and drawn on
 // its own, so its words are put nowhere.
 func track(d documentDiff) trackedDocument {
-	t := trackedDocument{documentDiff: d, afterBlocks: map[int][]int{}, hasBefore: map[int]bool{}, runs: map[int][]WordRun{}}
+	t := trackedDocument{documentDiff: d, afterBlocks: map[int][]int{}, hasBefore: map[int]bool{}, runs: map[int][]WordRun{},
+		added: map[int][][2]int{}, struck: map[int][]struckAt{}, later: map[int][]movedStruck{}}
 	for n := range d.before.blocks {
 		t.hasBefore[d.group[n]] = true
 	}
@@ -78,7 +89,7 @@ func track(d documentDiff) trackedDocument {
 		group := d.group[len(d.before.blocks)+n]
 		t.afterBlocks[group] = append(t.afterBlocks[group], n)
 	}
-	inserted := map[int][]struckAt{} // by after-side line
+	inserted, added := t.struck, t.added
 	put := func(line, at int, word string) {
 		list := inserted[line]
 		if n := len(list); n > 0 && list[n-1].at == at {
@@ -87,7 +98,15 @@ func track(d documentDiff) trackedDocument {
 		}
 		inserted[line] = append(list, struckAt{at: at, text: word})
 	}
-	added := map[int][][2]int{} // byte ranges of added words, by after-side line
+	// putLater notes where a word put at the end of line from goes instead.
+	putLater := func(from int, line, at int, word string) {
+		list := t.later[line]
+		if n := len(list); n > 0 && list[n-1].from == from && list[n-1].at == at {
+			list[n-1].text += " " + word
+			return
+		}
+		t.later[line] = append(list, movedStruck{from: from, struckAt: struckAt{at: at, text: word}})
+	}
 
 	prev := make([]*docWord, len(d.steps))
 	var last *docWord
@@ -119,6 +138,9 @@ func track(d documentDiff) trackedDocument {
 				put(n.line, n.start, step.before.text)
 			case inGroup(p):
 				put(p.line, p.end, step.before.text)
+				if inGroup(n) {
+					putLater(p.line, n.line, n.start, step.before.text)
+				}
 			case len(t.afterBlocksOf(group)) > 0:
 				// Nothing kept or added in its group stands near it: it is put
 				// at the end of the group's first after-side block.
@@ -133,16 +155,41 @@ func track(d documentDiff) trackedDocument {
 			continue
 		}
 		for line := b.lines.First; line <= b.lines.Last; line++ {
-			t.runs[line] = mergedRuns(d.after.lines[line-1], added[line], inserted[line])
+			t.runs[line] = mergedRuns(d.after.lines[line-1], slices.Clone(added[line]), slices.Clone(inserted[line]))
 		}
 	}
 	return t
+}
+
+// runsOn is the merged runs of a line of an edited block, in an Excerpt in
+// which unshown reports the lines that carry no runs: the ones it is only
+// widened by, as context, and the ones it does not show. A word struck at the
+// end of such a line is put at the start of the next line instead, so it is
+// never lost.
+func (t trackedDocument) runsOn(line int, unshown func(line int) bool) []WordRun {
+	var moved []struckAt
+	for _, m := range t.later[line] {
+		if unshown(m.from) {
+			moved = append(moved, m.struckAt)
+		}
+	}
+	if len(moved) == 0 {
+		return t.runs[line]
+	}
+	return mergedRuns(t.after.lines[line-1], slices.Clone(t.added[line]), append(moved, t.struck[line]...))
 }
 
 // struckAt is struck words to put back at a byte offset of a line.
 type struckAt struct {
 	at   int
 	text string
+}
+
+// movedStruck is struck words put at the end of line from, and where they go
+// on another line when from is shown only as context.
+type movedStruck struct {
+	from int
+	struckAt
 }
 
 // mergedRuns cuts one line into kept and added runs, the whitespace between two

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 // A Document can be shown as its source rather than formatted: s switches every
@@ -76,7 +77,7 @@ func sourceRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrap
 	line := cur.lines[i]
 	sign, colour := " ", lipgloss.TerminalColor(lipgloss.NoColor{})
 	switch {
-	case line.changed && removedSide(line.side):
+	case line.changed && present.RemovedSide(line.side):
 		sign, colour = "-", docRed
 	case line.changed:
 		sign, colour = "+", docGreen

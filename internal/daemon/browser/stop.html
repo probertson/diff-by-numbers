@@ -76,7 +76,7 @@
 {{- if .Rows}}
 <div class="source">
 {{- range .Rows}}
-<div class="row {{.Class}}{{if .Commented}} commented{{end}}{{if .Cursor}} cursor{{end}}" data-side="{{.Side}}"{{if .Number}} data-line="{{.Number}}"{{end}}{{if .Block}} data-block="{{.Block}}"{{end}}><span class="mark">{{if .Commented}}●{{end}}</span><span class="number">{{if .Number}}{{.Number}}{{end}}</span><span class="sign">{{.Sign}}</span><span class="text">{{range .Parts}}{{if .Changed}}<span class="changed">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</span></div>
+<div class="row {{.Class}}{{if .Commented}} commented{{end}}{{if .Cursor}} cursor{{end}}" data-side="{{.Side}}"{{if .Number}} data-line="{{.Number}}"{{end}}{{if .Block}} data-block="{{.Block}}"{{end}}{{if .Places}} data-place="{{.Places}}"{{end}}><span class="mark">{{if .Commented}}●{{end}}</span><span class="number">{{if .Number}}{{.Number}}{{end}}</span><span class="sign">{{.Sign}}</span><span class="text">{{range .Parts}}{{if .Changed}}<span class="changed">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</span></div>
 {{- end}}
 </div>
 {{- else}}

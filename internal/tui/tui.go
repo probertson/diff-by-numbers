@@ -21,6 +21,7 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/buildinfo"
 	"github.com/probertson/diff-by-numbers/internal/config"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 	"github.com/probertson/diff-by-numbers/internal/selfupdate"
 	"github.com/probertson/diff-by-numbers/internal/updatecheck"
 )
@@ -91,6 +92,7 @@ func start(opts Options) (model, error) {
 	starting.proseWidth = opts.ProseWidth
 	starting.openURL = openInBrowser
 	starting.screenReport = starting.client.reportScreen
+	starting.cursorReport = starting.client.reportCursor
 	if opts.ConfigWarning != "" {
 		starting.configNotice = "config: " + opts.ConfigWarning
 	}
@@ -196,17 +198,6 @@ func (c client) inbox() ([]daemon.InboxRowWire, error) {
 
 func (c client) intent(path string) {
 	response, err := http.Post(c.url(path), "text/plain", nil)
-	if err != nil {
-		return // the next poll will surface the daemon being gone
-	}
-	response.Body.Close()
-}
-
-// reportCursor tells the daemon where the cursor is, for the review's page to
-// follow. Like an intent it is fire and forget.
-func (c client) reportCursor(at daemon.CursorWire) {
-	body, _ := json.Marshal(at)
-	response, err := http.Post(c.url("/cursor"), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return // the next poll will surface the daemon being gone
 	}
@@ -392,9 +383,13 @@ type model struct {
 	// then only says where the page is.
 	openURL func(url string) error
 	// screenReport tells dbn which screen the window shows for a review, for
-	// the screens it holds no stop for (screenOf): the daemon when the TUI
+	// the screens it holds no stop for (model.screen): the daemon when the TUI
 	// runs, a stand-in in a test. Nil reports nothing.
-	screenReport func(reviewID, screen string)
+	screenReport func(reviewID string, screen daemon.Screen)
+	// cursorReport tells dbn where the cursor is on a review, each time it
+	// moves, for the review's page to follow: the daemon when the TUI runs, a
+	// stand-in in a test. Nil reports nothing.
+	cursorReport func(reviewID string, at daemon.CursorWire)
 	// pageNotice says where the page p opened is. It takes the status line until
 	// the next keypress.
 	pageNotice string
@@ -2973,7 +2968,7 @@ func (m model) step() string {
 			gutter := gutterSt.Render(fmt.Sprintf("%5d │ ", line.Number))
 			if line.Changed {
 				sign, style := "+", addSt
-				if removedSide(lineSide(line, excerpt)) {
+				if present.RemovedSide(lineSide(line, excerpt)) {
 					sign, style = "-", delSt
 				}
 				b.WriteString(gutter + style.Render(sign+" "+line.Text) + "\n")

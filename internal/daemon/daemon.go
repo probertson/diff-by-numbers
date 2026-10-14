@@ -69,12 +69,10 @@ type Daemon struct {
 	// pages are the Browser Renderer pages open on each review, following its
 	// change stream.
 	pages pageFeed
-	// screens are the screens TUIs report showing for each review, which the
-	// page names where dbn holds no stop for them.
-	screens pageScreens
-	// cursors are where the TUI last said its cursor is on each review, keyed
-	// by review id, for the review's page to brighten (#187).
-	cursors map[string]CursorWire
+	// places are what TUIs report of where the Reviewer is on each review that
+	// dbn does not hold itself: the screen shown, which the page names where
+	// dbn holds no stop for it, and the cursor, which it brightens (#187).
+	places pagePlaces
 }
 
 // Option configures a Daemon at construction.
@@ -127,7 +125,7 @@ func (d *Daemon) hold(session *review.Session) {
 func (d *Daemon) release(id string) {
 	delete(d.reviews, id)
 	delete(d.waiting, id)
-	delete(d.cursors, id)
+	d.places.forget(id)
 	for i, held := range d.order {
 		if held == id {
 			d.order = append(d.order[:i], d.order[i+1:]...)
@@ -447,16 +445,10 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad comment", http.StatusBadRequest)
 			return
 		}
-		err := d.locked(func() error {
+		d.mutate(session, w, func() error {
 			_, err := session.RaiseComment(req.target(), req.Note)
 			return err
 		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
 	}))
 
 	mux.HandleFunc("PUT /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
@@ -472,12 +464,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad edit", http.StatusBadRequest)
 			return
 		}
-		if err := d.locked(func() error { return session.EditComment(id, req.Note) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return session.EditComment(id, req.Note) })
 	}))
 
 	// An Answer is put rather than posted: answering again replaces it, and an
@@ -495,12 +482,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad answer", http.StatusBadRequest)
 			return
 		}
-		if err := d.locked(func() error { return session.AnswerQuestion(id, req.Answer) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return session.AnswerQuestion(id, req.Answer) })
 	}))
 
 	// Withdrawing a question is only for one carried over from a replaced
@@ -511,12 +493,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
-		if err := d.locked(func() error { return session.WithdrawQuestion(id) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return session.WithdrawQuestion(id) })
 	}))
 
 	mux.HandleFunc("DELETE /reviews/{review}/comment/{id}", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
@@ -525,12 +502,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
-		if err := d.locked(func() error { return session.WithdrawComment(id) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return session.WithdrawComment(id) })
 	}))
 
 	// A Hand Off is one of the events a `dbn wait` is waiting for, so it wakes
@@ -561,16 +533,10 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, "bad re-raise", http.StatusBadRequest)
 			return
 		}
-		err = d.locked(func() error {
+		d.mutate(session, w, func() error {
 			_, err := session.ReRaise(id, req.Note)
 			return err
 		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
 	}))
 
 	mux.HandleFunc("POST /reviews/{review}/anchor", d.onReview(func(session *review.Session, w http.ResponseWriter, r *http.Request) {
@@ -764,12 +730,7 @@ func (d *Daemon) withActivity(next http.Handler) http.Handler {
 // daemon lock, so navigation stays serialized against posts and fetches.
 func (d *Daemon) navHandler(intent func(*review.Session) error) http.HandlerFunc {
 	return d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
-		if err := d.locked(func() error { return intent(session) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return intent(session) })
 	})
 }
 
@@ -783,12 +744,7 @@ func (d *Daemon) numberedNavHandler(what string, intent func(*review.Session, in
 			http.Error(w, what+" must be a number", http.StatusBadRequest)
 			return
 		}
-		if err := d.locked(func() error { return intent(session, n) }); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		d.changed(session.ReviewID())
-		fmt.Fprintln(w, "ok")
+		d.mutate(session, w, func() error { return intent(session, n) })
 	})
 }
 

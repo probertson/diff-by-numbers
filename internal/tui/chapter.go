@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 // onIntro reports whether a Chapter's intro is on screen. The first Chapter's
@@ -35,20 +36,17 @@ func sameStop(a, b *daemon.ViewWire) bool {
 }
 
 // chapterHeading names a Chapter by number and name, e.g. "3 · EL-7 Pack
-// holds". Numbers and names do the work, so the word "Chapter" is left out: on
-// screen it is the Overview's heading and the keybar's "go to Chapter" only.
+// holds". On screen the word "Chapter" is the Overview's heading and the
+// keybar's "go to Chapter" only.
 func chapterHeading(chapter daemon.ChapterWire) string {
-	return fmt.Sprintf("%d · %s", chapter.Number, chapter.Name)
+	return present.ChapterHeading(chapter.Number, chapter.Name)
 }
 
-// stepRange names the Steps a Chapter holds, e.g. "Steps 12–16", or "Step 3"
-// for a Chapter of one. The Overview's rows show it alone; an intro's header
-// places it among the Round's Steps, e.g. "Steps 12–16 of 40".
+// stepRange names the Steps a Chapter holds, e.g. "Steps 12–16". The
+// Overview's rows show it alone; an intro's header places it among the Round's
+// Steps, e.g. "Steps 12–16 of 40".
 func stepRange(chapter daemon.ChapterWire) string {
-	if chapter.FirstStep == chapter.LastStep {
-		return fmt.Sprintf("Step %d", chapter.FirstStep)
-	}
-	return fmt.Sprintf("Steps %d–%d", chapter.FirstStep, chapter.LastStep)
+	return present.StepRange(chapter.FirstStep, chapter.LastStep)
 }
 
 // chapterRows is the Overview's list of a Round's Chapters, one row each in

@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/probertson/diff-by-numbers/internal/present"
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -25,7 +25,7 @@ type trackedLine struct {
 // trackedRow is a row of an edited or removed block, on the block's own side,
 // as the page draws it: an edited row as its runs, a removed row struck whole,
 // and a row the Excerpt was widened by as it stands.
-func trackedRow(line LineWire, block BlockWire, commented, cursor bool) documentRow {
+func trackedRow(line LineWire, block BlockWire, commented bool) documentRow {
 	runs := line.Runs
 	switch {
 	case block.Treatment == string(review.TreatmentRemoved):
@@ -37,7 +37,6 @@ func trackedRow(line LineWire, block BlockWire, commented, cursor bool) document
 		text:      line.Text,
 		block:     line.Block,
 		commented: commented,
-		cursor:    cursor,
 		treatment: block.Treatment,
 		widened:   line.Widened,
 		tracked:   &trackedLine{kind: block.Kind, runs: runs},
@@ -56,8 +55,8 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 	if first.cursor {
 		out.WriteString(" cursor")
 	}
-	out.WriteString(`" data-block="` + strconv.Itoa(first.block) + `" data-treatment="` +
-		template.HTMLEscapeString(first.treatment) + `">`)
+	out.WriteString(`" data-block="` + strconv.Itoa(first.block) + `" data-place="` +
+		template.HTMLEscapeString(first.place) + `" data-treatment="` + template.HTMLEscapeString(first.treatment) + `">`)
 	out.WriteString(string(trackedLines(rows, plain)))
 	out.WriteString("</div>\n")
 	return template.HTML(out.String())
@@ -67,14 +66,14 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 // line each, a line the Excerpt was widened by dimmed as context.
 func trackedLines(rows []documentRow, plain bool) template.HTML {
 	var out strings.Builder
-	var st markdownState
+	var st present.Spans
 	for i, row := range rows {
 		out.WriteString(`<div class="line`)
 		if row.widened {
 			out.WriteString(" widened")
 		}
 		out.WriteString(`">`)
-		line := sourceLine{kind: rows[0].tracked.kind, first: i == 0, plain: plain}
+		line := blockLine{kind: rows[0].tracked.kind, first: i == 0, plain: plain}
 		line.write(&out, separated(row.tracked.runs), &st)
 		out.WriteString("</div>")
 	}
@@ -85,36 +84,20 @@ func trackedLines(rows []documentRow, plain bool) template.HTML {
 // dbn gives struck words without the spaces around them, which belong to the
 // text the edit kept.
 func separated(runs []RunWire) []RunWire {
-	var out []RunWire
-	space := RunWire{Text: " ", Change: string(review.WordsKept)}
-	for i, run := range runs {
-		if run.Change != string(review.WordsRemoved) {
-			out = append(out, run)
-			continue
-		}
-		if i > 0 && !strings.HasSuffix(runs[i-1].Text, " ") {
-			out = append(out, space)
-		}
-		out = append(out, run)
-		if i+1 < len(runs) && !strings.HasPrefix(runs[i+1].Text, " ") {
-			out = append(out, space)
-		}
-	}
-	return out
+	return present.Separated(runs,
+		func(run RunWire) bool { return run.Change == string(review.WordsRemoved) },
+		func(run RunWire) string { return run.Text },
+		RunWire{Text: " ", Change: string(review.WordsKept)})
 }
 
-// sourceLine is how one line of a block's source is read for its markers: the
+// blockLine is how one line of a block's source is read for its markers: the
 // block's kind, whether it is the block's first line, and whether the
 // Document is Markdown at all.
-type sourceLine struct {
+type blockLine struct {
 	kind  string
 	first bool
 	plain bool
 }
-
-// markdownState is which inline spans are open, carried from line to line
-// through a block.
-type markdownState struct{ bold, italic, code bool }
 
 var (
 	quotePrefix = regexp.MustCompile(`^\s{0,3}((?:>\s?)+)`)
@@ -129,7 +112,7 @@ var (
 // only stand there: a quote's >, a list item's bullet, a heading's #s, and the
 // whole of a line that is nothing but markers (a setext underline, a fence, a
 // table's divider).
-func (l sourceLine) leading(text string) int {
+func (l blockLine) leading(text string) int {
 	if l.plain {
 		return 0
 	}
@@ -152,7 +135,7 @@ func (l sourceLine) leading(text string) int {
 
 // inline reports whether a line's text is read for inline markers: emphasis,
 // code spans and a table's pipes. Code and frontmatter are not.
-func (l sourceLine) inline() bool {
+func (l blockLine) inline() bool {
 	switch {
 	case l.plain:
 		return false
@@ -167,7 +150,7 @@ func (l sourceLine) inline() bool {
 // are read from the line as the file has it now; struck text is read with a
 // copy of the open spans, so a marker the edit struck opens nothing in the
 // text it kept.
-func (l sourceLine) write(out *strings.Builder, runs []RunWire, st *markdownState) {
+func (l blockLine) write(out *strings.Builder, runs []RunWire, st *present.Spans) {
 	var current strings.Builder
 	for _, run := range runs {
 		if run.Change != string(review.WordsRemoved) {
@@ -201,7 +184,7 @@ func (l sourceLine) write(out *strings.Builder, runs []RunWire, st *markdownStat
 
 // writeText draws a run of text whose first lead bytes are markers that stand
 // at the start of the line, and the rest read for inline markers.
-func (l sourceLine) writeText(out *strings.Builder, text string, lead int, st *markdownState) {
+func (l blockLine) writeText(out *strings.Builder, text string, lead int, st *present.Spans) {
 	if lead > 0 {
 		writeSpan(out, "md", text[:lead])
 	}
@@ -230,79 +213,32 @@ func writeSpan(out *strings.Builder, class, text string) {
 type fragment struct{ text, class string }
 
 // inlineFragments splits text into its inline markers and the text between
-// them, opening and closing spans as it goes, as the TUI reads them. Inside a
-// code span nothing but the closing backtick is a marker. An underscore inside
-// a word opens nothing, as in CommonMark. In a table row, a pipe is a marker.
-func inlineFragments(text string, st *markdownState, pipes bool) []fragment {
+// them, opening and closing spans as it goes, as the TUI reads them
+// (present.Inline). An escape's backslash is a marker. In a table row, a pipe
+// is a marker.
+func inlineFragments(text string, st *present.Spans, pipes bool) []fragment {
 	var out []fragment
-	var run []rune
-	flush := func() {
-		if len(run) > 0 {
-			out = append(out, fragment{text: string(run), class: st.class()})
-			run = nil
+	for _, token := range present.Inline(text, st, pipes) {
+		class := "md"
+		if token.Kind == present.TokenText {
+			class = spansClass(token.Spans)
 		}
+		out = append(out, fragment{text: token.Text, class: class})
 	}
-	marker := func(text string) {
-		flush()
-		out = append(out, fragment{text: text, class: "md"})
-	}
-	rs := []rune(text)
-	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		pair := i+1 < len(rs) && rs[i+1] == r
-		switch {
-		case r == '|' && pipes:
-			marker("|")
-		case r == '`':
-			marker("`")
-			st.code = !st.code
-		case st.code:
-			run = append(run, r)
-		case r == '\\' && i+1 < len(rs):
-			marker("\\")
-			run = append(run, rs[i+1])
-			i++
-		case (r == '*' || r == '_') && pair && delimiterAt(rs, i, 2):
-			marker(string([]rune{r, r}))
-			st.bold = !st.bold
-			i++
-		case (r == '*' || r == '_') && delimiterAt(rs, i, 1):
-			marker(string(r))
-			st.italic = !st.italic
-		default:
-			run = append(run, r)
-		}
-	}
-	flush()
 	return out
 }
 
-// class is the style text is drawn in with these spans open.
-func (st markdownState) class() string {
-	if st.code {
+// spansClass is the style text is drawn in with these spans open.
+func spansClass(st present.Spans) string {
+	if st.Code {
 		return "code"
 	}
 	var classes []string
-	if st.bold {
+	if st.Bold {
 		classes = append(classes, "bold")
 	}
-	if st.italic {
+	if st.Italic {
 		classes = append(classes, "italic")
 	}
 	return strings.Join(classes, " ")
-}
-
-// delimiterAt reports whether a run of n emphasis characters at i opens or
-// closes a span: a * always may, an _ only at the edge of a word.
-func delimiterAt(rs []rune, i, n int) bool {
-	if rs[i] == '*' {
-		return true
-	}
-	before := i == 0 || !isWordRune(rs[i-1])
-	after := i+n >= len(rs) || !isWordRune(rs[i+n])
-	return before || after
-}
-
-func isWordRune(r rune) bool {
-	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }

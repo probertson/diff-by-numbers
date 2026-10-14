@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
 // reportingModel is review a1 open on a screen, recording each screen it
@@ -12,8 +13,8 @@ import (
 func reportingModel(on mode) (model, *[]string) {
 	m, _ := openingModel(on, stepView())
 	reported := &[]string{}
-	m.screenReport = func(reviewID, screen string) {
-		*reported = append(*reported, reviewID+":"+screen)
+	m.screenReport = func(reviewID string, screen daemon.Screen) {
+		*reported = append(*reported, reviewID+":"+string(screen))
 	}
 	return m, reported
 }

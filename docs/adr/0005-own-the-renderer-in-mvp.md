@@ -124,3 +124,28 @@ The line falls between structure and styling.
   the constraint above protects: dbn still knows precisely what sits on every row, because the
   rows and the blocks they belong to came from the daemon. A styling rule the TUI gets wrong
   draws a word in the wrong style; it cannot move, hide or misattribute a line.
+
+## Amendment (#184): the Browser Renderer may render Documents to HTML
+
+The Browser Renderer (#184) is a page in the Reviewer's browser that draws the Step they are on
+in the TUI, so that wide tables, images and typography can be read properly. It renders a
+Document's new and unchanged blocks to HTML with goldmark's own renderer: the first time dbn
+lets a borrowed renderer draw. The constraint above still holds, because the page only draws.
+Nothing on it can be selected, commented on or acknowledged, so dbn never has to map a piece of
+its output back to a source line.
+
+- **Anchors still come only from the TUI's rows.** Every Comment, Anchor and question is still
+  made in the TUI, from the rows dbn drew there. The TUI tells dbn where its cursor is (a block,
+  or a line of code) so the page can brighten it, but that report changes nothing in the review.
+- **The block mapping is kept with data attributes.** The element that starts each block carries
+  the block's number and its place on the page (`data-block`, `data-place`), set from the source
+  positions goldmark parsed, against the blocks the review package decided (#166). The page marks
+  a block new, edited, removed, commented on or under the cursor by those attributes, never by
+  reading its own HTML. An edited block is not rendered: it is drawn as track changes from the
+  review package's word runs, as the TUI draws it. The inline styling both surfaces read from a
+  block's text (emphasis, code spans, escapes, pipes) is shared code, so the two agree.
+- **Nothing in a Document runs or loads anything.** Raw HTML is shown as text. An image is drawn
+  only from dbn, and only from inside the Document's repository; a remote one is never fetched.
+  dbn serves a file as an image only if its extension names an image type, and sandboxed, so a
+  Document cannot have dbn serve a page, or an SVG carrying a script, that runs in dbn's origin.
+  The page allows no script or style but its own.

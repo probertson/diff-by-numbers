@@ -67,6 +67,59 @@ func TestACursorReportOnABlockEmitsAnEventAndMarksTheBlock(t *testing.T) {
 	}
 }
 
+// A cursor event carries where the cursor moved to, which the page brightens
+// without fetching anything: the cursor as reported, and the place it is at,
+// which the block's element carries.
+func TestACursorEventCarriesWhereTheCursorIs(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	t.Cleanup(server.Close)
+	reviewID := onANewDocument(t, server.URL, "# Retry policy\n\n"+
+		"Retries are capped at three.\n\n"+
+		"Each waits twice as long.\n")
+	events := follow(t, server.URL, reviewID)
+
+	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Block: 2})
+
+	event := nextEventWithData(events)
+	var got struct {
+		daemon.CursorWire
+		Place string `json:"place"`
+	}
+	if err := json.Unmarshal([]byte(event.data), &got); err != nil || event.name != "cursor" {
+		t.Fatalf("expected a cursor event carrying the cursor, got %+v (%v)", event, err)
+	}
+	if want := (daemon.CursorWire{Step: 1, Excerpt: 0, Block: 2}); got.CursorWire != want {
+		t.Errorf("expected the event to carry the cursor %+v, got %+v", want, got.CursorWire)
+	}
+	if tag := openingTag(stop(t, server.URL, reviewID), `data-place="`+got.Place+`"`); !strings.Contains(tag, `data-block="2"`) {
+		t.Errorf("expected the place %q to be block 2's, got %q", got.Place, tag)
+	}
+}
+
+// A cursor report dbn cannot place is refused, as a screen report is.
+func TestACursorReportNamingNoPlaceIsRefused(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onTheEditedGuard(t, server.URL)
+
+	for _, report := range []string{
+		`not json`,
+		`{"step":1,"excerpt":0}`,
+		`{"step":1,"excerpt":0,"side":"sideways","line":2}`,
+		`{"step":0,"excerpt":-1}`,
+	} {
+		response, err := http.Post(reviewURL(server.URL, reviewID)+"/cursor", "application/json", strings.NewReader(report))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected the cursor report %s refused, got %s", report, response.Status)
+		}
+	}
+}
+
 // onTheEditedGuard posts a Round whose one Step shows a line of code
 // replaced (old line 2 by new line 2), and moves onto it.
 func onTheEditedGuard(t *testing.T, baseURL string) string {

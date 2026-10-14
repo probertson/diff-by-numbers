@@ -89,6 +89,28 @@ func TestAWordStruckAtTheEndOfALineStaysOnItAndTheBlocksOtherRowsReadAsKept(t *t
 	}
 }
 
+func TestAWordStruckBetweenLinesGoesOnTheLaterLineWhenTheEarlierIsOnlyWidenedIn(t *testing.T) {
+	// "badly" was struck between "retried", the end of line 3, and "when", the
+	// start of line 4. The Excerpt names line 4 alone, so line 3 is only
+	// widened in, as context that carries no runs.
+	files := modifying("docs/retries.md",
+		markdown("# Retries", "A request is retried\nbadly when the transport fails."),
+		markdown("# Retries", "A request is retried\nwhen the transport fails."),
+	)
+
+	step := viewingStep(t, files, showingLines("Soften", "docs/retries.md", review.NewSide, 4, 4))
+
+	rows := map[int][]review.WordRun{}
+	for _, line := range step.Excerpts[0].Lines {
+		if line.Side == review.NewSide {
+			rows[line.Number] = line.Runs
+		}
+	}
+	if want := []review.WordRun{struck("badly"), kept("when the transport fails.")}; !slices.Equal(rows[4], want) {
+		t.Errorf("expected the struck word at the start of the row the Excerpt names\n%+v\ngot\n%+v", want, rows[4])
+	}
+}
+
 // documentRounds is a Change Set of Documents a test edits between Rounds. Each
 // Round's snapshot keeps the after-side as it was posted, and a Round is mapped
 // to an earlier one by a line diff of the two, as a snapshot diff would.

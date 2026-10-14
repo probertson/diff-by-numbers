@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 // A Document Excerpt is drawn formatted: each block dbn names is laid out by its
@@ -164,21 +165,8 @@ func plainSpans(word string, _ *inline) []span { return []span{{text: word}} }
 // separated sets struck pieces apart from the text either side with a space,
 // for a line drawn as it stands, where nothing else would.
 func separated(line sourceLine) sourceLine {
-	var out sourceLine
-	for i, p := range line {
-		if p.removed() {
-			if i > 0 && !strings.HasSuffix(line[i-1].text, " ") {
-				out = append(out, piece{text: " ", change: wordsKept})
-			}
-			out = append(out, p)
-			if i+1 < len(line) && !strings.HasPrefix(line[i+1].text, " ") {
-				out = append(out, piece{text: " ", change: wordsKept})
-			}
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
+	return present.Separated(line, piece.removed, func(p piece) string { return p.text },
+		piece{text: " ", change: wordsKept})
 }
 
 // leading takes what pattern matches at the start of a line off it, where the
@@ -216,66 +204,26 @@ func (r docRow) plain() string {
 
 // inline is which inline spans are open, carried from word to word through a
 // block.
-type inline struct{ bold, italic, code bool }
+type inline = present.Spans
 
 // inlineSpans splits one word of Markdown into its markers and the text between
-// them, opening and closing spans as it goes. Inside a code span nothing but
-// the closing backtick is a marker. An underscore inside a word (snake_case)
-// opens nothing, as in CommonMark.
+// them, opening and closing spans as it goes (present.Inline). An escape's
+// backslash is left out, and the character it escapes read as text.
 func inlineSpans(word string, st *inline) []span {
 	var out []span
-	var run []rune
-	flush := func() {
-		if len(run) > 0 {
-			out = append(out, span{text: string(run), bold: st.bold, italic: st.italic, code: st.code})
-			run = nil
-		}
-	}
-	// toggle draws a marker, closing the text before it in the spans that were
-	// open, then opens or closes the span it marks.
-	toggle := func(text string, open *bool) {
-		flush()
-		out = append(out, span{text: text, marker: true})
-		*open = !*open
-	}
-	rs := []rune(word)
-	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		pair := i+1 < len(rs) && rs[i+1] == r
+	for _, token := range present.Inline(word, st, false) {
 		switch {
-		case r == '`':
-			toggle("`", &st.code)
-		case st.code:
-			run = append(run, r)
-		case r == '\\' && i+1 < len(rs):
-			run = append(run, rs[i+1])
-			i++
-		case (r == '*' || r == '_') && pair && delimiterAt(rs, i, 2):
-			toggle(string([]rune{r, r}), &st.bold)
-			i++
-		case (r == '*' || r == '_') && delimiterAt(rs, i, 1):
-			toggle(string(r), &st.italic)
+		case token.Kind == present.TokenEscape:
+		case token.Kind == present.TokenMarker:
+			out = append(out, span{text: token.Text, marker: true})
+		case len(out) > 0 && !out[len(out)-1].marker:
+			// Only an escape stood between this text and the text before it.
+			out[len(out)-1].text += token.Text
 		default:
-			run = append(run, r)
+			out = append(out, span{text: token.Text, bold: token.Spans.Bold, italic: token.Spans.Italic, code: token.Spans.Code})
 		}
 	}
-	flush()
 	return out
-}
-
-// delimiterAt reports whether a run of n emphasis characters at i opens or
-// closes a span: a `*` always may, an `_` only at the edge of a word.
-func delimiterAt(rs []rune, i, n int) bool {
-	if rs[i] == '*' {
-		return true
-	}
-	before := i == 0 || !isWordRune(rs[i-1])
-	after := i+n >= len(rs) || !isWordRune(rs[i+n])
-	return before || after
-}
-
-func isWordRune(r rune) bool {
-	return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r > 127
 }
 
 // fill lays words, each already split into spans, into rows no wider than

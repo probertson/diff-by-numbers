@@ -42,7 +42,8 @@ func openInBrowser(url string) error {
 }
 
 // pageURL is where the page for the review this window has open is served, or
-// false at the Inbox, where no review is open.
+// false at the Inbox, where no review is open. Like every report to dbn about
+// the page, it names the review the window's client is on.
 func (m model) pageURL() (string, bool) {
 	if m.client.review == "" {
 		return "", false
@@ -77,7 +78,7 @@ func (m model) openPage() model {
 // the review it has open: the conclusion screen, or anything reached from it,
 // which dbn holds no stop for since it stays on the last Step; or any other,
 // which the page draws from where dbn holds the Reviewer.
-func (m model) screen() string {
+func (m model) screen() daemon.Screen {
 	if m.pastTheLastStep() {
 		return daemon.ScreenConclusion
 	}
@@ -92,25 +93,37 @@ func (m model) reportScreenChange(was model) {
 	if m.screenReport == nil {
 		return
 	}
-	if was.openReview == m.openReview {
-		if m.openReview != "" && was.screen() != m.screen() {
-			m.screenReport(m.openReview, m.screen())
+	before, now := was.client.review, m.client.review
+	if before == now {
+		if now != "" && was.screen() != m.screen() {
+			m.screenReport(now, m.screen())
 		}
 		return
 	}
-	if was.openReview != "" {
-		m.screenReport(was.openReview, daemon.ScreenInbox)
+	if before != "" {
+		m.screenReport(before, daemon.ScreenInbox)
 	}
-	if m.openReview != "" {
-		m.screenReport(m.openReview, m.screen())
+	if now != "" {
+		m.screenReport(now, m.screen())
 	}
 }
 
 // reportScreen tells dbn which screen the window shows for a review. Like an
 // intent, a failure is left for the next poll to surface.
-func (c client) reportScreen(reviewID, screen string) {
-	body, _ := json.Marshal(daemon.ScreenWire{Screen: screen})
-	response, err := http.Post(c.on(reviewID).url("/screen"), "application/json", bytes.NewReader(body))
+func (c client) reportScreen(reviewID string, screen daemon.Screen) {
+	c.on(reviewID).report("/screen", daemon.ScreenWire{Screen: screen})
+}
+
+// reportCursor tells dbn where the cursor is on a review, for the review's page
+// to follow. Like an intent, a failure is left for the next poll to surface.
+func (c client) reportCursor(reviewID string, at daemon.CursorWire) {
+	c.on(reviewID).report("/cursor", at)
+}
+
+// report posts a report about the page to dbn, fire and forget.
+func (c client) report(path string, report any) {
+	body, _ := json.Marshal(report)
+	response, err := http.Post(c.url(path), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return
 	}
@@ -169,9 +182,12 @@ func (m model) cursorAt() (cursorPlace, bool) {
 // reportCursorMove tells dbn where the cursor is, for the review's page to
 // follow, when it is somewhere other than before.
 func (m model) reportCursorMove(before cursorPlace) {
+	if m.cursorReport == nil {
+		return
+	}
 	at, ok := m.cursorAt()
 	if !ok || at == before {
 		return
 	}
-	m.client.reportCursor(at.cursor)
+	m.cursorReport(at.review, at.cursor)
 }

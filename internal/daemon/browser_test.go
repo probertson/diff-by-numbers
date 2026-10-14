@@ -3,6 +3,8 @@ package daemon_test
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"html"
 	"io"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +202,27 @@ func TestANewDocumentIsRenderedWithRealHeadingsEmphasisAndTables(t *testing.T) {
 	}
 }
 
+// The page's policy allows no inline style but its own (see
+// TestThePageAllowsOnlyItsOwnScriptAndStyle), so a column's alignment is
+// drawn without one.
+func TestAnAlignedTableColumnKeepsItsAlignmentWithoutAnInlineStyle(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "# Retry policy\n\n"+
+		"| Attempt | Delay |\n"+
+		"| ------- | ----: |\n"+
+		"| 1       | 1s    |\n")
+
+	out := stop(t, server.URL, reviewID)
+
+	if !strings.Contains(out, `<td align="right">1s</td>`) {
+		t.Errorf("expected the right-aligned column drawn right-aligned, got:\n%s", out)
+	}
+	if strings.Contains(out, "style=") {
+		t.Errorf("expected no inline style, which the page's policy would refuse, got:\n%s", out)
+	}
+}
+
 func TestRawHTMLInADocumentComesOutEscaped(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
@@ -220,9 +244,13 @@ func TestRawHTMLInADocumentComesOutEscaped(t *testing.T) {
 	}
 }
 
+// streamEvent is an event on a review's change stream: its name, and the data
+// the page reads from it.
+type streamEvent struct{ name, data string }
+
 // follow opens a review's change stream as the page does, and returns the
-// names of the events it sends.
-func follow(t *testing.T, baseURL, reviewID string) <-chan string {
+// events it sends.
+func follow(t *testing.T, baseURL, reviewID string) <-chan streamEvent {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -237,26 +265,42 @@ func follow(t *testing.T, baseURL, reviewID string) <-chan string {
 	if kind := response.Header.Get("Content-Type"); !strings.HasPrefix(kind, "text/event-stream") {
 		t.Fatalf("expected an event stream, got %q", kind)
 	}
-	events := make(chan string, 16)
+	events := make(chan streamEvent, 16)
 	go func() {
 		defer response.Body.Close()
 		lines := bufio.NewScanner(response.Body)
+		var event streamEvent
 		for lines.Scan() {
-			if name, ok := strings.CutPrefix(lines.Text(), "event: "); ok {
-				events <- name
+			line := lines.Text()
+			if name, ok := strings.CutPrefix(line, "event: "); ok {
+				event.name = name
+			}
+			if data, ok := strings.CutPrefix(line, "data: "); ok {
+				event.data = data
+			}
+			if line == "" && event.name != "" {
+				events <- event
+				event = streamEvent{}
 			}
 		}
 	}()
 	return events
 }
 
-// nextEvent is the stream's next event, or "" if none comes in good time.
-func nextEvent(events <-chan string) string {
+// nextEvent is the name of the stream's next event, or "" if none comes in
+// good time.
+func nextEvent(events <-chan streamEvent) string {
+	return nextEventWithData(events).name
+}
+
+// nextEventWithData is the stream's next event, or none if none comes in good
+// time.
+func nextEventWithData(events <-chan streamEvent) streamEvent {
 	select {
-	case name := <-events:
-		return name
+	case event := <-events:
+		return event
 	case <-time.After(2 * time.Second):
-		return ""
+		return streamEvent{}
 	}
 }
 
@@ -291,6 +335,63 @@ func TestTheChangeStreamEmitsWhenACommentIsRaised(t *testing.T) {
 	if got := nextEvent(events); got != "redraw" {
 		t.Errorf("expected a redraw event after a Comment was raised, got %q", got)
 	}
+}
+
+// Answering a question is one of the Reviewer's changes, every one of which
+// the page is told of.
+func TestTheChangeStreamEmitsWhenAQuestionIsAnswered(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	t.Cleanup(server.Close)
+	posted := postRound(t, server.URL, askingOnStep1(featureRepo(t), "3 or 5?"))
+	events := follow(t, server.URL, posted.ReviewID)
+
+	answer(t, reviewURL(server.URL, posted.ReviewID), 1, "3")
+
+	if got := nextEvent(events); got != "redraw" {
+		t.Errorf("expected a redraw event after a question was answered, got %q", got)
+	}
+}
+
+// The page runs nothing but its own script, styled by nothing but its own
+// style: a Document that slipped markup past the renderer could still not run
+// or load anything.
+func TestThePageAllowsOnlyItsOwnScriptAndStyle(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "# Retry policy\n\nRetries are capped at three.\n")
+	response, err := http.Get(reviewURL(server.URL, reviewID) + "/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+
+	policy := response.Header.Get("Content-Security-Policy")
+
+	for _, want := range []string{"default-src 'none'", "img-src 'self'", "connect-src 'self'",
+		"script-src " + hashOfInline(t, string(body), "script"), "style-src " + hashOfInline(t, string(body), "style")} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("expected the page's policy to have %q, got %q", want, policy)
+		}
+	}
+	if strings.Contains(policy, "unsafe-inline") {
+		t.Errorf("expected no inline script or style allowed but the page's own, got %q", policy)
+	}
+	if got := response.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected the page served nosniff, got %q", got)
+	}
+}
+
+// hashOfInline is how a Content-Security-Policy names the one inline element
+// of kind (script or style) in a page.
+func hashOfInline(t *testing.T, page, kind string) string {
+	t.Helper()
+	found := regexp.MustCompile(`(?s)<` + kind + `>(.*?)</` + kind + `>`).FindStringSubmatch(page)
+	if found == nil {
+		t.Fatalf("expected an inline %s in the page", kind)
+	}
+	sum := sha256.Sum256([]byte(found[1]))
+	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 }
 
 // Each page follows its own review, whichever review the TUI has open.

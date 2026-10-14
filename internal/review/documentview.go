@@ -204,6 +204,15 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		return t.after.blocks[n].shown(NewSide, treatment)
 	}
 
+	// namedLines are the after-side lines the Excerpt names, which carry runs; a
+	// line it is widened by, or does not show, carries none.
+	namedLines := map[int]bool{}
+	for _, row := range lines {
+		if row.Side == NewSide && !row.Widened {
+			namedLines[row.Number] = true
+		}
+	}
+
 	own := make([]bool, len(lines))
 	for i, row := range lines {
 		node := nodeAt(row)
@@ -215,7 +224,7 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 			n := node - len(t.before.blocks)
 			lines[i].Block, lines[i].Path = number(afterBlock(n)), t.after.blocks[n].path
 			if blocks[lines[i].Block-1].Treatment == TreatmentEdited && !row.Widened {
-				lines[i].Runs = t.runs[row.Number]
+				lines[i].Runs = t.runsOn(row.Number, func(n int) bool { return !namedLines[n] })
 			}
 			continue
 		}

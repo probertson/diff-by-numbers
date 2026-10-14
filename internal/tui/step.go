@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/probertson/diff-by-numbers/internal/config"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 // fileLabel names a file for a Step header or manifest. When a Round spans
@@ -274,10 +275,6 @@ func (c *stepCursor) restore(spot codeLine) {
 		}
 	}
 }
-
-// removedSide reports whether a row on this side is a removal: from the
-// merge-base, or from the previous round a Revision Round is compared with.
-func removedSide(side string) bool { return side == "old" || side == "previous" }
 
 // lineSide is the side a rendered row belongs to: its own, since a new-side
 // Excerpt's lines are a unified diff mixing the after-side with the before-side it
@@ -1149,7 +1146,7 @@ func codeRows(cur stepCursor, i int, hasComment bool, width, wrapCap int, wrapAl
 	sign := " "
 	if line.changed {
 		sign = "+"
-		if removedSide(line.side) {
+		if present.RemovedSide(line.side) {
 			sign = "-"
 		}
 	}
@@ -1311,7 +1308,7 @@ func useColours(background config.TerminalBackground, diff config.DiffColours) {
 // changed in it, and the colour of its sign — each decided by the one question
 // of whether the row is a removal.
 func tintsFor(line codeLine) (lipgloss.AdaptiveColor, lipgloss.AdaptiveColor, lipgloss.AdaptiveColor) {
-	if removedSide(line.side) {
+	if present.RemovedSide(line.side) {
 		return delTint, delEmphasis, delColour
 	}
 	return addTint, addEmphasis, addColour

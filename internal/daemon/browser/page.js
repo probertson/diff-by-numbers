@@ -1,12 +1,19 @@
-// Follow the Reviewer: on each event from the review's change stream, fetch
+// Follow the Reviewer: on each redraw from the review's change stream, fetch
 // the stop they are at and swap it in. Moving to another stop starts it at the
-// top; a redraw of the same one keeps the scroll position. On a cursor event,
-// fetch where the TUI's cursor is and brighten it, dimming the rest, without
-// swapping the stop.
+// top; a redraw of the same one keeps the scroll position. A cursor event
+// names the place the TUI's cursor is at: brighten what is there, dim the
+// rest, and fetch nothing. dbn decides which elements are at a place, and
+// marks the cursor's itself when it draws a stop.
 (function () {
   var body = document.body;
   var main = document.getElementById("stop");
   var connection = document.getElementById("connection");
+  var cursor = { place: "" }; // the last cursor event's
+  var moves = 0; // cursor events so far
+
+  function all(selector) {
+    return Array.prototype.slice.call(main.querySelectorAll(selector));
+  }
 
   function keyOf(root) {
     var stop = root.querySelector(".stop");
@@ -16,23 +23,6 @@
   function say(text) {
     connection.textContent = text;
     connection.hidden = text === "";
-  }
-
-  // cursorTargets are the elements the cursor is on in the stop drawn now:
-  // every element of its block (a rendered block, or the source rows of one),
-  // or its line of code. None when it is on another stop or nothing drawn.
-  function cursorTargets(cursor) {
-    if (!cursor || cursor.excerpt < 0 || keyOf(main) !== "step-" + cursor.step) {
-      return [];
-    }
-    var excerpt = main.querySelector('.excerpt[data-excerpt="' + cursor.excerpt + '"]');
-    if (!excerpt) {
-      return [];
-    }
-    var selector = cursor.block > 0
-      ? '[data-block="' + cursor.block + '"]'
-      : '.row[data-side="' + cursor.side + '"][data-line="' + cursor.line + '"]';
-    return Array.prototype.slice.call(excerpt.querySelectorAll(selector));
   }
 
   // reveal scrolls the cursor's elements into view when any of them is off
@@ -53,16 +43,17 @@
     window.scrollBy(0, by);
   }
 
-  // showCursor brightens where the cursor is and dims the rest.
-  function showCursor(cursor) {
+  // showCursor brightens what is at a place and dims the rest. A place on
+  // another stop, or none, is at nothing drawn.
+  function showCursor(place) {
     var stop = main.querySelector(".stop");
     if (!stop) {
       return;
     }
-    Array.prototype.forEach.call(main.querySelectorAll(".cursor"), function (el) {
+    all(".cursor").forEach(function (el) {
       el.classList.remove("cursor");
     });
-    var targets = cursorTargets(cursor);
+    var targets = place ? all('[data-place~="' + place + '"]') : [];
     targets.forEach(function (el) {
       el.classList.add("cursor");
     });
@@ -70,22 +61,8 @@
     reveal(targets);
   }
 
-  function followCursor() {
-    fetch(body.getAttribute("data-cursor-url"), { cache: "no-store" })
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("dbn answered " + response.status + ".");
-        }
-        return response.json();
-      })
-      .then(showCursor)
-      .catch(function () {
-        // The next redraw says what went wrong; a lost cursor leaves the
-        // highlight where it was.
-      });
-  }
-
   function redraw() {
+    var seen = moves;
     fetch(body.getAttribute("data-stop-url"), { cache: "no-store" })
       .then(function (response) {
         if (response.status === 404) {
@@ -103,9 +80,13 @@
           window.scrollTo(0, 0);
         }
         say("");
-        // The stop was drawn with the cursor as it was then, which a move
-        // reported while it was on its way may have overtaken.
-        followCursor();
+        // The stop was drawn with the cursor marked as it was then, which a
+        // move reported while it was on its way may have overtaken.
+        if (moves !== seen) {
+          showCursor(cursor.place);
+        } else {
+          reveal(all(".cursor"));
+        }
       })
       .catch(function (error) {
         say(error.message);
@@ -114,7 +95,11 @@
 
   var events = new EventSource(body.getAttribute("data-events-url"));
   events.addEventListener("redraw", redraw);
-  events.addEventListener("cursor", followCursor);
+  events.addEventListener("cursor", function (event) {
+    cursor = JSON.parse(event.data);
+    moves++;
+    showCursor(cursor.place);
+  });
   // Opening again after losing dbn may have missed moves, so read what is
   // current.
   events.addEventListener("open", redraw);

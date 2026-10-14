@@ -4,8 +4,10 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"slices"
 	"strings"
 
+	"github.com/probertson/diff-by-numbers/internal/present"
 	"github.com/probertson/diff-by-numbers/internal/review"
 )
 
@@ -37,7 +39,6 @@ type pageData struct {
 	Title     string
 	StopURL   string
 	EventsURL string
-	CursorURL string
 	Style     template.CSS
 	Script    template.JS
 	Stop      stopData
@@ -54,6 +55,54 @@ type stopData struct {
 	// Following is the TUI's cursor being on something this stop draws, which
 	// it brightens and dims the rest around (#187).
 	Following bool
+}
+
+// pageContext is what a page is drawn with beside the view: where its
+// Documents' images are found, the screen the TUI last reported showing, and
+// where the TUI last said its cursor is (nil before it has said).
+type pageContext struct {
+	images documentImages
+	screen Screen
+	cursor *CursorWire
+}
+
+// excerptContext is what one Excerpt is drawn with: where its Document's
+// images are found, its Step and its index among the Step's own Excerpts,
+// which name the places on it (placeOfBlock, placeOfLine), and the place the
+// TUI's cursor is at, which its rows there are marked as.
+type excerptContext struct {
+	images      documentImagesAt
+	step, index int
+	cursor      string
+}
+
+func (ctx pageContext) excerpt(step, index int, excerpt ExcerptWire) excerptContext {
+	x := excerptContext{images: ctx.images.at(excerpt.Repository, excerpt.File), step: step, index: index}
+	if ctx.cursor != nil {
+		x.cursor = ctx.cursor.place()
+	}
+	return x
+}
+
+// blockPlace is the place of one of the Excerpt's blocks.
+func (x excerptContext) blockPlace(block int) string { return placeOfBlock(x.step, x.index, block) }
+
+// rowPlaces are the places a row of the Excerpt is at: its block, if it is in
+// one, and its own line. A signpost is at none.
+func (x excerptContext) rowPlaces(line LineWire, excerpt ExcerptWire) []string {
+	if line.Signpost {
+		return nil
+	}
+	var places []string
+	if line.Block > 0 {
+		places = append(places, x.blockPlace(line.Block))
+	}
+	return append(places, placeOfLine(x.step, x.index, sideOf(line, excerpt), line.Number))
+}
+
+// onCursor reports whether the TUI's cursor is at any of places.
+func (x excerptContext) onCursor(places ...string) bool {
+	return x.cursor != "" && slices.Contains(places, x.cursor)
 }
 
 // introData is a Chapter's intro, as the TUI draws it: the Chapter's number and
@@ -120,6 +169,8 @@ type excerptData struct {
 	Problem       string
 	ChangedOnDisk bool
 	Pieces        []pieceData
+	// following is the TUI's cursor being on a row drawn of the Excerpt.
+	following bool
 }
 
 type pieceData struct {
@@ -129,12 +180,13 @@ type pieceData struct {
 }
 
 // rowData is one row in the source view's style: a sign, a line number, and
-// the text, with what the edit changed coloured. Side, Number and Block are
-// how the TUI's cursor names the row: by its line, or by the block it is in.
+// the text, with what the edit changed coloured. Places are the places the
+// TUI's cursor finds it at: its line, and the block it is in.
 type rowData struct {
 	Number    int
 	Side      string
 	Block     int
+	Places    string
 	Sign      string
 	Class     string
 	Parts     []partData
@@ -147,10 +199,9 @@ type partData struct {
 	Changed bool
 }
 
-// newPageData lays out a review's page from the view the TUI is sent and the
-// screen it last reported showing. cursor is where the TUI last said its
-// cursor is, or nil.
-func newPageData(label string, view ViewWire, images documentImages, screen string, cursor *CursorWire) pageData {
+// newPageData lays out a review's page from the view the TUI is sent and what
+// it last reported.
+func newPageData(label string, view ViewWire, ctx pageContext) pageData {
 	base := PagePath(view.ReviewID)
 	title := "dbn"
 	if label != "" {
@@ -160,29 +211,25 @@ func newPageData(label string, view ViewWire, images documentImages, screen stri
 		Title:     title,
 		StopURL:   base + "/stop",
 		EventsURL: base + "/events",
-		CursorURL: base + "/cursor",
 		Style:     pageStyle,
 		Script:    pageScript,
-		Stop:      newStopData(view, images, screen, cursor),
+		Stop:      newStopData(view, ctx),
 	}
 }
 
 // newStopData is the stop the Reviewer is at: a Step or a Chapter's intro, or
-// a notice of where they are for anywhere else. The TUI's cursor is drawn only
-// on the Step it was reported on.
-func newStopData(view ViewWire, images documentImages, screen string, cursor *CursorWire) stopData {
-	switch screen {
+// a notice of where they are for anywhere else.
+func newStopData(view ViewWire, ctx pageContext) stopData {
+	switch ctx.screen {
 	case ScreenConclusion:
 		return stopData{Key: "conclusion", Notice: "At the end of the review. This page shows each Step as you reach it."}
 	case ScreenInbox:
 		return stopData{Key: "inbox", Notice: "At the Inbox. This page shows this review again when you open it."}
 	}
 	if view.Step != nil {
-		if cursor != nil && cursor.Step != view.Position {
-			cursor = nil
-		}
-		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view, images, cursor),
-			Following: cursor != nil && cursor.Excerpt >= 0}
+		step := newStepData(view, ctx)
+		following := slices.ContainsFunc(step.Excerpts, func(e excerptData) bool { return e.following })
+		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: step, Following: following}
 	}
 	if chapter, ok := chapterOf(view, view.ChapterIntro); ok {
 		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro), Intro: newIntroData(view, chapter)}
@@ -193,7 +240,7 @@ func newStopData(view ViewWire, images documentImages, screen string, cursor *Cu
 func newIntroData(view ViewWire, chapter ChapterWire) *introData {
 	data := &introData{
 		Heading: chapterHeading(chapter),
-		Range:   fmt.Sprintf("%s of %d", stepRange(chapter), view.StepCount),
+		Range:   fmt.Sprintf("%s of %d", present.StepRange(chapter.FirstStep, chapter.LastStep), view.StepCount),
 		Intro:   chapter.Intro,
 	}
 	for step := chapter.FirstStep; step <= chapter.LastStep && step <= len(view.StepNames); step++ {
@@ -202,16 +249,7 @@ func newIntroData(view ViewWire, chapter ChapterWire) *introData {
 	return data
 }
 
-// stepRange names the Steps a Chapter holds, e.g. "Steps 12–16", or "Step 3"
-// for a Chapter of one, as the TUI does.
-func stepRange(chapter ChapterWire) string {
-	if chapter.FirstStep == chapter.LastStep {
-		return fmt.Sprintf("Step %d", chapter.FirstStep)
-	}
-	return fmt.Sprintf("Steps %d–%d", chapter.FirstStep, chapter.LastStep)
-}
-
-func newStepData(view ViewWire, images documentImages, cursor *CursorWire) *stepData {
+func newStepData(view ViewWire, ctx pageContext) *stepData {
 	step := view.Step
 	data := &stepData{
 		Number:      step.Number,
@@ -242,7 +280,7 @@ func newStepData(view ViewWire, images documentImages, cursor *CursorWire) *step
 
 	placed := map[int]bool{}
 	for ei, excerpt := range step.Excerpts {
-		data.Excerpts = append(data.Excerpts, newExcerptData(ei, excerpt, own, placed, images, cursor.in(ei)))
+		data.Excerpts = append(data.Excerpts, newExcerptData(excerpt, own, placed, ctx.excerpt(view.Position, ei, excerpt)))
 	}
 	for _, comment := range own {
 		if !placed[comment.ID] {
@@ -266,10 +304,9 @@ func chapterOf(view ViewWire, n int) (ChapterWire, bool) {
 	return view.Chapters[n-1], true
 }
 
-// chapterHeading names a Chapter by number and name, e.g. "3 · EL-7 Pack
-// holds", as the TUI does.
+// chapterHeading names a Chapter by number and name, as the TUI does.
 func chapterHeading(chapter ChapterWire) string {
-	return fmt.Sprintf("%d · %s", chapter.Number, chapter.Name)
+	return present.ChapterHeading(chapter.Number, chapter.Name)
 }
 
 func toCommentData(comment CommentWire) commentData {
@@ -278,10 +315,10 @@ func toCommentData(comment CommentWire) commentData {
 
 // newExcerptData lays an Excerpt out as pieces and puts each Comment's note
 // after the piece holding the last row it covers, marking placed the Comments
-// it found a row for. cursor is the TUI's cursor if it is in this Excerpt.
-func newExcerptData(index int, excerpt ExcerptWire, comments []CommentWire, placed map[int]bool, images documentImages, cursor *CursorWire) excerptData {
+// it found a row for.
+func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool, x excerptContext) excerptData {
 	data := excerptData{
-		Index:         index,
+		Index:         x.index,
 		Label:         fmt.Sprintf("%s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine),
 		Path:          openingPath(excerpt),
 		Problem:       excerpt.Problem,
@@ -290,7 +327,7 @@ func newExcerptData(index int, excerpt ExcerptWire, comments []CommentWire, plac
 	if excerpt.Problem != "" {
 		return data
 	}
-	pieces, pieceOfRow := layoutExcerpt(excerpt, comments, images, cursor)
+	pieces, pieceOfRow, following := layoutExcerpt(excerpt, comments, x)
 	last := map[int]int{}
 	for i, line := range excerpt.Lines {
 		for _, comment := range comments {
@@ -305,7 +342,7 @@ func newExcerptData(index int, excerpt ExcerptWire, comments []CommentWire, plac
 			placed[comment.ID] = true
 		}
 	}
-	data.Pieces = pieces
+	data.Pieces, data.following = pieces, following
 	return data
 }
 
@@ -333,13 +370,19 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 }
 
 // layoutExcerpt cuts an Excerpt's rows into pieces, returning the piece each
-// row went into. Code is all source rows. In a Document, each stretch of new
+// row went into, and whether it drew a row the TUI's cursor is on. Code is all source rows. In a Document, each stretch of new
 // and unchanged blocks is rendered, with each edited or removed block in it
 // drawn as track changes; a row in no block is drawn as source.
 //
-// The rows cursor is on, when it is in this Excerpt, are marked as its.
-func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentImages, cursor *CursorWire) ([]pieceData, []int) {
+// The rows at the place the TUI's cursor is at are marked as its.
+func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext) ([]pieceData, []int, bool) {
 	pieceOfRow := make([]int, len(excerpt.Lines))
+	following := false
+	// drawn notes whether a row drawn is the cursor's.
+	drawn := func(cursor bool) bool {
+		following = following || cursor
+		return cursor
+	}
 	commentedBlocks := map[int]bool{}
 	for _, line := range excerpt.Lines {
 		for _, comment := range comments {
@@ -358,7 +401,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 		case len(stretch) > 0 && excerpt.Plain:
 			pieces = append(pieces, pieceData{HTML: renderPlain(stretch)})
 		case len(stretch) > 0:
-			pieces = append(pieces, pieceData{HTML: renderDocument(stretch, images.at(excerpt.Repository, excerpt.File))})
+			pieces = append(pieces, pieceData{HTML: renderDocument(stretch, x.images)})
 		case len(rows) > 0:
 			pieces = append(pieces, pieceData{Rows: rows})
 		default:
@@ -377,8 +420,8 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 			}
 			stretch = append(stretch, documentRow{
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
-				cursor: cursor.on(line, excerpt), treatment: excerpt.Blocks[line.Block-1].Treatment,
-				widened: line.Widened,
+				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
+				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
@@ -389,7 +432,9 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 				if len(rows) > 0 {
 					flush()
 				}
-				stretch = append(stretch, trackedRow(line, block, commentedBlocks[line.Block], cursor.on(line, excerpt)))
+				row := trackedRow(line, block, commentedBlocks[line.Block])
+				row.place, row.cursor = x.blockPlace(line.Block), drawn(x.onCursor(x.blockPlace(line.Block)))
+				stretch = append(stretch, row)
 			}
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
 			// A blank line between blocks belongs to the stretch it sits in,
@@ -398,20 +443,22 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 			case len(stretch) > 0 && !excerpt.Plain:
 				stretch = append(stretch, documentRow{text: line.Text})
 			case len(rows) > 0:
-				rows = append(rows, sourceRow(line, excerpt, comments))
+				row := sourceRow(line, excerpt, comments, x)
+				drawn(row.Cursor)
+				rows = append(rows, row)
 			}
 		default:
 			if len(stretch) > 0 {
 				flush()
 			}
-			row := sourceRow(line, excerpt, comments)
-			row.Cursor = cursor.on(line, excerpt)
+			row := sourceRow(line, excerpt, comments, x)
+			drawn(row.Cursor)
 			rows = append(rows, row)
 		}
 		pending = append(pending, i)
 	}
 	flush()
-	return pieces, pieceOfRow
+	return pieces, pieceOfRow, following
 }
 
 // edited reports whether a row of a Document Excerpt is in a block an edit
@@ -445,14 +492,16 @@ func rendered(line LineWire, excerpt ExcerptWire) bool {
 // side the Document is read on (a new file's blank lines are added ones).
 func blankBetweenBlocks(line LineWire, excerpt ExcerptWire) bool {
 	return line.Block == 0 && !line.Signpost && strings.TrimSpace(line.Text) == "" &&
-		!(line.Changed && removedSide(sideOf(line, excerpt)))
+		!(line.Changed && present.RemovedSide(sideOf(line, excerpt)))
 }
 
 // sourceRow draws a row as the TUI's source view does: a sign and colour for a
 // changed row, with only the text the edit changed coloured where dbn says
 // which, and never struck through.
-func sourceRow(line LineWire, excerpt ExcerptWire, comments []CommentWire) rowData {
-	row := rowData{Number: line.Number, Side: sideOf(line, excerpt), Block: line.Block, Sign: " ", Class: "context"}
+func sourceRow(line LineWire, excerpt ExcerptWire, comments []CommentWire, x excerptContext) rowData {
+	places := x.rowPlaces(line, excerpt)
+	row := rowData{Number: line.Number, Side: sideOf(line, excerpt), Block: line.Block, Sign: " ", Class: "context",
+		Places: strings.Join(places, " "), Cursor: x.onCursor(places...)}
 	for _, comment := range comments {
 		if covers(comment, excerpt, line) {
 			row.Commented = true
@@ -461,7 +510,7 @@ func sourceRow(line LineWire, excerpt ExcerptWire, comments []CommentWire) rowDa
 	switch {
 	case line.Signpost:
 		row.Class, row.Number = "signpost", 0
-	case line.Changed && removedSide(sideOf(line, excerpt)):
+	case line.Changed && present.RemovedSide(sideOf(line, excerpt)):
 		row.Sign, row.Class = "-", "removed"
 	case line.Changed:
 		row.Sign, row.Class = "+", "added"
@@ -471,8 +520,6 @@ func sourceRow(line LineWire, excerpt ExcerptWire, comments []CommentWire) rowDa
 	row.Parts = parts(line.Text, line.Changed && !line.Signpost, line.Emphasis)
 	return row
 }
-
-func removedSide(side string) bool { return side == "old" || side == "previous" }
 
 // parts cuts a row's text by its emphasis (rune ranges). A changed row with no
 // emphasis is changed throughout.
