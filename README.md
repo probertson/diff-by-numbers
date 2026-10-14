@@ -2,7 +2,13 @@
 
 Agent-driven diff review with paint-by-numbers simplicity.
 
-(Screenshot to be placed here =)
+**Reviewing code:**
+
+![An agent walking the Reviewer through its code changes, Step by Step, in dbn](docs/images/code-review.gif)
+
+**Reviewing a spec:**
+
+![An agent walking the Reviewer through a spec document in dbn](docs/images/spec-review.gif)
 
 ## Contents
 
