@@ -187,9 +187,12 @@ h2 { font-size: 1rem; }
 /* A Mermaid diagram: its source until it is drawn, then the drawing, shrunk
    to fit the page and scrolling sideways past where its text stays legible
    (page.js sets that width). A diagram Mermaid cannot draw shows why, above
-   its source. The diagram may use the page's whole width, beyond the prose. */
+   its source. The diagram may use the page's whole width, beyond the prose.
+   Padded, so the cursor's highlight frames the drawing and a Comment's bar
+   stands clear of it. */
 .document figure.diagram {
   margin: 1rem 0;
+  padding: 0.5rem;
   width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
 }
 .document .diagram.drawn .diagram-source { display: none; }
