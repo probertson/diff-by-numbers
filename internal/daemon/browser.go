@@ -21,6 +21,8 @@ import (
 //     page's script swaps in
 //   - /reviews/{review}/page/events  the review's change stream (server-sent
 //     events)
+//   - /reviews/{review}/page/image/{file}?repository={root}  an image a
+//     Document refers to (browserimage.go)
 
 // PagePath is where a review's page is served, under the daemon's base URL. The
 // TUI opens and shows it; the daemon serves it.
@@ -87,6 +89,7 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 		d.servePage(w, "stop", d.pageOf(session).Stop)
 	}))
 	mux.HandleFunc("GET /reviews/{review}/page/events", d.onReview(d.serveEvents))
+	mux.HandleFunc("GET /reviews/{review}/page/image/{file...}", d.onReview(d.serveImage))
 }
 
 // pageOf reads what a review's page draws, under the lock, from the view the
@@ -94,12 +97,14 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 func (d *Daemon) pageOf(session *review.Session) pageData {
 	var view ViewWire
 	label := ""
+	images := documentImages{reviewID: session.ReviewID()}
 	_ = d.locked(func() error {
 		view = toViewWire(session.View())
 		label = session.Label()
+		images.files = session.RoundFiles()
 		return nil
 	})
-	return newPageData(label, view)
+	return newPageData(label, view, images)
 }
 
 // servePage renders one of the page's templates. It renders into a buffer

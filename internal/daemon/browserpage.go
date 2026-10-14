@@ -115,7 +115,7 @@ type partData struct {
 }
 
 // newPageData lays out a review's page from the view the TUI is sent.
-func newPageData(label string, view ViewWire) pageData {
+func newPageData(label string, view ViewWire, images documentImages) pageData {
 	base := PagePath(view.ReviewID)
 	title := "dbn"
 	if label != "" {
@@ -127,16 +127,16 @@ func newPageData(label string, view ViewWire) pageData {
 		EventsURL: base + "/events",
 		Style:     pageStyle,
 		Script:    pageScript,
-		Stop:      newStopData(view),
+		Stop:      newStopData(view, images),
 	}
 }
 
 // newStopData is the stop the Reviewer is at. Anywhere but a Step is, for
 // now, a notice that the page is following (#190 draws the rest).
-func newStopData(view ViewWire) stopData {
+func newStopData(view ViewWire, images documentImages) stopData {
 	switch {
 	case view.Step != nil:
-		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view)}
+		return stopData{Key: fmt.Sprintf("step-%d", view.Position), Step: newStepData(view, images)}
 	case view.ChapterIntro > 0:
 		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro),
 			Notice: fmt.Sprintf("On Chapter %d's intro. This page shows each Step as you reach it.", view.ChapterIntro)}
@@ -144,7 +144,7 @@ func newStopData(view ViewWire) stopData {
 	return stopData{Key: "overview", Notice: "On the Overview. This page shows each Step as you reach it."}
 }
 
-func newStepData(view ViewWire) *stepData {
+func newStepData(view ViewWire, images documentImages) *stepData {
 	step := view.Step
 	data := &stepData{
 		Number:      step.Number,
@@ -172,7 +172,7 @@ func newStepData(view ViewWire) *stepData {
 
 	placed := map[int]bool{}
 	for _, excerpt := range step.Excerpts {
-		data.Excerpts = append(data.Excerpts, newExcerptData(excerpt, own, placed))
+		data.Excerpts = append(data.Excerpts, newExcerptData(excerpt, own, placed, images))
 	}
 	for _, comment := range own {
 		if !placed[comment.ID] {
@@ -194,7 +194,7 @@ func toCommentData(comment CommentWire) commentData {
 // newExcerptData lays an Excerpt out as pieces and puts each Comment's note
 // after the piece holding the last row it covers, marking placed the Comments
 // it found a row for.
-func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool) excerptData {
+func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool, images documentImages) excerptData {
 	data := excerptData{
 		Label:         fmt.Sprintf("%s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine),
 		Problem:       excerpt.Problem,
@@ -203,7 +203,7 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 	if excerpt.Problem != "" {
 		return data
 	}
-	pieces, pieceOfRow := layoutExcerpt(excerpt, comments)
+	pieces, pieceOfRow := layoutExcerpt(excerpt, comments, images)
 	last := map[int]int{}
 	for i, line := range excerpt.Lines {
 		for _, comment := range comments {
@@ -239,7 +239,7 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 // and unchanged blocks is rendered; an edited or removed block, and any row in
 // no block, is drawn as source until the page draws edits as the TUI does
 // (#188).
-func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire) ([]pieceData, []int) {
+func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentImages) ([]pieceData, []int) {
 	pieceOfRow := make([]int, len(excerpt.Lines))
 	commentedBlocks := map[int]bool{}
 	for _, line := range excerpt.Lines {
@@ -259,7 +259,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire) ([]pieceData, []
 		case len(stretch) > 0 && excerpt.Plain:
 			pieces = append(pieces, pieceData{HTML: renderPlain(stretch)})
 		case len(stretch) > 0:
-			pieces = append(pieces, pieceData{HTML: renderDocument(stretch)})
+			pieces = append(pieces, pieceData{HTML: renderDocument(stretch, images.at(excerpt.Repository, excerpt.File))})
 		case len(rows) > 0:
 			pieces = append(pieces, pieceData{Rows: rows})
 		default:

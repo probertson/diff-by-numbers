@@ -135,6 +135,7 @@ h2 { font-size: 1rem; }
 .document th { background: var(--panel); }
 .document blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--rule); color: var(--dim); }
 .document .image { color: var(--dim); font-style: italic; }
+.document img { max-width: 100%; height: auto; border: 1px solid var(--rule); }
 .document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
 
 .comment {
