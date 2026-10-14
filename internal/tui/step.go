@@ -82,6 +82,11 @@ type codeLine struct {
 	// path is the heading path the Excerpt's file header names over this row,
 	// as dbn gives it: a block's own, or a line's (#145). Code has none.
 	path []string
+	// diagramHint reports whether this is where a Mermaid diagram begins, so the
+	// row saying its picture is in the browser is drawn above it: a diagram
+	// block's stop, or its first line shown as source, or the first row of an
+	// Excerpt of a diagram file.
+	diagramHint bool
 }
 
 // sameExcerpt reports whether two rows lie in the same Excerpt — a narrated one,
@@ -160,11 +165,15 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire,
 // edit removed outright may sit between the two.
 func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 	var stops []codeLine
-	stopOf := map[int]int{} // by block
+	stopOf := map[int]int{}  // by block
+	hinted := map[int]bool{} // diagram blocks already headed, shown as source
 	for i, line := range excerpt.Lines {
 		if source && len(excerpt.Blocks) > 0 {
 			stop := rowFor(line, excerpt, ack, ei)
 			stop.inBlock = blockNear(excerpt, i)
+			if isDiagramBlock(excerpt, line.Block) && !hinted[line.Block] {
+				hinted[line.Block], stop.diagramHint = true, true
+			}
 			stops = append(stops, stop)
 			continue
 		}
@@ -184,12 +193,17 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 		stopOf[line.Block] = len(stops)
 		stop := rowFor(line, excerpt, ack, ei)
 		stop.block, stop.rows, stop.lastRow = line.Block, []int{i}, last
+		stop.diagramHint = isDiagramBlock(excerpt, line.Block)
 		if line.Block <= len(excerpt.Blocks) {
 			// A block is headed by its own path, though a row an edit replaced
 			// within it sits under the old headings.
 			stop.path = excerpt.Blocks[line.Block-1].Path
 		}
 		stops = append(stops, stop)
+	}
+	// A diagram file is code, so it is headed where each of its Excerpts begins.
+	if excerpt.DiagramFile != nil && len(stops) > 0 {
+		stops[0].diagramHint = true
 	}
 	return stops
 }
@@ -1022,6 +1036,12 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 			fileHeader = dimSt.Render(fileHeaderText(label, headerPath, width))
 		}
 	}
+	// A Mermaid diagram is headed by a row saying its picture is in the browser.
+	hint := func(line codeLine) {
+		if line.diagramHint {
+			decor(diagramHint(width), fileHeader, ackHeader)
+		}
+	}
 	// warned records each expanded file already warned about, per Acknowledgement:
 	// an expansion shows a file as several Excerpts, but one warning says it.
 	type expandedFile struct {
@@ -1084,6 +1104,7 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 		}
 
 		if line.kind.passedOver() {
+			hint(line)
 			note := line.text
 			if line.kind == kindNote {
 				note = expansionNote(cur.excerptOf(step, line))
@@ -1104,12 +1125,14 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 				}
 			}
 			headerOver(line)
+			hint(line)
 			for _, text := range in.blockRows(i, excerpt, blockCommented(excerpt, line, commented), labelWidth) {
 				rows = append(rows, paneRow{text: text, line: i, fileHeader: fileHeader, ackHeader: ackHeader})
 			}
 			continue
 		}
 		headerOver(line)
+		hint(line)
 		hasComment := commented[commentKey(excerpt.Repository, excerpt.File, line.side, line.number)]
 		draw := codeRows
 		if cur.source && len(excerpt.Blocks) > 0 {
