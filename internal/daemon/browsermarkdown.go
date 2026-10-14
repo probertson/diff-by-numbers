@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"html/template"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -400,20 +401,34 @@ func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast
 	if !entering {
 		return ast.WalkContinue, nil
 	}
-	class := "diagram"
-	if classes, ok := node.AttributeString("class"); ok {
-		class += " " + classes.(string)
-	}
-	_, _ = w.WriteString(`<figure class="` + template.HTMLEscapeString(class) + `"`)
-	html.RenderAttributes(w, node, onlyData) // the block's data attributes
-	_, _ = w.WriteString(`><pre class="diagram-source"><code>`)
+	classes, _ := node.AttributeString("class")
+	class, _ := classes.(string)
+	var diagram strings.Builder
 	lines := node.Lines()
 	for i := 0; i < lines.Len(); i++ {
 		line := lines.At(i)
-		_, _ = w.Write(util.EscapeHTML(line.Value(source)))
+		diagram.Write(line.Value(source))
 	}
-	_, _ = w.WriteString("</code></pre></figure>\n")
+	writeDiagram(w, class, func() { html.RenderAttributes(w, node, onlyData) }, diagram.String())
 	return ast.WalkSkipChildren, nil
+}
+
+// writeDiagram writes a diagram container: a figure of class "diagram" and
+// classes, its attributes written by attributes, holding the diagram's source
+// as authored, which the page's script has Mermaid draw (page.js).
+func writeDiagram(w interface {
+	io.Writer
+	io.StringWriter
+}, classes string, attributes func(), source string) {
+	class := "diagram"
+	if classes != "" {
+		class += " " + classes
+	}
+	_, _ = w.WriteString(`<figure class="` + template.HTMLEscapeString(class) + `"`)
+	attributes()
+	_, _ = w.WriteString(`><pre class="diagram-source"><code>`)
+	_, _ = w.Write(util.EscapeHTML([]byte(source)))
+	_, _ = w.WriteString("</code></pre></figure>\n")
 }
 
 // onlyData lets html.RenderAttributes write a node's data attributes alone.

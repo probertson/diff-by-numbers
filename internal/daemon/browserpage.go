@@ -380,6 +380,9 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 //
 // The rows at the place the TUI's cursor is at are marked as its.
 func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext) ([]pieceData, []int, bool) {
+	if drawsDiagramFile(excerpt) {
+		return layoutDiagramFile(excerpt, comments, x)
+	}
 	pieceOfRow := make([]int, len(excerpt.Lines))
 	following := false
 	// drawn notes whether a row drawn is the cursor's.
@@ -464,6 +467,66 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 	}
 	flush()
 	return pieces, pieceOfRow, following
+}
+
+// drawsDiagramFile reports whether an Excerpt of a diagram file is drawn as
+// its diagram: when it shows every line of the file, and the file is new or
+// unchanged there. Part of a diagram file stays code, as part of a fenced
+// diagram does (shownWhole), and an edited or removed one is drawn as its
+// source's edit.
+func drawsDiagramFile(excerpt ExcerptWire) bool {
+	file := excerpt.DiagramFile
+	if file == nil || file.FirstLine < 1 || file.LastLine < file.FirstLine {
+		return false
+	}
+	if file.Treatment != string(review.TreatmentNew) && file.Treatment != string(review.TreatmentContext) {
+		return false
+	}
+	shown := map[int]bool{}
+	for _, line := range excerpt.Lines {
+		if line.Signpost || sideOf(line, excerpt) != file.Side {
+			return false
+		}
+		shown[line.Number] = true
+	}
+	for n := file.FirstLine; n <= file.LastLine; n++ {
+		if !shown[n] {
+			return false
+		}
+	}
+	return true
+}
+
+// layoutDiagramFile lays out an Excerpt showing a whole diagram file as one
+// piece: the diagram container, at the places of every row, as a fenced
+// diagram is at its block's. A Comment on any row is on the diagram, and the
+// TUI's cursor on any row is on it.
+func layoutDiagramFile(excerpt ExcerptWire, comments []CommentWire, x excerptContext) ([]pieceData, []int, bool) {
+	var places, source []string
+	commented := false
+	for _, line := range excerpt.Lines {
+		places = append(places, x.rowPlaces(line, excerpt)...)
+		source = append(source, line.Text+"\n")
+		for _, comment := range comments {
+			commented = commented || covers(comment, excerpt, line)
+		}
+	}
+	cursor := x.onCursor(places...)
+	var classes []string
+	if commented {
+		classes = append(classes, "commented")
+	}
+	if cursor {
+		classes = append(classes, "cursor")
+	}
+	var out strings.Builder
+	writeDiagram(&out, strings.Join(classes, " "), func() {
+		out.WriteString(` data-place="` + template.HTMLEscapeString(strings.Join(places, " ")) + `"`)
+		if treatment := excerpt.DiagramFile.Treatment; treatment != string(review.TreatmentContext) {
+			out.WriteString(` data-treatment="` + template.HTMLEscapeString(treatment) + `"`)
+		}
+	}, strings.Join(source, ""))
+	return []pieceData{{HTML: template.HTML(out.String())}}, make([]int, len(excerpt.Lines)), cursor
 }
 
 // edited reports whether a row of a Document Excerpt is in a block an edit

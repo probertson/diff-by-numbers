@@ -137,6 +137,13 @@ func onANewDocument(t *testing.T, baseURL, document string) string {
 // Document in Excerpts, each its first and last line, and moves onto it.
 func onExcerptsOfANewDocument(t *testing.T, baseURL, document string, excerpts ...[2]int) string {
 	t.Helper()
+	return onExcerptsOfANewFile(t, baseURL, "spec.md", document, excerpts...)
+}
+
+// onExcerptsOfANewFile posts a Round whose one Step shows a new file in
+// Excerpts, each its first and last line, and moves onto it.
+func onExcerptsOfANewFile(t *testing.T, baseURL, file, content string, excerpts ...[2]int) string {
+	t.Helper()
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -152,12 +159,12 @@ func onExcerptsOfANewDocument(t *testing.T, baseURL, document string, excerpts .
 	git("add", ".")
 	git("commit", "-qm", "initial")
 	git("checkout", "-q", "-b", "feature")
-	os.WriteFile(filepath.Join(root, "spec.md"), []byte(document), 0o644)
+	os.WriteFile(filepath.Join(root, file), []byte(content), 0o644)
 	git("add", ".")
 	var shown []any
 	for _, lines := range excerpts {
 		shown = append(shown, map[string]any{
-			"repository": root, "file": "spec.md", "side": "new", "first_line": lines[0], "last_line": lines[1],
+			"repository": root, "file": file, "side": "new", "first_line": lines[0], "last_line": lines[1],
 		})
 	}
 	posted := postRound(t, baseURL, map[string]any{

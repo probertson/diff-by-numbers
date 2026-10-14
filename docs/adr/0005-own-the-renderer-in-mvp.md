@@ -155,8 +155,10 @@ its output back to a source line.
 The Browser Renderer draws a Document's Mermaid diagrams (#191): the second borrowed
 renderer, and the first that runs in the browser. dbn still decides where every block is: the
 review package marks a fence whose info string is `mermaid` as a diagram, and the page holds
-its source in a diagram container carrying the block's attributes, like any other block. dbn
-never parses Mermaid. Mermaid only draws, and nothing it draws can be selected or anchored, so
+its source in a diagram container carrying the block's attributes, like any other block. A
+`.mmd` or `.mermaid` file is a diagram too (#194), though it is code, not a Document: the review
+package marks its Excerpts with the whole file as one diagram block, and the page draws it the
+same way when an Excerpt shows all of it. dbn never parses Mermaid. Mermaid only draws, and nothing it draws can be selected or anchored, so
 the constraint above holds as it does for goldmark's HTML.
 
 Mermaid is embedded in dbn, a pinned release served by the daemon, and the page loads nothing

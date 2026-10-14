@@ -180,3 +180,46 @@ func TestADiagramAnExcerptCutsIntoIsShownAsCode(t *testing.T) {
 		t.Errorf("expected the part shown as source, got:\n%s", out)
 	}
 }
+
+// diagramFile is a Mermaid diagram file's content: Mermaid alone, no fence.
+const diagramFile = "flowchart LR\n" +
+	"  tui --> daemon\n" +
+	"  style daemon fill:#f9f\n"
+
+// A .mmd or .mermaid file is drawn the same way as a diagram in a Document
+// (#194).
+func TestANewDiagramFileIsHeldInADiagramContainerWithItsSource(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onExcerptsOfANewFile(t, server.URL, "flow.mmd", diagramFile, [2]int{1, 3})
+
+	out := stop(t, server.URL, reviewID)
+
+	container := regexp.MustCompile(`(?s)<div class="document"><figure class="diagram"[^>]*>(.*?)</figure>`).FindStringSubmatch(out)
+	if container == nil {
+		t.Fatalf("expected the diagram file in a diagram container, got:\n%s", out)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n  style daemon fill:#f9f\n"; !strings.Contains(container[1], want) {
+		t.Errorf("expected the container to hold the file's source %q as authored, got:\n%s", want, container[1])
+	}
+	if strings.Contains(out, `class="row`) {
+		t.Errorf("expected the diagram file drawn as a diagram, not as source rows, got:\n%s", out)
+	}
+}
+
+// As with a diagram in a Document, part of a diagram file is not the diagram
+// its author drew, so an Excerpt showing part of one shows it as code.
+func TestAnExcerptShowingPartOfADiagramFileShowsItAsCode(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onExcerptsOfANewFile(t, server.URL, "flow.mmd", diagramFile, [2]int{1, 2}, [2]int{3, 3})
+
+	out := stop(t, server.URL, reviewID)
+
+	if strings.Contains(out, `class="diagram`) {
+		t.Errorf("expected no diagram container for part of a diagram file, got:\n%s", out)
+	}
+	if !strings.Contains(out, "tui --&gt; daemon") {
+		t.Errorf("expected the part shown as source, got:\n%s", out)
+	}
+}

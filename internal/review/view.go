@@ -124,6 +124,13 @@ type ExcerptView struct {
 	// made a Document: its blocks are paragraphs split at blank lines, drawn
 	// without Markdown styling.
 	Plain bool
+	// DiagramFile is set on an Excerpt of a diagram file (isDiagramFile): the
+	// whole file as one code block marked as a diagram, on the Excerpt's side,
+	// treated as the change treated what the Excerpt shows. The file is not a
+	// Document, so its rows stay code, in no block; the Browser Renderer draws
+	// the diagram when the Excerpt shows all of it (#194). nil for any other
+	// file.
+	DiagramFile *Block
 }
 
 // AcknowledgedFile is one line of an Acknowledgement's manifest: a file the
@@ -303,7 +310,7 @@ func (s *Session) stepView(position int) *StepView {
 	step := s.current.Steps[position-1]
 	excerpts := make([]ExcerptView, 0, len(step.Excerpts))
 	for i, excerpt := range step.Excerpts {
-		excerpts = append(excerpts, s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.current.Steps}))
+		excerpts = append(excerpts, s.withDiagramFile(s.resolveExcerpt(excerpt, drawnIn{step: step, at: i, all: s.current.Steps})))
 	}
 	acknowledgements := make([]AcknowledgementView, 0, len(step.Acknowledgements))
 	for _, ack := range step.Acknowledgements {

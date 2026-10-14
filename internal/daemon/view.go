@@ -131,6 +131,13 @@ type ExcerptWire struct {
 	// Plain says a Document Excerpt's file is prose that is not Markdown, so its
 	// paragraphs are drawn without Markdown styling.
 	Plain bool `json:"plain,omitempty"`
+	// DiagramFile is set on an Excerpt of a Mermaid diagram file (.mmd,
+	// .mermaid): the whole file as one diagram block, its lines those of the
+	// file on the Excerpt's side (none when dbn could not read it), treated as
+	// the change treated what the Excerpt shows. The file is code: its rows are
+	// in no block and Blocks is empty. The Browser Renderer draws the diagram
+	// when the Excerpt shows all of it (#194).
+	DiagramFile *BlockWire `json:"diagram_file,omitempty"`
 }
 
 type AcknowledgedFileWire struct {
@@ -535,6 +542,9 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			ChangedOnDisk: view.ChangedOnDisk,
 			Blocks:        toBlockWires(view.Blocks),
 			Plain:         view.Plain,
+		}
+		if view.DiagramFile != nil {
+			wire.DiagramFile = &toBlockWires([]review.Block{*view.DiagramFile})[0]
 		}
 		for _, line := range view.Lines {
 			wire.Lines = append(wire.Lines, toLineWire(line))
