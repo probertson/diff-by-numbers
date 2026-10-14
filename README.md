@@ -1,6 +1,6 @@
 # diff-by-numbers (`dbn`)
 
-Agent-driven diff review with paint-by-numbers simplicity.
+Agent-driven diff review (code and specs/design/planning documents) with paint-by-numbers simplicity.
 
 **Reviewing code:**
 
@@ -12,22 +12,21 @@ Agent-driven diff review with paint-by-numbers simplicity.
 
 ## Contents
 
-1. [What is this and why would I want to use it](#the-why)
+1. [The "Why": What is this and why would I want to use it](#the-why)
 2. [Installation](#installation)
 3. [One-time setup](#one-time-setup)
 4. [Using dbn](#using-dbn)
 5. [Contributing](#contributing)
 
-## The _Why_
+## The "Why"
 
-**TL;dr:** speed up the human part of agentic coding while also improving the quality of the experience and the quality of the output.
+**TL;dr:** speed up the human part of agentic coding while also making them more understandable: improve the quality of the review experience, and the quality of the result.
 
 [The long version](./docs/WHY.md)
 
 ## Installation
 
-Run this command to download a prebuilt binary for your machine and put it on your
-PATH:
+Run this command, which will download a prebuilt binary for your machine and put it on your PATH:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/probertson/diff-by-numbers/main/install.sh | sh
@@ -43,13 +42,11 @@ SHA-256 checksum. There are two options you can specify as environment variables
 
 Note the variables go on the `sh` side of the pipe, since that is the process that reads it.
 
-Currently supports: macOS and Linux, on amd64 and arm64. On Windows, run it inside WSL2 (it uses the Linux build). `dbn version` confirms the install.
+Current supported build targets include: macOS and Linux, on amd64 and arm64. To use dbn on Windows, run it inside WSL2 (it uses the Linux build).
 
 ### Additional Requirements
 
-dbn shells out to `git`, and needs **git 2.25 or newer** (January 2020) — it derives the Change Set with pathspec files, which older git does not read. `git --version` confirms yours.
-
-(Anywhere on your `PATH` is fine; `dbn version` confirms the build.)
+dbn shells out to `git`, and needs **git 2.25 or newer** (January 2020) — it derives the change set with pathspec files, which older git does not read. Use `git --version` to confirm your installed version.
 
 ## One-time setup: Connect dbn to your agent
 
@@ -146,24 +143,26 @@ dbn update
 dbn
 ```
 
-You can open it before your agent is ready: with no daemon yet, the TUI waits for one and fills in the moment the Round is posted.
+You can open the TUI at any time. It will connect to the daemon show you the review as soon as it is posted.
 
-dbn opens on the "Inbox": every review that has been posted to dbn, and whether it's waiting on you or the agent. Move with the arrows, `enter` opens the one under the cursor where you left it, and `i` returns you to the inbox, leaving your review as-is. `d` dismisses a review you don't want, after a y/n confirmation — it discards the comments you raised, and the agent is told you dismissed it.
+dbn opens on the "Inbox": every review that has been posted to dbn and isn't done yet, along with whether it's waiting on you or the agent.
 
-Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate through screens. Select lines to copy-by-reference (for pasting to your agent, if you want to ask questions mid-review) or to add a comment. Press `a` to answer an agent question where the agent asked it. When you're done, press `h` to hand off the review.
+Inside a review, the first screen is the Overview. Use Left/Right arrows to navigate through screens. Select lines (`<space>` or `<shift>+<up>/<down>`. With lines selected you can add a comment (`c`omment) or copy a reference to the lines (`y`ank) suitable for pasting to your agent, if you want to ask questions mid-review. Press `a` to answer an agent question where the agent asked it. When you're done, press `h` to hand off the review.
 
-If your agent's harness can wait on a background command, the agent is told directly and the screen says so; otherwise it tells you to let the agent know. Either way, the agent then retrieves your comments.
+If your agent's harness supports waiting on a background command, the agent is told directly that the review round is done; otherwise it tells you to let the agent know. Either way, the agent then retrieves your comments.
 
-Handing off is not leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the inbox.
+Handing off is not leaving: `q` exits the viewer at any time without losing anything, and `dbn` reopens to the inbox where you can continue any in-progress review.
 
 ### Other subcommands
 
-- `dbn wait <review_id>` blocks until you hand that review off or dismiss it (the agent runs it in the background, from the command dbn gives it)
-
-- `dbn dump` prints every review the daemon holds as text
+**For humans:**
 - `dbn version` reports the current version
 - `dbn update` installs a newer version if one is available (see [Updating](./docs/UPDATING.md))
 - `dbn config` shows your settings (see [Configuration](./docs/CONFIG.md))
+
+**For agents:**
+- `dbn wait <review_id>` blocks until you hand that review off or dismiss it. When you open a review, the agent runs this in a background process. That's how dbn tells the agent you're done with the review.
+- `dbn dump` prints every review the daemon holds as text
 
 ## Contributing
 
