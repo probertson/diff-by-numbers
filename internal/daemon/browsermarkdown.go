@@ -42,13 +42,13 @@ func (r documentRow) classes() string {
 
 // renderDocument renders a stretch of a Markdown Document as HTML with the
 // parse dbn reads Documents with (CommonMark plus GFM tables), so tables are
-// tables. Raw HTML is shown as text, never passed through, and images are
-// shown as their alt text and path until the page can serve them (#189).
+// tables. Raw HTML is shown as text, never passed through. An image is drawn
+// from where images finds it, or as its alt text with why it is not shown.
 //
 // Each element that starts a block carries the block's number as data-block,
 // so the page can find the block the TUI's cursor is on (#187). A block a
 // Comment covers carries the class "commented", and the cursor's "cursor".
-func renderDocument(rows []documentRow) template.HTML {
+func renderDocument(rows []documentRow, images documentImagesAt) template.HTML {
 	var source strings.Builder
 	starts := make([]int, 0, len(rows))
 	for _, row := range rows {
@@ -62,7 +62,7 @@ func renderDocument(rows []documentRow) template.HTML {
 	// does, so concurrent pages never share its state.
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.Table),
-		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(drawnSafely{}, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(drawnSafely{images: images}, 100))),
 	)
 	document := md.Parser().Parse(text.NewReader(content))
 	tagBlocks(document, func(offset int) documentRow {
@@ -164,13 +164,15 @@ func firstOffset(n ast.Node) (int, bool) {
 
 // drawnSafely overrides how goldmark draws what a Document could use to run
 // or fetch something in the Reviewer's browser: raw HTML is shown as text, and
-// an image as its alt text and path.
-type drawnSafely struct{}
+// an image is drawn only from the daemon, never from a remote address.
+type drawnSafely struct {
+	images documentImagesAt
+}
 
-func (drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+func (d drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindRawHTML, renderRawHTMLAsText)
 	reg.Register(ast.KindHTMLBlock, renderHTMLBlockAsText)
-	reg.Register(ast.KindImage, renderImageAsText)
+	reg.Register(ast.KindImage, d.renderImage)
 }
 
 func renderRawHTMLAsText(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -207,15 +209,28 @@ func renderHTMLBlockAsText(w util.BufWriter, source []byte, n ast.Node, entering
 	return ast.WalkContinue, nil
 }
 
-func renderImageAsText(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+// renderImage draws an image the daemon serves as an image, and any other as
+// its alt text with why it is not shown: the remote address it was never
+// fetched from, or that it is missing or outside the repository.
+func (d drawnSafely) renderImage(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkSkipChildren, nil
 	}
 	image := n.(*ast.Image)
+	alt := util.EscapeHTML([]byte(plainTextOf(image, source)))
+	drawing := d.images.draw(string(image.Destination))
+	if drawing.source != "" {
+		_, _ = w.WriteString(`<img src="`)
+		_, _ = w.Write(util.EscapeHTML([]byte(drawing.source)))
+		_, _ = w.WriteString(`" alt="`)
+		_, _ = w.Write(alt)
+		_, _ = w.WriteString(`">`)
+		return ast.WalkSkipChildren, nil
+	}
 	_, _ = w.WriteString(`<span class="image">[image: `)
-	_, _ = w.Write(util.EscapeHTML([]byte(plainTextOf(image, source))))
+	_, _ = w.Write(alt)
 	_, _ = w.WriteString(" — ")
-	_, _ = w.Write(util.EscapeHTML(image.Destination))
+	_, _ = w.Write(util.EscapeHTML([]byte(drawing.why)))
 	_, _ = w.WriteString("]</span>")
 	return ast.WalkSkipChildren, nil
 }

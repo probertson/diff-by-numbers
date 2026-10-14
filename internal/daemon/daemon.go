@@ -69,6 +69,9 @@ type Daemon struct {
 	// pages are the Browser Renderer pages open on each review, following its
 	// change stream.
 	pages pageFeed
+	// screens are the screens TUIs report showing for each review, which the
+	// page names where dbn holds no stop for them.
+	screens pageScreens
 	// cursors are where the TUI last said its cursor is on each review, keyed
 	// by review id, for the review's page to brighten (#187).
 	cursors map[string]CursorWire

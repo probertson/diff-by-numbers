@@ -17,6 +17,16 @@ func ReadBlob(root, tree, file string) ([]string, error) {
 	return splitGitLines(content), nil
 }
 
+// ReadBlobContent returns a file's bytes as a tree holds it, for a file that
+// is not read as lines, such as an image a Document refers to.
+func ReadBlobContent(root, tree, file string) ([]byte, error) {
+	content, err := runGit(root, "cat-file", "blob", tree+":"+file)
+	if err != nil {
+		return nil, fmt.Errorf("could not read %s from tree %s: %w", file, shortRev(tree), err)
+	}
+	return []byte(content), nil
+}
+
 // BlobID returns the id of the blob a tree holds for a file.
 func BlobID(root, tree, file string) (string, error) {
 	out, err := runGit(root, "rev-parse", "--verify", "--quiet", tree+":"+file)

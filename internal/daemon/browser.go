@@ -22,12 +22,17 @@ import (
 //     page's script swaps in
 //   - /reviews/{review}/page/events  the review's change stream (server-sent
 //     events)
+//   - /reviews/{review}/page/image/{file}?repository={root}  an image a
+//     Document refers to (browserimage.go)
 //   - /reviews/{review}/page/cursor  where the TUI's cursor is, which the
 //     page's script brightens
 //
-// The one thing the page follows that the review does not hold is the TUI's
-// cursor, so the TUI reports it (POST /reviews/{review}/cursor) each time it
-// moves, and dbn holds it for the review beside the Step position (#187).
+// and two the TUI posts to, neither changing anything of the review:
+//   - /reviews/{review}/screen, its report of a screen dbn holds no stop
+//     for, which the page then names;
+//   - /reviews/{review}/cursor, its report of where its cursor is each time
+//     it moves, which dbn holds for the review beside the Step position
+//     (#187).
 
 // PagePath is where a review's page is served, under the daemon's base URL. The
 // TUI opens and shows it; the daemon serves it.
@@ -123,6 +128,69 @@ func (f *pageFeed) publish(reviewID, event string) {
 // changed.
 func (d *Daemon) changed(reviewID string) { d.pages.publish(reviewID, pageRedraw) }
 
+// The screens a TUI reports for a review, since dbn holds no stop for some of
+// what the Reviewer can be looking at: the conclusion screen leaves dbn on the
+// last Step, and the Inbox is the window's, not the review's. On any other
+// screen (ScreenReview) the page draws the stop dbn holds.
+const (
+	ScreenReview     = "review"
+	ScreenConclusion = "conclusion"
+	ScreenInbox      = "inbox"
+)
+
+// ScreenWire is the TUI's report of which screen it shows for a review.
+type ScreenWire struct {
+	Screen string `json:"screen"`
+}
+
+// pageScreens holds the screen last reported for each review, ScreenReview
+// for one never reported.
+type pageScreens struct {
+	mu sync.Mutex
+	of map[string]string
+}
+
+func (s *pageScreens) set(reviewID, screen string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.of == nil {
+		s.of = map[string]string{}
+	}
+	if screen == ScreenReview {
+		delete(s.of, reviewID)
+		return
+	}
+	s.of[reviewID] = screen
+}
+
+func (s *pageScreens) get(reviewID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if screen, ok := s.of[reviewID]; ok {
+		return screen
+	}
+	return ScreenReview
+}
+
+// reportScreen takes a TUI's report of which screen it shows for a review, and
+// redraws the review's pages.
+func (d *Daemon) reportScreen(session *review.Session, w http.ResponseWriter, r *http.Request) {
+	var report ScreenWire
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		http.Error(w, "bad screen report", http.StatusBadRequest)
+		return
+	}
+	switch report.Screen {
+	case ScreenReview, ScreenConclusion, ScreenInbox:
+	default:
+		http.Error(w, fmt.Sprintf("no screen %q", report.Screen), http.StatusBadRequest)
+		return
+	}
+	d.screens.set(session.ReviewID(), report.Screen)
+	d.changed(session.ReviewID())
+	fmt.Fprintln(w, "ok")
+}
+
 // browserRoutes adds the Browser Renderer's routes to the daemon's mux.
 func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /reviews/{review}/page", d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
@@ -132,6 +200,8 @@ func (d *Daemon) browserRoutes(mux *http.ServeMux) {
 		d.servePage(w, "stop", d.pageOf(session).Stop)
 	}))
 	mux.HandleFunc("GET /reviews/{review}/page/events", d.onReview(d.serveEvents))
+	mux.HandleFunc("GET /reviews/{review}/page/image/{file...}", d.onReview(d.serveImage))
+	mux.HandleFunc("POST /reviews/{review}/screen", d.onReview(d.reportScreen))
 	mux.HandleFunc("GET /reviews/{review}/page/cursor", d.onReview(func(session *review.Session, w http.ResponseWriter, _ *http.Request) {
 		var cursor *CursorWire
 		_ = d.locked(func() error { cursor = d.cursorOf(session); return nil })
@@ -176,14 +246,16 @@ func (d *Daemon) cursorOf(session *review.Session) *CursorWire {
 func (d *Daemon) pageOf(session *review.Session) pageData {
 	var view ViewWire
 	label := ""
+	images := documentImages{reviewID: session.ReviewID()}
 	var cursor *CursorWire
 	_ = d.locked(func() error {
 		view = toViewWire(session.View())
 		label = session.Label()
+		images.files = session.RoundFiles()
 		cursor = d.cursorOf(session)
 		return nil
 	})
-	return newPageData(label, view, cursor)
+	return newPageData(label, view, images, d.screens.get(session.ReviewID()), cursor)
 }
 
 // servePage renders one of the page's templates. It renders into a buffer

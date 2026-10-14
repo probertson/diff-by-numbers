@@ -1,13 +1,29 @@
 {{define "stop" -}}
 <div class="stop{{if .Following}} following{{end}}" data-key="{{.Key}}">
-{{- if .Step}}{{template "step" .Step}}{{else}}
+{{- if .Step}}{{template "step" .Step}}{{else if .Intro}}{{template "intro" .Intro}}{{else}}
 <p class="notice">{{.Notice}}</p>
 {{- end}}
 </div>
 {{- end}}
 
+{{define "intro" -}}
+<header class="step-header">
+<p class="step-number">{{.Range}}</p>
+<h1>{{.Heading}}</h1>
+</header>
+<div class="explanation">{{.Intro}}</div>
+<ol class="chapter-steps">
+{{- range .Steps}}
+<li value="{{.Number}}">{{.Name}}</li>
+{{- end}}
+</ol>
+{{- end}}
+
 {{define "step" -}}
 <header class="step-header">
+{{- if .Chapter}}
+<p class="chapter">{{.Chapter}}</p>
+{{- end}}
 <p class="step-number">Step {{.Number}} of {{.Count}}</p>
 <h1>{{.Name}}</h1>
 </header>
@@ -49,7 +65,7 @@
 
 {{define "excerpt" -}}
 <section class="excerpt" data-excerpt="{{.Index}}">
-<h2 class="file-header">{{.Label}}</h2>
+<h2 class="file-header">{{.Label}}{{range .Path}} › {{.}}{{end}}</h2>
 {{- if .ChangedOnDisk}}
 <p class="warning">This file has changed on disk since the round was posted. These are the lines as posted.</p>
 {{- end}}
