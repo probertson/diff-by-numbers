@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -266,5 +267,63 @@ func TestADiagramAnExcerptCutsIntoIsShownAsCode(t *testing.T) {
 	}
 	if !strings.Contains(out, "tui --&gt; daemon") {
 		t.Errorf("expected the part shown as source, got:\n%s", out)
+	}
+}
+
+// A diagram is one block, so the TUI's cursor on its block is on the drawn
+// diagram: the page marks the diagram's container as the cursor's, and the
+// cursor event names the container's place, which the page brightens and
+// scrolls to (#196).
+func TestACursorOnADiagramsBlockMarksTheDiagram(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	t.Cleanup(server.Close) // after the stream closes: a cleanup, not a defer
+	reviewID := onANewDocument(t, server.URL, diagramDocument)
+	events := follow(t, server.URL, reviewID)
+
+	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Block: 2})
+
+	event := nextEventWithData(events)
+	out := stop(t, server.URL, reviewID)
+	tag := openingTag(out, `data-block="2"`)
+	if !strings.HasPrefix(tag, `<figure class="diagram`) || !isTheCursors(tag) {
+		t.Errorf("expected the diagram's container marked as the cursor's, got %q in:\n%s", tag, out)
+	}
+	var cursor struct {
+		Place string `json:"place"`
+	}
+	if err := json.Unmarshal([]byte(event.data), &cursor); err != nil || cursor.Place == "" ||
+		!strings.Contains(tag, `data-place="`+cursor.Place+`"`) {
+		t.Errorf("expected the cursor event to name the diagram's place, got %q for %q (%v)", event.data, tag, err)
+	}
+	if tag := openingTag(out, `data-block="1"`); isTheCursors(tag) {
+		t.Errorf("expected only the diagram marked, but %q is too", tag)
+	}
+}
+
+// The Reviewer comments on a diagram's source in the TUI; on the page the
+// Comment's marker is on the drawn diagram, and its note follows it (#196).
+func TestACommentOnADiagramsBlockIsMarkedOnTheDiagram(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, diagramDocument)
+
+	raiseComment(t, reviewURL(server.URL, reviewID), 0, 4, 5, "the daemon calls the TUI too")
+
+	out := stop(t, server.URL, reviewID)
+	figure := regexp.MustCompile(`(?s)<figure[^>]*>.*?</figure>`).FindStringIndex(out)
+	if figure == nil {
+		t.Fatalf("expected the diagram drawn, got:\n%s", out)
+	}
+	tag := openingTag(out[figure[0]:], `data-block="2"`)
+	if class := regexp.MustCompile(`class="([^"]*)"`).FindStringSubmatch(tag); class == nil ||
+		!strings.Contains(" "+class[1]+" ", " diagram ") || !strings.Contains(" "+class[1]+" ", " commented ") {
+		t.Errorf("expected the diagram's container marked as commented, got %q in:\n%s", tag, out)
+	}
+	if tag := openingTag(out, `data-block="1"`); strings.Contains(tag, "commented") {
+		t.Errorf("expected only the diagram marked as commented, but %q is too", tag)
+	}
+	note := strings.Index(out, "the daemon calls the TUI too")
+	if note < figure[1] {
+		t.Errorf("expected the Comment's note to follow the diagram, got:\n%s", out)
 	}
 }

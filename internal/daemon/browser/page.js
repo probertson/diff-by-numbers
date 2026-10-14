@@ -220,19 +220,20 @@
     pair.classList.toggle("side-by-side", fits);
   }
 
-  // drawDiagrams draws each diagram on the stop in the browser's theme.
+  // drawDiagrams draws each diagram on the stop in the browser's theme, and
+  // settles once every one is shown.
   function drawDiagrams() {
     var theme = dark.matches ? "dark" : "default";
-    all("figure.diagram").forEach(function (figure) {
+    return Promise.all(all("figure.diagram").map(function (figure) {
       var source = figure.querySelector(".diagram-source").textContent;
-      drawingOf(theme, source).then(function (drawing) {
+      return drawingOf(theme, source).then(function (drawing) {
         showDrawing(figure, drawing);
         var pair = figure.closest(".diagram-pair");
         if (pair !== null) {
           arrangePair(pair);
         }
       });
-    });
+    }));
   }
 
   function redraw() {
@@ -254,7 +255,6 @@
           window.scrollTo(0, 0);
         }
         say("");
-        drawDiagrams();
         // The stop was drawn with the cursor marked as it was then, which a
         // move reported while it was on its way may have overtaken.
         if (moves !== seen) {
@@ -262,6 +262,12 @@
         } else {
           reveal(all(".cursor"));
         }
+        return drawDiagrams();
+      })
+      .then(function () {
+        // A drawing takes the place of its source at another height, which
+        // may have moved the cursor's elements (a diagram among them) away.
+        reveal(all(".cursor"));
       })
       .catch(function (error) {
         say(error.message);
