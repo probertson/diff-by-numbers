@@ -136,7 +136,7 @@ type parsedBlock struct {
 	level int
 	// diagram marks a fenced code block holding a Mermaid diagram (#191), and
 	// diagramSource is what it holds: the Mermaid source between its fences,
-	// each line ending in a newline.
+	// each line ending in a newline, as DiagramSources has it.
 	diagram       bool
 	diagramSource string
 	// section marks a heading of the Document's own, which opens a section,
@@ -172,7 +172,7 @@ func kindOf(n ast.Node) (BlockKind, int) {
 }
 
 // diagramOf reports whether a node is a fenced code block whose info string
-// names Mermaid, which the Browser Renderer draws as a picture (#191), and the
+// names Mermaid, which the Browser Renderer draws (#191), and the
 // Mermaid source it holds. dbn reads no further: what the diagram says is
 // Mermaid's to parse.
 func diagramOf(n ast.Node, source []byte) (string, bool) {

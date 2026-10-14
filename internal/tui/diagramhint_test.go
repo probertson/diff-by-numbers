@@ -8,7 +8,7 @@ import (
 	"github.com/probertson/diff-by-numbers/internal/daemon"
 )
 
-// A Mermaid diagram's picture is in the browser, a keypress away. The TUI says
+// A Mermaid diagram's drawing is in the browser, a keypress away. The TUI says
 // so where the Reviewer meets one: a header-like row above a diagram block's
 // source, and above each Excerpt of a diagram file (#195). The row is no place
 // in the code, so the cursor passes it by, and reaching a diagram opens nothing.
@@ -22,7 +22,7 @@ func flowDocument() daemon.ExcerptWire {
 		para("The flow:"),
 		docBlock{kind: "code", text: []string{"```mermaid", "graph TD", "  A --> B", "```"}},
 	)
-	excerpt.Blocks[1].Diagram = true
+	excerpt.Blocks[1].Diagram = &daemon.DiagramSourcesWire{After: "graph TD\n  A --> B\n"}
 	return excerpt
 }
 
@@ -56,7 +56,7 @@ func TestTheHintStandsAboveADiagramBlockInTheFormattedView(t *testing.T) {
 // flowFile is two Excerpts of a new diagram file, docs/flow.mmd, as dbn's Step
 // view gives them: code, each marked as part of the diagram the whole file is.
 func flowFile() *daemon.StepWire {
-	file := &daemon.BlockWire{Kind: "code", Diagram: true, Side: "new", FirstLine: 1, LastLine: 6, Treatment: "new"}
+	file := &daemon.DiagramFileWire{Treatment: "new", Read: true, FirstLine: 1, LastLine: 6}
 	excerpt := func(first int, texts ...string) daemon.ExcerptWire {
 		e := daemon.ExcerptWire{File: "docs/flow.mmd", Side: "new", FirstLine: first, LastLine: first + len(texts) - 1, DiagramFile: file}
 		for n, text := range texts {

@@ -7,6 +7,8 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -41,11 +43,11 @@ var mermaidLibrary = func() []byte {
 	return content
 }()
 
-// DiagramsPath is where the diagrams frame is served, and mermaidPath the
+// diagramsPath is where the diagrams frame is served, and mermaidPath the
 // library it loads. The library's path names its version, so a browser may
 // keep it for good.
 const (
-	DiagramsPath = "/browser/diagrams"
+	diagramsPath = "/browser/diagrams"
 	mermaidPath  = "/browser/mermaid-" + mermaidVersion + ".min.js"
 )
 
@@ -61,23 +63,50 @@ var diagramsFrame = template.Must(template.New("diagrams").Parse(`<!doctype html
 </html>
 `))
 
-// diagramsPolicy is the diagrams frame's Content-Security-Policy: it runs
-// only the library dbn serves, and allows the inline style Mermaid draws
-// with. It loads nothing else, and only dbn's own pages may frame it.
-const diagramsPolicy = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
-	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+// diagramsPolicy is the diagrams frame's Content-Security-Policy, for the
+// frame as served from origin: it runs Mermaid's library, named by its whole
+// URL, and no other script, even one dbn serves, and allows the inline style
+// Mermaid draws with. It loads nothing else, and only dbn's own pages may
+// frame it. ('self' would name the origin alone, so any script dbn serves; a
+// source naming a path cannot be written without the origin.)
+func diagramsPolicy(origin string) string {
+	return "default-src 'none'; script-src " + origin + mermaidPath + "; style-src 'unsafe-inline'; " +
+		"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+}
+
+// requestHost is a Host header that can be written into a policy as it is: a
+// name or address, and a port. A browser sends nothing else.
+var requestHost = regexp.MustCompile(`^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?$`)
+
+// originOf is the origin a request was sent to, as a policy names it; false
+// when its Host cannot be written into one.
+func originOf(r *http.Request) (string, bool) {
+	if !requestHost.MatchString(r.Host) {
+		return "", false
+	}
+	scheme := "http://"
+	if r.TLS != nil {
+		scheme = "https://"
+	}
+	return scheme + r.Host, true
+}
 
 // diagramRoutes adds the diagrams frame and Mermaid's library to the daemon's
 // mux. Neither belongs to a review.
 func (d *Daemon) diagramRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET "+DiagramsPath, func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+diagramsPath, func(w http.ResponseWriter, r *http.Request) {
+		origin, ok := originOf(r)
+		if !ok {
+			http.Error(w, "dbn cannot serve the diagrams frame to this host", http.StatusBadRequest)
+			return
+		}
 		var out bytes.Buffer
 		if err := diagramsFrame.Execute(&out, mermaidPath); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Content-Security-Policy", diagramsPolicy)
+		w.Header().Set("Content-Security-Policy", diagramsPolicy(origin))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = out.WriteTo(w)
@@ -110,12 +139,27 @@ func serveMermaid(w http.ResponseWriter, r *http.Request) {
 func acceptsGzip(header string) bool {
 	for _, coding := range strings.Split(header, ",") {
 		name, params, _ := strings.Cut(coding, ";")
-		name = strings.TrimSpace(name)
-		if name != "gzip" {
+		if strings.TrimSpace(name) != "gzip" {
 			continue
 		}
-		quality := strings.ReplaceAll(params, " ", "")
-		return quality != "q=0" && quality != "q=0.0" && quality != "q=0.00" && quality != "q=0.000"
+		return quality(params) > 0
 	}
 	return false
+}
+
+// quality is a coding's quality value, read from its parameters: 1 when they
+// give none, and 0 when it cannot be read.
+func quality(params string) float64 {
+	for _, param := range strings.Split(params, ";") {
+		key, value, ok := strings.Cut(param, "=")
+		if !ok || strings.TrimSpace(key) != "q" {
+			continue
+		}
+		q, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err != nil {
+			return 0
+		}
+		return q
+	}
+	return 1
 }

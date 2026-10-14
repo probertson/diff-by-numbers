@@ -152,20 +152,28 @@ its output back to a source line.
 
 ## Amendment (#191): Mermaid draws diagrams, in a frame of its own
 
-The Browser Renderer draws a Document's Mermaid diagrams (#191): the second borrowed
-renderer, and the first that runs in the browser. dbn still decides where every block is: the
-review package marks a fence whose info string is `mermaid` as a diagram, and the page holds
-its source in a diagram container carrying the block's attributes, like any other block. A
-`.mmd` or `.mermaid` file is a diagram too (#194), though it is code, not a Document: the review
-package marks its Excerpts with the whole file as one diagram block, and the page draws it the
-same way when an Excerpt shows all of it. dbn never parses Mermaid. Mermaid only draws, and nothing it draws can be selected or anchored, so
-the constraint above holds as it does for goldmark's HTML.
+The Browser Renderer draws a Document's Mermaid diagrams (#191): the second borrowed renderer,
+and the first that runs in the browser. dbn still decides where every block is: the review
+package marks a fence whose info string is `mermaid` as a diagram, and the page holds its
+source in a diagram container carrying the block's attributes, like any other block. A `.mmd`
+or `.mermaid` file is a diagram too (#194), though it is code, not a Document: the review
+package marks its Excerpts as the one diagram the whole file is, and the page draws it the same
+way when an Excerpt shows all of it. dbn never parses Mermaid. Mermaid only draws, and nothing
+it draws can be selected or anchored, so the constraint above holds as it does for goldmark's
+HTML.
 
-Mermaid is embedded in dbn, a pinned release served by the daemon, and the page loads nothing
+dbn draws no change marks on a diagram (#191), so its colours are never mistaken for the
+author's: a changed diagram is drawn twice, "before" and "after", each as authored. That is
+read as nothing drawn on or over a drawing. The block's sign in the margin (`+`, `±` or `-`)
+stays beside a diagram as it does beside any block, since it stands outside the drawing.
+
+Mermaid is embedded in dbn, a fixed release served by the daemon, and the page loads nothing
 from outside it. Mermaid draws by putting a `<style>` into the document it draws in and style
 attributes on what it draws, which the page's policy refuses. Rather than widen that policy,
 Mermaid runs in a frame dbn serves for it alone, whose policy allows inline style and runs no
-script but the embedded library. The page hands the frame each diagram's source and shows the
-SVG it gets back as an image made in the page (a `blob:` URL), so the author's own styles apply
-inside the image without the page allowing any. The page's policy gains only `frame-src 'self'`
-and `blob:` images; it still runs no script and applies no style but its own.
+script but the embedded library: it names the library by its whole URL, so not even another
+script dbn serves can run there. The page hands the frame each diagram's source and shows the
+drawing it gets back as an image made in the page (a `blob:` URL), so the author's own styles
+apply inside the image without the page allowing any. The page's policy gains only
+`frame-src 'self'` and `blob:` images; it still runs no script and applies no style but its
+own.

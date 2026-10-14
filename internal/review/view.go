@@ -124,13 +124,11 @@ type ExcerptView struct {
 	// made a Document: its blocks are paragraphs split at blank lines, drawn
 	// without Markdown styling.
 	Plain bool
-	// DiagramFile is set on an Excerpt of a diagram file (isDiagramFile): the
-	// whole file as one code block marked as a diagram, on the Excerpt's side,
-	// treated as the change treated what the Excerpt shows. The file is not a
-	// Document, so its rows stay code, in no block; the Browser Renderer draws
-	// the diagram when the Excerpt shows all of it (#194). nil for any other
-	// file.
-	DiagramFile *Block
+	// DiagramFile is set on an Excerpt of a diagram file (isDiagramFile), which
+	// is not a Document, so its rows stay code, in no block; the Browser
+	// Renderer draws the diagram when the Excerpt shows all of it (#194). nil
+	// for any other file.
+	DiagramFile *DiagramFile
 }
 
 // AcknowledgedFile is one line of an Acknowledgement's manifest: a file the

@@ -145,7 +145,8 @@ func TestThePagesPolicyAllowsOnlyDbnsDiagramFrameAndTheImagesItDraws(t *testing.
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	frame, _ := served(t, server.URL+"/browser/diagrams")
+	frame, frameHTML := served(t, server.URL+"/browser/diagrams")
+	library := regexp.MustCompile(`<script src="([^"]+)"></script>`).FindStringSubmatch(frameHTML)[1]
 
 	policy := response.Header.Get("Content-Security-Policy")
 	framePolicy := frame.Header.Get("Content-Security-Policy")
@@ -155,12 +156,15 @@ func TestThePagesPolicyAllowsOnlyDbnsDiagramFrameAndTheImagesItDraws(t *testing.
 			t.Errorf("expected the page's policy to have %q, got %q", want, policy)
 		}
 	}
-	for _, want := range []string{"default-src 'none'", "script-src 'self'", "frame-ancestors 'self'"} {
+	// The frame runs exactly the library, named by its whole URL: no other
+	// script dbn serves, inline or eval'd.
+	for _, want := range []string{"default-src 'none'", "script-src " + server.URL + library + ";", "frame-ancestors 'self'"} {
 		if !strings.Contains(framePolicy, want) {
 			t.Errorf("expected the diagrams frame's policy to have %q, got %q", want, framePolicy)
 		}
 	}
-	if strings.Contains(framePolicy, "unsafe-eval") || strings.Contains(framePolicy, "script-src 'unsafe-inline'") {
+	if strings.Contains(framePolicy, "'self'; style-src") || strings.Contains(framePolicy, "unsafe-eval") ||
+		strings.Contains(framePolicy, "script-src 'unsafe-inline'") {
 		t.Errorf("expected the diagrams frame to run nothing but Mermaid's library, got %q", framePolicy)
 	}
 }
@@ -400,12 +404,12 @@ func TestTheCursorAndACommentOnADiagramFilesLinesAreOnTheDiagram(t *testing.T) {
 }
 
 // A changed diagram file is drawn as a changed fenced diagram is, before and
-// after, labelled; the edit to its source beneath is the file's rows, in the
-// source view's style, as for any code (#194).
+// after, labelled, with the edit to its source beneath as track changes in
+// code style (#194).
 func TestAChangedDiagramFileIsHeldBeforeAndAfterWithTheEditToItsSourceBeneath(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
-	reviewID := onAnEditedFile(t, server.URL, "flow.mmd", "flowchart LR\n  tui --> daemon\n", diagramFile, lines{"new", 1, 3})
+	reviewID := onAnEditedFile(t, server.URL, "flow.mmd", "flowchart TD\n  tui --> daemon\n", diagramFile, lines{"new", 1, 3})
 
 	out := stop(t, server.URL, reviewID)
 
@@ -414,15 +418,23 @@ func TestAChangedDiagramFileIsHeldBeforeAndAfterWithTheEditToItsSourceBeneath(t 
 	if !strings.Contains(beforeHolds, ">before<") || !strings.Contains(afterHolds, ">after<") {
 		t.Errorf("expected the containers labelled before and after, got:\n%s\n%s", before, after)
 	}
-	if want := "flowchart LR\n  tui --&gt; daemon\n</code>"; !strings.Contains(beforeHolds, want) {
+	if want := "flowchart TD\n  tui --&gt; daemon\n</code>"; !strings.Contains(beforeHolds, want) {
 		t.Errorf("expected before to hold the file as it was, %q, got:\n%s", want, before)
 	}
 	if want := "flowchart LR\n  tui --&gt; daemon\n  style daemon fill:#f9f\n</code>"; !strings.Contains(afterHolds, want) {
 		t.Errorf("expected after to hold the file as it is, %q, got:\n%s", want, after)
 	}
-	edit := regexp.MustCompile(`(?s)<div class="row added"[^>]*>.*?style daemon fill:#f9f`).FindString(out[afterEnds:])
+	edit := regexp.MustCompile(`(?s)<div class="tracked code[^"]*"[^>]*>.*?</div></div>`).FindString(out[afterEnds:])
 	if edit == "" {
-		t.Errorf("expected the edit to the file beneath the drawings, as source rows, got:\n%s", out)
+		t.Fatalf("expected the edit to the file beneath the drawings, as track changes in code style, got:\n%s", out)
+	}
+	for _, want := range []string{"<del>flowchart TD</del>", "<ins>flowchart LR</ins>", "  tui --&gt; daemon", "<ins>  style daemon fill:#f9f</ins>"} {
+		if !strings.Contains(edit, want) {
+			t.Errorf("expected the edit beneath to have %q, got:\n%s", want, edit)
+		}
+	}
+	if strings.Contains(out, `class="row`) {
+		t.Errorf("expected the edit as track changes, not as source rows, got:\n%s", out)
 	}
 }
 
@@ -442,5 +454,31 @@ func TestARemovedDiagramFileIsHeldBeforeOnlyAndDimmed(t *testing.T) {
 	}
 	if strings.Contains(out, `class="diagram after`) || strings.Contains(out, `class="row`) {
 		t.Errorf("expected nothing but before for a removed diagram file, got:\n%s", out)
+	}
+}
+
+// A diagram edited from something that was no diagram (here, a fence of plain
+// text) has no "before" to draw, so it is drawn as a new diagram is: once,
+// unlabelled, not as a lone "after".
+func TestAnEditedDiagramWithNoBeforeIsDrawnOnceUnlabelled(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		strings.Replace(diagramAfter, "```mermaid", "```text", 1), diagramAfter, lines{"new", 1, 7})
+
+	out := stop(t, server.URL, reviewID)
+
+	figures := regexp.MustCompile(`(?s)<figure class="([^"]*)"[^>]*>(.*?)</figure>`).FindAllStringSubmatch(out, -1)
+	if len(figures) != 1 {
+		t.Fatalf("expected the diagram drawn once, got %d diagram containers in:\n%s", len(figures), out)
+	}
+	if class := figures[0][1]; class != "diagram" {
+		t.Errorf("expected a diagram container drawn as a new diagram's, got class %q", class)
+	}
+	if strings.Contains(figures[0][2], "diagram-label") {
+		t.Errorf("expected no before or after label, got:\n%s", figures[0][0])
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n  daemon --&gt; store\n</code>"; !strings.Contains(figures[0][2], want) {
+		t.Errorf("expected the container to hold the diagram's source %q, got:\n%s", want, figures[0][0])
 	}
 }

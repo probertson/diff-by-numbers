@@ -44,18 +44,10 @@ type Block struct {
 	Kind BlockKind
 	// Level is a heading's level, 1 to 6; 0 for any other kind.
 	Level int
-	// Diagram marks a code block that is a Mermaid diagram: a fence whose
-	// info string is `mermaid`, which the Browser Renderer draws (#191).
-	Diagram bool
-	// BeforeSource and AfterSource are a changed diagram's Mermaid source,
-	// between its fences, before and after the change, so the Browser Renderer
-	// draws both pictures whole (#193). Before is what the changes are read
-	// against: the merge-base, or the previous Round's Snapshot in a Revision
-	// Round. An edited diagram carries both, a removed one only BeforeSource,
-	// and an edited one made from something that was no diagram only
-	// AfterSource. Any other block carries neither.
-	BeforeSource string
-	AfterSource  string
+	// Diagram is, for a code block that is a Mermaid diagram (a fence whose
+	// info string is `mermaid`), its source, which the Browser Renderer draws
+	// (#191, #193); nil for any other block.
+	Diagram *DiagramSources
 	// Side and Lines are the block's place in the file: the side it is on and
 	// the source lines it spans there, which is what identifies it.
 	Side      Side
@@ -69,12 +61,13 @@ type Block struct {
 	Path []string
 }
 
-// shown is a parsed block as an Excerpt shows it: on side, and treated so. A
-// removed diagram carries its source as BeforeSource.
+// shown is a parsed block as an Excerpt shows it: on side, and treated so. An
+// edited diagram's source before the edit is its caller's to add.
 func (b block) shown(side Side, treatment Treatment) Block {
-	shown := Block{Kind: b.kind, Level: b.level, Diagram: b.diagram, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
-	if b.diagram && treatment == TreatmentRemoved {
-		shown.BeforeSource = b.diagramSource
+	shown := Block{Kind: b.kind, Level: b.level, Side: side, Lines: b.lines, Treatment: treatment, Path: b.path}
+	if b.diagram {
+		sources := diagramSourcesOf(treatment, b.diagramSource)
+		shown.Diagram = &sources
 	}
 	return shown
 }
@@ -219,8 +212,8 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 			treatment = t.afterTreatment(n)
 		}
 		b := t.after.blocks[n].shown(NewSide, treatment)
-		if b.Diagram && treatment == TreatmentEdited {
-			b.BeforeSource, b.AfterSource = t.diagramBefore(n), t.after.blocks[n].diagramSource
+		if b.Diagram != nil && treatment == TreatmentEdited {
+			b.Diagram.Before = t.diagramBefore(n)
 		}
 		return b
 	}

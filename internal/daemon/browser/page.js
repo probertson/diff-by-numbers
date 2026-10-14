@@ -121,17 +121,18 @@
         }
         drawn++;
         return frame.mermaid.render("dbn-diagram-" + drawn, source).then(function (result) {
-          return pictureOf(frame, result.svg);
+          return drawingFrom(frame, result.svg);
         });
       });
     drawingQueue = drawing.catch(function () {});
     return drawing;
   }
 
-  // pictureOf makes an image of Mermaid's SVG, at the size Mermaid drew it.
-  // The SVG is read in the diagrams frame, whose policy allows the inline
-  // style it holds: read here, each style in it would be reported as refused.
-  function pictureOf(frame, svg) {
+  // drawingFrom makes the drawing the page shows from Mermaid's SVG: an image
+  // of it, at the size Mermaid drew it. The SVG is read in the diagrams frame,
+  // whose policy allows the inline style it holds: read here, each style in it
+  // would be reported as refused.
+  function drawingFrom(frame, svg) {
     var root = new frame.DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
     if (root.localName !== "svg" || root.getElementsByTagName("parsererror").length > 0) {
       throw new Error("Mermaid drew something dbn could not show.");
@@ -174,14 +175,14 @@
   // showDrawing puts a drawing in its diagram container, in place of the
   // source; or what stopped Mermaid drawing it, above the source.
   function showDrawing(figure, drawing) {
-    var picture = figure.querySelector(".diagram-picture");
-    if (picture === null) {
-      picture = document.createElement("div");
-      picture.className = "diagram-picture";
+    var holder = figure.querySelector(".diagram-drawing");
+    if (holder === null) {
+      holder = document.createElement("div");
+      holder.className = "diagram-drawing";
       // Below the container's label, if it has one.
-      figure.insertBefore(picture, figure.querySelector(".diagram-source"));
+      figure.insertBefore(holder, figure.querySelector(".diagram-source"));
     }
-    picture.textContent = "";
+    holder.textContent = "";
     var failed = drawing.error !== undefined;
     figure.classList.toggle("drawn", !failed);
     figure.classList.toggle("failed", failed);
@@ -195,7 +196,7 @@
       message.textContent = drawing.error;
       problem.appendChild(heading);
       problem.appendChild(message);
-      picture.appendChild(problem);
+      holder.appendChild(problem);
       return;
     }
     var image = document.createElement("img");
@@ -204,17 +205,21 @@
     image.height = drawing.height;
     image.alt = "Mermaid diagram";
     image.style.minWidth = Math.min(drawing.width, Math.round(drawing.width * legible)) + "px";
-    picture.appendChild(image);
+    holder.appendChild(image);
   }
 
   // arrangePair lays a changed diagram's "before" and "after" side by side
   // when both drawings fit across the page at full size, and one above the
   // other otherwise, where each can shrink to the page's width.
   function arrangePair(pair) {
-    var images = pair.querySelectorAll(".diagram-picture img");
+    var images = pair.querySelectorAll(".diagram-drawing img");
     var fits = false;
     if (pair.querySelectorAll("figure.diagram").length === 2 && images.length === 2) {
-      var gap = 24; // page.css's gap between the two
+      // The gap page.css sets between the two side by side.
+      var gap = parseFloat(window.getComputedStyle(pair).getPropertyValue("--diagram-gap"));
+      if (Number.isNaN(gap)) {
+        gap = 0;
+      }
       fits = Number(images[0].getAttribute("width")) + Number(images[1].getAttribute("width")) + gap <= pair.clientWidth;
     }
     pair.classList.toggle("side-by-side", fits);

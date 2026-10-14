@@ -57,19 +57,13 @@ type RunWire struct {
 type BlockWire struct {
 	Kind  string `json:"kind"`
 	Level int    `json:"level,omitempty"`
-	// Diagram marks a code block that is a Mermaid diagram, which the Browser
-	// Renderer draws (#191).
-	Diagram bool `json:"diagram,omitempty"`
-	// BeforeSource and AfterSource are a changed diagram's Mermaid source
-	// before and after the change, which the Browser Renderer draws side by
-	// side or stacked (#193): both for an edited diagram, BeforeSource alone
-	// for a removed one.
-	BeforeSource string `json:"before_source,omitempty"`
-	AfterSource  string `json:"after_source,omitempty"`
-	Side         string `json:"side"`
-	FirstLine    int    `json:"first_line"`
-	LastLine     int    `json:"last_line"`
-	Treatment    string `json:"treatment"`
+	// Diagram is, for a code block that is a Mermaid diagram, its source,
+	// which the Browser Renderer draws (#191, #193); nil for any other block.
+	Diagram   *DiagramSourcesWire `json:"diagram,omitempty"`
+	Side      string              `json:"side"`
+	FirstLine int                 `json:"first_line"`
+	LastLine  int                 `json:"last_line"`
+	Treatment string              `json:"treatment"`
 	// Path is the block's heading path, outermost heading first, which the TUI
 	// draws in the Excerpt's sticky file header (#145).
 	Path []string `json:"path,omitempty"`
@@ -105,13 +99,49 @@ func toBlockWires(blocks []review.Block) []BlockWire {
 	var out []BlockWire
 	for _, b := range blocks {
 		out = append(out, BlockWire{
-			Kind: string(b.Kind), Level: b.Level, Diagram: b.Diagram,
-			BeforeSource: b.BeforeSource, AfterSource: b.AfterSource, Side: string(b.Side),
+			Kind: string(b.Kind), Level: b.Level, Diagram: toDiagramSourcesWire(b.Diagram), Side: string(b.Side),
 			FirstLine: b.Lines.First, LastLine: b.Lines.Last, Treatment: string(b.Treatment),
 			Path: b.Path,
 		})
 	}
 	return out
+}
+
+// DiagramSourcesWire is a Mermaid diagram's source before and after the
+// change, each line ending in a newline, "" for a side it is no diagram on
+// (review.DiagramSources).
+type DiagramSourcesWire struct {
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
+}
+
+func toDiagramSourcesWire(sources *review.DiagramSources) *DiagramSourcesWire {
+	if sources == nil {
+		return nil
+	}
+	return &DiagramSourcesWire{Before: sources.Before, After: sources.After}
+}
+
+// DiagramFileWire is an Excerpt of a Mermaid diagram file (.mmd, .mermaid)
+// seen as the one diagram the whole file is (review.DiagramFile): how the
+// change treated what the Excerpt shows, the file's source, and, when dbn
+// could read the file on the Excerpt's side (Read), the lines it spans there.
+type DiagramFileWire struct {
+	Treatment string             `json:"treatment"`
+	Sources   DiagramSourcesWire `json:"sources"`
+	Read      bool               `json:"read,omitempty"`
+	FirstLine int                `json:"first_line,omitempty"`
+	LastLine  int                `json:"last_line,omitempty"`
+}
+
+func toDiagramFileWire(file *review.DiagramFile) *DiagramFileWire {
+	if file == nil {
+		return nil
+	}
+	return &DiagramFileWire{
+		Treatment: string(file.Treatment), Sources: *toDiagramSourcesWire(&file.Sources),
+		Read: file.Read, FirstLine: file.Lines.First, LastLine: file.Lines.Last,
+	}
 }
 
 func toEmphasisWire(ranges []intraline.Range) [][2]int {
@@ -138,13 +168,10 @@ type ExcerptWire struct {
 	// Plain says a Document Excerpt's file is prose that is not Markdown, so its
 	// paragraphs are drawn without Markdown styling.
 	Plain bool `json:"plain,omitempty"`
-	// DiagramFile is set on an Excerpt of a Mermaid diagram file (.mmd,
-	// .mermaid): the whole file as one diagram block, its lines those of the
-	// file on the Excerpt's side (none when dbn could not read it), treated as
-	// the change treated what the Excerpt shows. The file is code: its rows are
-	// in no block and Blocks is empty. The Browser Renderer draws the diagram
-	// when the Excerpt shows all of it (#194).
-	DiagramFile *BlockWire `json:"diagram_file,omitempty"`
+	// DiagramFile is set on an Excerpt of a Mermaid diagram file. The file is
+	// code: its rows are in no block and Blocks is empty. The Browser Renderer
+	// draws the diagram when the Excerpt shows all of it (#194).
+	DiagramFile *DiagramFileWire `json:"diagram_file,omitempty"`
 }
 
 type AcknowledgedFileWire struct {
@@ -549,9 +576,7 @@ func toExcerptWires(views []review.ExcerptView) []ExcerptWire {
 			ChangedOnDisk: view.ChangedOnDisk,
 			Blocks:        toBlockWires(view.Blocks),
 			Plain:         view.Plain,
-		}
-		if view.DiagramFile != nil {
-			wire.DiagramFile = &toBlockWires([]review.Block{*view.DiagramFile})[0]
+			DiagramFile:   toDiagramFileWire(view.DiagramFile),
 		}
 		for _, line := range view.Lines {
 			wire.Lines = append(wire.Lines, toLineWire(line))

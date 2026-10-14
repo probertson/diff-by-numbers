@@ -38,13 +38,11 @@ type documentRow struct {
 	// tracked is, for a row of an edited or removed block, how the page draws
 	// it as track changes; nil for a row rendered as Markdown.
 	tracked *trackedLine
-	// diagram marks a row of a Mermaid diagram the stretch shows whole, which
-	// the page draws as a picture (#191).
-	diagram bool
-	// change is, for a row of an edited or removed Mermaid diagram the stretch
-	// shows whole, the diagram's source before and after, which the page draws
-	// as pictures above the edit (#193); nil for any other row.
-	change *diagramChange
+	// diagram is, for a row of a Mermaid diagram the stretch shows whole, the
+	// diagram's source: the page draws a new or unchanged one (#191), and an
+	// edited or removed one "before" and "after" above its edit (#193); nil
+	// for any other row.
+	diagram *DiagramSourcesWire
 }
 
 // classes is the class attribute a block's element carries for its first
@@ -394,12 +392,12 @@ func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node
 }
 
 // renderFencedCode draws a fence dbn marked as a Mermaid diagram as a diagram
-// container holding its source as authored, which the page's script has
+// container holding its source as dbn read it, which the page's script has
 // Mermaid draw (page.js); any other fence is drawn as goldmark draws it. The
 // container carries the block's attributes, as the fence would have.
 func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	offset, ok := firstOffset(node)
-	if !ok || !d.rowAt(offset).diagram {
+	if !ok || d.rowAt(offset).diagram == nil {
 		return htmlFuncs[ast.KindFencedCodeBlock](w, source, node, entering)
 	}
 	if !entering {
@@ -407,13 +405,7 @@ func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast
 	}
 	classes, _ := node.AttributeString("class")
 	class, _ := classes.(string)
-	var diagram strings.Builder
-	lines := node.Lines()
-	for i := 0; i < lines.Len(); i++ {
-		line := lines.At(i)
-		diagram.Write(line.Value(source))
-	}
-	writeDiagram(w, class, func() { html.RenderAttributes(w, node, onlyData) }, diagram.String())
+	writeDiagram(w, class, func() { html.RenderAttributes(w, node, onlyData) }, d.rowAt(offset).diagram.After)
 	return ast.WalkSkipChildren, nil
 }
 

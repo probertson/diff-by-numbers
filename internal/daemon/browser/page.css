@@ -191,14 +191,20 @@ h2 { font-size: 1rem; }
    its source. The diagram may use the page's whole width, beyond the prose.
    Padded, so the cursor's highlight frames the drawing and a Comment's bar
    stands clear of it. */
+.document {
+  --diagram-width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
+  /* The gap between a changed diagram's "before" and "after" side by side,
+     which page.js reads to decide whether both fit. */
+  --diagram-gap: 24px;
+}
 .document figure.diagram {
   margin: 1rem 0;
   padding: 0.5rem;
-  width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
+  width: var(--diagram-width);
 }
 .document .diagram.drawn .diagram-source { display: none; }
-.document .diagram-picture { overflow-x: auto; }
-.document .diagram-picture img { display: block; max-width: 100%; height: auto; border: 0; }
+.document .diagram-drawing { overflow-x: auto; }
+.document .diagram-drawing img { display: block; max-width: 100%; height: auto; border: 0; }
 .document .diagram-error {
   margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
@@ -212,16 +218,18 @@ h2 { font-size: 1rem; }
 
 /* A changed diagram: "before" and "after", labelled, one above the other, or
    side by side when both fit at full size (page.js), with the edit to its
-   source beneath. A removed one: "before" alone, dimmed. dbn draws nothing on
-   the drawings themselves; the block's gutter sign stays beside, outside them.
-   The pair's container is the block, padded as a lone diagram is. */
+   source beneath. A removed one: "before" alone, dimmed. "No dbn change marks
+   on diagrams" (#191) is read as nothing drawn on or over a drawing: the
+   block's gutter sign (+, ± or -) stays, since it stands in the margin,
+   outside the drawing, as it does beside any block. The pair's container is
+   the block, padded as a lone diagram is. */
 .document .diagram-change {
   margin: 1rem 0;
   padding: 0.5rem;
-  width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
+  width: var(--diagram-width);
 }
 .document .diagram-change figure.diagram { width: auto; margin: 0 0 1rem; padding: 0; }
-.document .diagram-pair.side-by-side { display: flex; gap: 24px; align-items: flex-start; }
+.document .diagram-pair.side-by-side { display: flex; gap: var(--diagram-gap); align-items: flex-start; }
 .document .diagram-pair.side-by-side figure.diagram { flex: 0 1 auto; min-width: 0; }
 .document .diagram-label {
   margin-bottom: 0.25rem;

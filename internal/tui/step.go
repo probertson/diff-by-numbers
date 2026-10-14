@@ -83,7 +83,7 @@ type codeLine struct {
 	// as dbn gives it: a block's own, or a line's (#145). Code has none.
 	path []string
 	// diagramHint reports whether this is where a Mermaid diagram begins, so the
-	// row saying its picture is in the browser is drawn above it: a diagram
+	// row saying its drawing is in the browser is drawn above it: a diagram
 	// block's stop, or its first line shown as source, or the first row of an
 	// Excerpt of a diagram file.
 	diagramHint bool
@@ -1036,7 +1036,7 @@ func (in paneInputs) rows(wrapCap int) []paneRow {
 			fileHeader = dimSt.Render(fileHeaderText(label, headerPath, width))
 		}
 	}
-	// A Mermaid diagram is headed by a row saying its picture is in the browser.
+	// A Mermaid diagram is headed by a row saying its drawing is in the browser.
 	hint := func(line codeLine) {
 		if line.diagramHint {
 			decor(diagramHint(width), fileHeader, ackHeader)

@@ -16,36 +16,65 @@ func isDiagramFile(path string) bool {
 	return false
 }
 
-// withDiagramFile marks an Excerpt of a diagram file with the whole file as
-// one diagram block (ExcerptView.DiagramFile). A diagram file is code: one the
-// agent has made a Document is read as one and left as it is, as is an
-// Excerpt dbn could not read.
+// DiagramSources is a Mermaid diagram's source before and after the change,
+// each line ending in a newline: for a fenced diagram what lies between its
+// fences, for a diagram file the whole file. "" stands for a side it is no
+// diagram on: a new diagram has only After, a removed one only Before, and an
+// unchanged one both, the same. An edited one has both, or only After when it
+// was made from something that was no diagram, or dbn could not read what it
+// was. Before is what the changes are read against: the merge-base, or the
+// previous Round's Snapshot in a Revision Round.
+type DiagramSources struct {
+	Before, After string
+}
+
+// diagramSourcesOf is the source of a diagram treated so, as one side holds
+// it: an edited one's Before is read elsewhere.
+func diagramSourcesOf(treatment Treatment, source string) DiagramSources {
+	switch treatment {
+	case TreatmentRemoved:
+		return DiagramSources{Before: source}
+	case TreatmentContext:
+		return DiagramSources{Before: source, After: source}
+	}
+	return DiagramSources{After: source}
+}
+
+// DiagramFile is an Excerpt of a Mermaid diagram file seen as the one diagram
+// the whole file is: how the change treated what the Excerpt shows, and the
+// file's source, so the Browser Renderer draws it as a fenced diagram is drawn.
+type DiagramFile struct {
+	Treatment Treatment
+	Sources   DiagramSources
+	// Read reports whether dbn could read the file on the Excerpt's side.
+	// Lines then spans the whole file there; otherwise Lines and Sources are
+	// empty, and nothing takes the Excerpt for all of the file.
+	Read  bool
+	Lines LineRange
+}
+
+// withDiagramFile marks an Excerpt of a diagram file as one
+// (ExcerptView.DiagramFile). A diagram file is code: one the agent has made a
+// Document is read as one and left as it is, as is an Excerpt dbn could not
+// read.
 //
-// The block spans the file on the Excerpt's side, or no lines when dbn cannot
-// read the whole file, so that nothing takes the Excerpt for all of it. Its
-// treatment is what the Excerpt's rows show: new when every row is one the
+// Its treatment is what the Excerpt's rows show: new when every row is one the
 // change added, removed when every row is one it removed, context when none
-// changed, and edited otherwise. A changed diagram file carries its source as
-// a changed fenced diagram does (#193): an edited one, the whole file before
-// and after the change, a removed one only before. Before is what the changes
-// are read against: the merge-base, or the previous Round's Snapshot in a
-// Revision Round.
+// changed, and edited otherwise.
 func (s *Session) withDiagramFile(view ExcerptView) ExcerptView {
 	excerpt := view.Excerpt
 	if view.Problem != "" || !isDiagramFile(excerpt.File) || s.ledger.isDocumentAfterOverruling(excerpt.Repository, excerpt.File) {
 		return view
 	}
-	block := Block{Kind: BlockCode, Diagram: true, Side: excerpt.Side, Treatment: diagramTreatment(view)}
+	file := DiagramFile{Treatment: diagramTreatment(view)}
 	if source, ok := s.readDiagram(excerpt.Repository, excerpt.File, excerpt.Side, s.latest.RoundSource); ok {
-		block.Lines = LineRange{First: 1, Last: strings.Count(source, "\n")}
-		switch block.Treatment {
-		case TreatmentRemoved:
-			block.BeforeSource = source
-		case TreatmentEdited:
-			block.BeforeSource, block.AfterSource = s.diagramSourceBefore(excerpt.Repository, excerpt.File), source
+		file.Read, file.Lines = true, LineRange{First: 1, Last: strings.Count(source, "\n")}
+		file.Sources = diagramSourcesOf(file.Treatment, source)
+		if file.Treatment == TreatmentEdited {
+			file.Sources.Before = s.diagramSourceBefore(excerpt.Repository, excerpt.File)
 		}
 	}
-	view.DiagramFile = &block
+	view.DiagramFile = &file
 	return view
 }
 

@@ -214,7 +214,7 @@ func newPageData(label string, view ViewWire, ctx pageContext) pageData {
 		Title:       title,
 		StopURL:     base + "/stop",
 		EventsURL:   base + "/events",
-		DiagramsURL: DiagramsPath,
+		DiagramsURL: diagramsPath,
 		Style:       pageStyle,
 		Script:      pageScript,
 		Stop:        newStopData(view, ctx),
@@ -429,7 +429,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
-				diagram: excerpt.Blocks[line.Block-1].Diagram && shownWhole(line.Block, excerpt),
+				diagram: wholeDiagram(line.Block, excerpt),
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
@@ -442,9 +442,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				}
 				row := trackedRow(line, block, commentedBlocks[line.Block])
 				row.place, row.cursor = x.blockPlace(line.Block), drawn(x.onCursor(x.blockPlace(line.Block)))
-				if block.Diagram && shownWhole(line.Block, excerpt) {
-					row.change = &diagramChange{before: block.BeforeSource, after: block.AfterSource}
-				}
+				row.diagram = wholeDiagram(line.Block, excerpt)
 				stretch = append(stretch, row)
 			}
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
@@ -473,17 +471,16 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 }
 
 // drawsDiagramFile reports whether an Excerpt of a diagram file is drawn as
-// its diagram: when it shows every line of the file on the diagram block's
-// side. Part of a diagram file stays code, as part of a fenced diagram does
-// (shownWhole).
+// its diagram: when it shows every line of the file on its side. Part of a
+// diagram file stays code, as part of a fenced diagram does (wholeDiagram).
 func drawsDiagramFile(excerpt ExcerptWire) bool {
 	file := excerpt.DiagramFile
-	if file == nil || file.FirstLine < 1 || file.LastLine < file.FirstLine {
+	if file == nil || !file.Read {
 		return false
 	}
 	shown := map[int]bool{}
 	for _, line := range excerpt.Lines {
-		if !line.Signpost && sideOf(line, excerpt) == file.Side {
+		if !line.Signpost && sideOf(line, excerpt) == excerpt.Side {
 			shown[line.Number] = true
 		}
 	}
@@ -496,60 +493,50 @@ func drawsDiagramFile(excerpt ExcerptWire) bool {
 }
 
 // layoutDiagramFile lays out an Excerpt showing a whole diagram file as a
-// fenced diagram is drawn: a new or unchanged one as a diagram container, an
-// edited one as "before" and "after" with the edit to its source beneath, and
-// a removed one as "before" alone, dimmed (renderDiagramChange). The edit
-// beneath is the file's rows, as any code's. What holds the diagram is at the
-// places of every row, as a fenced diagram is at its block's: a Comment on any
-// row is on the diagram, and the TUI's cursor on any row is on it.
+// fenced diagram is drawn: a new or unchanged one as a diagram container, and
+// an edited or removed one as renderDiagramChange draws it, the file's rows
+// the edit beneath. What holds the diagram is at the places of every row, as a
+// fenced diagram is at its block's: a Comment on any row is on the diagram,
+// and the TUI's cursor on any row is on it.
 func layoutDiagramFile(excerpt ExcerptWire, comments []CommentWire, x excerptContext) ([]pieceData, []int, bool) {
 	file := excerpt.DiagramFile
-	var places, source []string
+	var places []string
+	var edit []documentRow
 	commented := false
 	for _, line := range excerpt.Lines {
 		places = append(places, x.rowPlaces(line, excerpt)...)
-		source = append(source, line.Text+"\n")
+		edit = append(edit, diagramFileEditRow(line, excerpt))
 		for _, comment := range comments {
 			commented = commented || covers(comment, excerpt, line)
 		}
 	}
 	cursor := x.onCursor(places...)
-	var classes []string
-	if commented {
-		classes = append(classes, "commented")
-	}
-	if cursor {
-		classes = append(classes, "cursor")
-	}
-	attributes := ` data-place="` + template.HTMLEscapeString(strings.Join(places, " ")) + `"`
-	if file.Treatment != string(review.TreatmentContext) {
-		attributes += ` data-treatment="` + template.HTMLEscapeString(file.Treatment) + `"`
-	}
+	place := strings.Join(places, " ")
 
-	var out strings.Builder
+	var held template.HTML
 	switch file.Treatment {
 	case string(review.TreatmentEdited), string(review.TreatmentRemoved):
-		removed := file.Treatment == string(review.TreatmentRemoved)
-		if removed {
-			classes = append([]string{"removed"}, classes...)
-		}
-		out.WriteString(`<div class="` + strings.Join(append([]string{"diagram-change"}, classes...), " ") + `"` + attributes + `>`)
-		out.WriteString(diagramPair(diagramChange{before: file.BeforeSource, after: file.AfterSource}, removed))
-		out.WriteString("</div>\n")
+		held = renderDiagramChange(changedDiagram{
+			sources: file.Sources, treatment: file.Treatment, place: place,
+			commented: commented, cursor: cursor, edit: edit,
+		})
 	default:
-		writeDiagram(&out, strings.Join(classes, " "), func() { out.WriteString(attributes) }, strings.Join(source, ""))
-	}
-	pieces := []pieceData{{HTML: template.HTML(out.String())}}
-	pieceOfRow := make([]int, len(excerpt.Lines))
-	if file.Treatment == string(review.TreatmentEdited) {
-		var rows []rowData
-		for i, line := range excerpt.Lines {
-			rows = append(rows, sourceRow(line, excerpt, comments, x))
-			pieceOfRow[i] = 1
+		var classes []string
+		if commented {
+			classes = append(classes, "commented")
 		}
-		pieces = append(pieces, pieceData{Rows: rows})
+		if cursor {
+			classes = append(classes, "cursor")
+		}
+		attributes := ` data-place="` + template.HTMLEscapeString(place) + `"`
+		if file.Treatment != string(review.TreatmentContext) {
+			attributes += ` data-treatment="` + template.HTMLEscapeString(file.Treatment) + `"`
+		}
+		var out strings.Builder
+		writeDiagram(&out, strings.Join(classes, " "), func() { out.WriteString(attributes) }, file.Sources.After)
+		held = template.HTML(out.String())
 	}
-	return pieces, pieceOfRow, cursor
+	return []pieceData{{HTML: held}}, make([]int, len(excerpt.Lines)), cursor
 }
 
 // edited reports whether a row of a Document Excerpt is in a block an edit
@@ -579,9 +566,20 @@ func rendered(line LineWire, excerpt ExcerptWire) bool {
 	return sideOf(line, excerpt) == block.Side
 }
 
+// wholeDiagram is the source of one of an Excerpt's blocks (numbered from 1)
+// that is a Mermaid diagram the Excerpt shows whole, and nil for any other
+// block. A diagram an Excerpt cuts into is not drawn, since a part of one is
+// not the diagram its author drew.
+func wholeDiagram(block int, excerpt ExcerptWire) *DiagramSourcesWire {
+	diagram := excerpt.Blocks[block-1].Diagram
+	if diagram == nil || !shownWhole(block, excerpt) {
+		return nil
+	}
+	return diagram
+}
+
 // shownWhole reports whether an Excerpt shows every line of one of its blocks
-// (numbered from 1), on the block's own side. A diagram an Excerpt cuts into
-// is not drawn, since a part of one is not the diagram its author drew.
+// (numbered from 1), on the block's own side.
 func shownWhole(block int, excerpt ExcerptWire) bool {
 	b := excerpt.Blocks[block-1]
 	shown := 0
