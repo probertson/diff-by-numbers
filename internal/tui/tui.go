@@ -89,6 +89,7 @@ func start(opts Options) (model, error) {
 	}
 	starting.updateCheck = opts.UpdateCheck
 	starting.proseWidth = opts.ProseWidth
+	starting.openURL = openInBrowser
 	if opts.ConfigWarning != "" {
 		starting.configNotice = "config: " + opts.ConfigWarning
 	}
@@ -374,6 +375,13 @@ type model struct {
 	// the TUI, holds for the whole review, and starts off again on the next
 	// launch.
 	showSource bool
+	// openURL opens the review's page in the Reviewer's browser: the system's
+	// opener when the TUI runs, a stand-in in a test. Nil opens nothing, and p
+	// then only says where the page is.
+	openURL func(url string) error
+	// pageNotice says where the page p opened is. It takes the status line until
+	// the next keypress.
+	pageNotice string
 	width      int
 	height     int
 	ready      bool
@@ -1035,6 +1043,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+		m.pageNotice = ""
 
 		if m.mode == modeInbox {
 			return m.inboxKey(key)
@@ -1061,6 +1070,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.confirmingQuit = false
 			}
 			return m, nil
+		}
+
+		// The page is opened from any screen of an open review, except where p
+		// is text being typed or an armed y/n is waiting for its answer.
+		if key == "p" && m.mode != modeNote && !m.confirmingDelete {
+			if _, ok := m.pageURL(); ok {
+				return m.openPage(), nil
+			}
 		}
 
 		switch m.mode {
@@ -1718,7 +1735,8 @@ func (m model) View() string {
 		}
 	case modeConclusion:
 		body = m.conclusionView()
-		persistent = keybar("← back", "g Overview", "l list", "h hand off", "i inbox", "q exit")
+		tokens := append([]string{"← back", "g Overview", "l list", "h hand off", "i inbox"}, m.pageKey()...)
+		persistent = keybar(append(tokens, "q exit")...)
 		if m.confirmingQuit {
 			stateful = m.quitGuardMessage()
 		}
@@ -1756,6 +1774,9 @@ func (m model) View() string {
 			stateful = m.quitGuardMessage()
 		}
 	}
+	if m.pageNotice != "" {
+		stateful = m.pageNotice
+	}
 
 	return m.frame(m.header(), body, stateful, persistent)
 }
@@ -1791,7 +1812,8 @@ func (m model) globalKeys() string {
 	if m.view == nil || !m.view.Posted {
 		return keybar("q exit")
 	}
-	return keybar(append(m.navHints(), "g Overview", "l list", "h hand off", "i inbox", "q exit")...)
+	tokens := append(m.navHints(), "g Overview", "l list", "h hand off", "i inbox")
+	return keybar(append(append(tokens, m.pageKey()...), "q exit")...)
 }
 
 // modeKeys is the blue row: the actions available on the current page only. It
@@ -2870,6 +2892,7 @@ func (m model) brief() string {
 		b.WriteString(fmt.Sprintf("  %s  (base: %s)\n", repository.Root, repository.Base))
 	}
 	b.WriteString("\n")
+	b.WriteString(m.pageLine())
 
 	// A Round in Chapters lists its Chapters here and each Chapter's Steps on
 	// its intro, so the whole Round fits on one screen.

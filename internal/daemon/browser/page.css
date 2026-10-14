@@ -1,0 +1,149 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --dim: #6b6b6b;
+  --rule: #d0d7de;
+  --panel: #f6f8fa;
+  --accent: #005f87;
+  --added: #207520;
+  --added-bg: #e6f4e6;
+  --removed: #a01010;
+  --removed-bg: #fbe9e9;
+  --edited: #8a6d00;
+  --comment: #b05a00;
+  --warn: #af5f00;
+  --prose: "Iowan Old Style", "Charter", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --fg: #e6e6e6;
+    --dim: #9a9a9a;
+    --rule: #30363d;
+    --panel: #1e2228;
+    --accent: #5fd7ff;
+    --added: #87d787;
+    --added-bg: #1d3320;
+    --removed: #ff8787;
+    --removed-bg: #3a1e1e;
+    --edited: #e5c07b;
+    --comment: #ffaf5f;
+    --warn: #ffaf5f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.connection {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  background: var(--panel);
+  color: var(--warn);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.notice { color: var(--dim); }
+.dim { color: var(--dim); }
+.warning { color: var(--warn); font-weight: 600; }
+
+.step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
+.step-header h1 { margin: 0.25rem 0 1rem; font-size: 1.5rem; }
+.explanation { white-space: pre-wrap; max-width: 48rem; }
+.oversize { color: var(--warn); }
+
+h2 { font-size: 1rem; }
+
+.questions {
+  margin: 1.5rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+}
+.questions h2 { margin: 0.25rem 0; color: var(--accent); }
+.question-text { white-space: pre-wrap; }
+.answer .label { color: var(--dim); }
+
+.excerpt, .acknowledgement, .loose-comments { margin-top: 2rem; }
+
+.file-header {
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: normal;
+}
+
+/* Code, in the TUI's source view style: signs and coloured changed text. */
+.source {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  overflow-x: auto;
+}
+.row { display: flex; white-space: pre; }
+.row .mark { width: 1.25em; flex: none; color: var(--comment); }
+.row .number { width: 4em; flex: none; padding-right: 0.75em; text-align: right; color: var(--dim); user-select: none; }
+.row .sign { width: 1.5em; flex: none; user-select: none; }
+.row .text { flex: 1; }
+.row.added .sign, .row.added .changed { color: var(--added); }
+.row.removed .sign, .row.removed .changed { color: var(--removed); }
+.row.added .changed, .row.removed .changed { font-weight: 600; }
+.row.widened, .row.signpost { color: var(--dim); }
+.row.signpost { font-style: italic; }
+
+/* A Document, rendered. */
+.document {
+  font-family: var(--prose);
+  font-size: 1.0625rem;
+  max-width: 48rem;
+}
+.document h1, .document h2, .document h3, .document h4, .document h5, .document h6 {
+  font-family: var(--sans);
+  line-height: 1.25;
+}
+.document code, .document pre { font-family: var(--mono); font-size: 0.875em; }
+.document pre, .document .raw-html {
+  padding: 0.75rem;
+  background: var(--panel);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.document table { border-collapse: collapse; margin: 1rem 0; font-family: var(--sans); font-size: 0.9375rem; display: block; overflow-x: auto; }
+.document th, .document td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; }
+.document th { background: var(--panel); }
+.document blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--rule); color: var(--dim); }
+.document .image { color: var(--dim); font-style: italic; }
+.document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
+
+.comment {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-left: 3px solid var(--comment);
+  background: var(--panel);
+}
+.comment .mark { color: var(--comment); }
+.comment p { margin: 0.25rem 0; white-space: pre-wrap; }
+
+.manifest { font-family: var(--mono); font-size: 0.875rem; padding-left: 1.25rem; }

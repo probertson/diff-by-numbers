@@ -65,6 +65,10 @@ type Daemon struct {
 	waiting     map[string]*waiters
 	waitHold    time.Duration
 	waiterGrace time.Duration
+
+	// pages are the Browser Renderer pages open on each review, following its
+	// change stream.
+	pages pageFeed
 }
 
 // Option configures a Daemon at construction.
@@ -444,6 +448,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -464,6 +469,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -486,6 +492,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -501,6 +508,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -514,6 +522,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -553,6 +562,7 @@ func (d *Daemon) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	}))
 
@@ -647,6 +657,8 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		fmt.Fprintln(w, "Review dismissed")
 	}))
+
+	d.browserRoutes(mux)
 	return d.withActivity(mux)
 }
 
@@ -749,6 +761,7 @@ func (d *Daemon) navHandler(intent func(*review.Session) error) http.HandlerFunc
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	})
 }
@@ -767,6 +780,7 @@ func (d *Daemon) numberedNavHandler(what string, intent func(*review.Session, in
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		d.changed(session.ReviewID())
 		fmt.Fprintln(w, "ok")
 	})
 }
@@ -888,6 +902,9 @@ func (d *Daemon) postRound(_ context.Context, _ *mcp.CallToolRequest, in wireRou
 		}
 		return nil, postResult{}, err
 	}
+	// A Revision Round or a Replacement puts a new Round under any page open on
+	// the review.
+	d.changed(session.ReviewID())
 	return nil, postResult{
 		Accepted:    true,
 		ReviewID:    session.ReviewID(),

@@ -55,7 +55,7 @@ func TestAStepExplanationWrapsAtTheProseWidthWhileCodeKeepsThePane(t *testing.T)
 	if w := widestRowWith(out, codeTail); w <= 72 {
 		t.Errorf("the code row is %d cells, want it to keep the pane's width:\n%s", w, out)
 	}
-	if !strings.Contains(out, keybar(append(m.navHints(), "g Overview", "l list", "h hand off", "i inbox", "q exit")...)) {
+	if !strings.Contains(out, m.globalKeys()) {
 		t.Errorf("the keybar should keep the pane's width, unwrapped:\n%s", out)
 	}
 }

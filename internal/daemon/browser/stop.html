@@ -1,0 +1,76 @@
+{{define "stop" -}}
+<div class="stop" data-key="{{.Key}}">
+{{- if .Step}}{{template "step" .Step}}{{else}}
+<p class="notice">{{.Notice}}</p>
+{{- end}}
+</div>
+{{- end}}
+
+{{define "step" -}}
+<header class="step-header">
+<p class="step-number">Step {{.Number}} of {{.Count}}</p>
+<h1>{{.Name}}</h1>
+</header>
+<div class="explanation">{{.Explanation}}</div>
+{{- if .Oversize}}
+<p class="oversize"><strong>oversized:</strong> {{.Oversize}}</p>
+{{- end}}
+{{- if .Questions}}
+<section class="questions">
+<h2>Agent Questions</h2>
+{{- range .Questions}}
+<div class="question">
+<p class="question-text">{{.Text}}</p>
+{{- if .Answer}}
+<p class="answer"><span class="label">You answered:</span> {{.Answer}}</p>
+{{- end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+{{- range .Excerpts}}{{template "excerpt" .}}{{end}}
+{{- range .Acknowledgements}}
+<section class="acknowledgement">
+<h2 class="file-header">Acknowledged: {{.Reason}}</h2>
+<ul class="manifest">
+{{- range .Entries}}
+<li><span class="file">{{.File}}</span> <span class="dim">{{.Change}}{{if .Opaque}}, {{.Opaque}}{{else}}, {{.ChangedLines}} changed lines{{end}}</span></li>
+{{- end}}
+</ul>
+{{- range .Comments}}{{template "comment" .}}{{end}}
+</section>
+{{- end}}
+{{- if .Comments}}
+<section class="loose-comments">
+{{- range .Comments}}{{template "comment" .}}{{end}}
+</section>
+{{- end}}
+{{- end}}
+
+{{define "excerpt" -}}
+<section class="excerpt">
+<h2 class="file-header">{{.Label}}</h2>
+{{- if .ChangedOnDisk}}
+<p class="warning">This file has changed on disk since the round was posted. These are the lines as posted.</p>
+{{- end}}
+{{- if .Problem}}
+<p class="warning">Cannot show this Excerpt: {{.Problem}}</p>
+{{- end}}
+{{- range .Pieces}}
+{{- if .Rows}}
+<div class="source">
+{{- range .Rows}}
+<div class="row {{.Class}}{{if .Commented}} commented{{end}}"><span class="mark">{{if .Commented}}●{{end}}</span><span class="number">{{if .Number}}{{.Number}}{{end}}</span><span class="sign">{{.Sign}}</span><span class="text">{{range .Parts}}{{if .Changed}}<span class="changed">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</span></div>
+{{- end}}
+</div>
+{{- else}}
+<div class="document">{{.HTML}}</div>
+{{- end}}
+{{- range .Comments}}{{template "comment" .}}{{end}}
+{{- end}}
+</section>
+{{- end}}
+
+{{define "comment" -}}
+<aside class="comment"><span class="mark">●</span> <span class="dim">#{{.ID}} {{.Location}}</span><p>{{.Note}}</p></aside>
+{{- end}}

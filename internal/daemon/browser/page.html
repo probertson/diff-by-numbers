@@ -1,0 +1,16 @@
+{{define "page" -}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<style>{{.Style}}</style>
+</head>
+<body data-stop-url="{{.StopURL}}" data-events-url="{{.EventsURL}}">
+<p id="connection" class="connection" hidden></p>
+<main id="stop">{{template "stop" .Stop}}</main>
+<script>{{.Script}}</script>
+</body>
+</html>
+{{- end}}
