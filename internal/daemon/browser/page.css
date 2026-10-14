@@ -137,6 +137,44 @@ h2 { font-size: 1rem; }
 .document .image { color: var(--dim); font-style: italic; }
 .document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
 
+/* Each new, edited or removed block marked as the TUI's gutter marks it. */
+.document { padding-left: 1.5em; }
+.document [data-treatment="new"] { --mark: var(--added); --sign: "+"; }
+.document [data-treatment="edited"] { --mark: var(--edited); --sign: "±"; }
+.document [data-treatment="removed"] { --mark: var(--removed); --sign: "-"; }
+.document [data-treatment] { position: relative; }
+.document [data-treatment]::before {
+  content: var(--sign);
+  position: absolute;
+  left: -1.25em;
+  color: var(--mark);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.document li[data-treatment]::before { left: -3.6em; }
+/* A table row cannot hold a sign beside it, so it is marked by a bar. */
+.document tr[data-treatment]::before, .document thead[data-treatment]::before { content: none; }
+.document tr[data-treatment] > :first-child,
+.document thead[data-treatment] > tr > :first-child { box-shadow: inset 3px 0 0 var(--mark); }
+
+/* An edited or removed block, as track changes over its source: struck and
+   inserted words, and its Markdown markers shown muted rather than rendered. */
+.document .tracked { margin: 1em 0; }
+.document .tracked .line { white-space: pre-wrap; }
+.document .tracked.heading { font-family: var(--sans); font-weight: 600; }
+.document .tracked.table-row, .document .tracked.code, .document .tracked.frontmatter,
+.document .source-row { font-family: var(--mono); font-size: 0.875em; }
+.document .md { color: var(--dim); }
+.document .bold { font-weight: 600; }
+.document .italic { font-style: italic; }
+.document .code { font-family: var(--mono); font-size: 0.875em; }
+.document del { color: var(--removed); background: var(--removed-bg); text-decoration: line-through; }
+.document ins { color: var(--added); background: var(--added-bg); text-decoration: underline; }
+.document del .md, .document ins .md { color: inherit; opacity: 0.7; }
+
+/* What an Excerpt was widened by, so that no block is read in part. */
+.document .widened { color: var(--dim); }
+
 .comment {
   margin: 0.5rem 0 0.75rem;
   padding: 0.25rem 0.75rem;
