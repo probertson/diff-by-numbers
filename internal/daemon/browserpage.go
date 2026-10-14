@@ -334,9 +334,8 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 
 // layoutExcerpt cuts an Excerpt's rows into pieces, returning the piece each
 // row went into. Code is all source rows. In a Document, each stretch of new
-// and unchanged blocks is rendered; an edited or removed block, and any row in
-// no block, is drawn as source until the page draws edits as the TUI does
-// (#188).
+// and unchanged blocks is rendered, with each edited or removed block in it
+// drawn as track changes; a row in no block is drawn as source.
 //
 // The rows cursor is on, when it is in this Excerpt, are marked as its.
 func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentImages, cursor *CursorWire) ([]pieceData, []int) {
@@ -376,8 +375,22 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 			if len(rows) > 0 {
 				flush()
 			}
-			stretch = append(stretch, documentRow{text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
-				cursor: cursor.on(line, excerpt)})
+			stretch = append(stretch, documentRow{
+				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
+				cursor: cursor.on(line, excerpt), treatment: excerpt.Blocks[line.Block-1].Treatment,
+				widened: line.Widened,
+			})
+		case edited(line, excerpt):
+			// An edited or removed block is drawn as track changes in the
+			// stretch it sits in, from its own rows; the lines an edit
+			// replaced draw nothing, as their struck words are in those rows.
+			block := excerpt.Blocks[line.Block-1]
+			if sideOf(line, excerpt) == block.Side {
+				if len(rows) > 0 {
+					flush()
+				}
+				stretch = append(stretch, trackedRow(line, block, commentedBlocks[line.Block], cursor.on(line, excerpt)))
+			}
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
 			// A blank line between blocks belongs to the stretch it sits in,
 			// where it keeps two paragraphs apart; on its own it draws nothing.
@@ -399,6 +412,16 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, images documentI
 	}
 	flush()
 	return pieces, pieceOfRow
+}
+
+// edited reports whether a row of a Document Excerpt is in a block an edit
+// changed or removed, which the page draws as track changes.
+func edited(line LineWire, excerpt ExcerptWire) bool {
+	if line.Block < 1 || line.Block > len(excerpt.Blocks) || line.Signpost {
+		return false
+	}
+	treatment := excerpt.Blocks[line.Block-1].Treatment
+	return treatment == string(review.TreatmentEdited) || treatment == string(review.TreatmentRemoved)
 }
 
 // rendered reports whether a row of a Document Excerpt is drawn rendered: a

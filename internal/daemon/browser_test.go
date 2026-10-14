@@ -87,7 +87,8 @@ func TestACodeExcerptIsDrawnInTheSourceViewsStyle(t *testing.T) {
 	})
 	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/advance")
 
-	out := html.UnescapeString(page(t, server.URL, posted.ReviewID))
+	// The stop, not the page: the page's style strikes through edited Documents.
+	out := html.UnescapeString(stop(t, server.URL, posted.ReviewID))
 
 	for _, want := range []string{
 		`<span class="sign">-</span><span class="text">the <span class="changed">old</span> guard</span>`,

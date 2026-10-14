@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -120,4 +121,63 @@ func TestACursorReportedOnAnotherStepMarksNothing(t *testing.T) {
 	if strings.Contains(out, "following") {
 		t.Errorf("expected nothing dimmed for a cursor from another Step, got:\n%s", out)
 	}
+}
+
+// An edited block is drawn as track changes (#188), which the cursor marks as
+// it marks a rendered block.
+func TestACursorOnAnEditedBlockMarksItsTrackChanges(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"# Retry policy\n\nA request is retried when the transport fails.\n",
+		"# Retry policy\n\nA request is resent when the transport fails.\n",
+		lines{"new", 1, 3})
+
+	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Block: 2})
+
+	out := stop(t, server.URL, reviewID)
+	tag := openingTag(out, `data-treatment="edited"`)
+	if !strings.Contains(tag, `data-block="2"`) || !isTheCursors(tag) {
+		t.Errorf("expected the edited block 2 marked as the cursor's, got %q in:\n%s", tag, out)
+	}
+	if tag := openingTag(out, `data-block="1"`); isTheCursors(tag) {
+		t.Errorf("expected only the cursor's block marked, but %q is too", tag)
+	}
+}
+
+// An edited table row stays a row of its table, which the cursor marks as the
+// row's, leaving the table holding it bright.
+func TestACursorOnAnEditedTableRowMarksThatRow(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	table := "# Retries\n\n" +
+		"| Attempt | Delay |\n" +
+		"| ------- | ----- |\n" +
+		"| 1       | 1s    |\n" +
+		"| 2       | %s    |\n" +
+		"| 3       | 4s    |\n"
+	reviewID := onAnEditedDocument(t, server.URL,
+		strings.Replace(table, "%s", "2s", 1),
+		strings.Replace(table, "%s", "3s", 1),
+		lines{"new", 5, 7})
+	block := regexp.MustCompile(`data-block="(\d+)"`).FindStringSubmatch(openingTag(stop(t, server.URL, reviewID), `data-treatment="edited"`))
+	if block == nil {
+		t.Fatal("expected the edited row to carry its block")
+	}
+
+	reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Block: atoi(t, block[1])})
+
+	out := stop(t, server.URL, reviewID)
+	if tag := openingTag(out, `data-treatment="edited"`); !strings.HasPrefix(tag, "<tr") || !isTheCursors(tag) {
+		t.Errorf("expected the edited row marked as the cursor's, got %q in:\n%s", tag, out)
+	}
+}
+
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatalf("not a number: %q", s)
+	}
+	return n
 }
