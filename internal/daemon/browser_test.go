@@ -127,6 +127,13 @@ func stop(t *testing.T, baseURL, reviewID string) string {
 // whole, and moves onto it.
 func onANewDocument(t *testing.T, baseURL, document string) string {
 	t.Helper()
+	return onExcerptsOfANewDocument(t, baseURL, document, [2]int{1, strings.Count(document, "\n")})
+}
+
+// onExcerptsOfANewDocument posts a Round whose one Step shows a new Markdown
+// Document in Excerpts, each its first and last line, and moves onto it.
+func onExcerptsOfANewDocument(t *testing.T, baseURL, document string, excerpts ...[2]int) string {
+	t.Helper()
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -144,16 +151,19 @@ func onANewDocument(t *testing.T, baseURL, document string) string {
 	git("checkout", "-q", "-b", "feature")
 	os.WriteFile(filepath.Join(root, "spec.md"), []byte(document), 0o644)
 	git("add", ".")
-	lines := strings.Count(document, "\n")
+	var shown []any
+	for _, lines := range excerpts {
+		shown = append(shown, map[string]any{
+			"repository": root, "file": "spec.md", "side": "new", "first_line": lines[0], "last_line": lines[1],
+		})
+	}
 	posted := postRound(t, baseURL, map[string]any{
 		"label":        "LABEL-the-review",
 		"brief":        map[string]any{"goal": "write the spec", "background": "none yet"},
 		"repositories": []any{map[string]any{"root": root, "base": "main"}},
 		"steps": []any{map[string]any{
 			"name": "The spec", "explanation": "all of it",
-			"excerpts": []any{map[string]any{
-				"repository": root, "file": "spec.md", "side": "new", "first_line": 1, "last_line": lines,
-			}},
+			"excerpts": shown,
 		}},
 	})
 	httpPost(t, reviewURL(baseURL, posted.ReviewID)+"/advance")

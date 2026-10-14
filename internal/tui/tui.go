@@ -90,6 +90,7 @@ func start(opts Options) (model, error) {
 	starting.updateCheck = opts.UpdateCheck
 	starting.proseWidth = opts.ProseWidth
 	starting.openURL = openInBrowser
+	starting.screenReport = starting.client.reportScreen
 	if opts.ConfigWarning != "" {
 		starting.configNotice = "config: " + opts.ConfigWarning
 	}
@@ -379,6 +380,10 @@ type model struct {
 	// opener when the TUI runs, a stand-in in a test. Nil opens nothing, and p
 	// then only says where the page is.
 	openURL func(url string) error
+	// screenReport tells dbn which screen the window shows for a review, for
+	// the screens it holds no stop for (screenOf): the daemon when the TUI
+	// runs, a stand-in in a test. Nil reports nothing.
+	screenReport func(reviewID, screen string)
 	// pageNotice says where the page p opened is. It takes the status line until
 	// the next keypress.
 	pageNotice string
@@ -880,7 +885,18 @@ func (m model) refresh() tea.Cmd {
 	}
 }
 
+// Update handles a message, then tells dbn if the screen the window shows for
+// a review changed to or from one dbn holds no stop for, wherever in update the
+// change was made.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if after, ok := next.(model); ok {
+		after.reportScreenChange(m)
+	}
+	return next, cmd
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

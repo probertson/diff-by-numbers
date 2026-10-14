@@ -67,7 +67,7 @@ main {
 .dim { color: var(--dim); }
 .warning { color: var(--warn); font-weight: 600; }
 
-.step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
+.chapter, .step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
 .step-header h1 { margin: 0.25rem 0 1rem; font-size: 1.5rem; }
 .explanation { white-space: pre-wrap; max-width: 48rem; }
 .oversize { color: var(--warn); }
@@ -135,6 +135,7 @@ h2 { font-size: 1rem; }
 .document th { background: var(--panel); }
 .document blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--rule); color: var(--dim); }
 .document .image { color: var(--dim); font-style: italic; }
+.document img { max-width: 100%; height: auto; border: 1px solid var(--rule); }
 .document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
 
 /* Each new, edited or removed block marked as the TUI's gutter marks it. */

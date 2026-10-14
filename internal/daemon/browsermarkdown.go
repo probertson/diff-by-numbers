@@ -37,21 +37,21 @@ type documentRow struct {
 
 // renderDocument renders a stretch of a Markdown Document as HTML with the
 // parse dbn reads Documents with (CommonMark plus GFM tables), so tables are
-// tables. Raw HTML is shown as text, never passed through, and images are
-// shown as their alt text and path until the page can serve them (#189).
+// tables. Raw HTML is shown as text, never passed through. An image is drawn
+// from where images finds it, or as its alt text with why it is not shown.
 //
 // Each element that starts a block carries the block's number as data-block,
 // so the page can find the block the TUI's cursor is on (#187), and a block a
 // Comment covers carries the class "commented". A new, edited or removed block
 // carries its treatment as data-treatment; an edited or removed one is drawn
 // as track changes, an edited table row as a row of its table.
-func renderDocument(rows []documentRow) template.HTML {
-	if html, ok := renderStretch(rows, true); ok {
+func renderDocument(rows []documentRow, images documentImagesAt) template.HTML {
+	if html, ok := renderStretch(rows, images, true); ok {
 		return html
 	}
 	// An edited table row the parse did not find in a table (one an Excerpt
 	// shows without its header) is drawn on its own instead.
-	html, _ := renderStretch(rows, false)
+	html, _ := renderStretch(rows, images, false)
 	return html
 }
 
@@ -59,7 +59,7 @@ func renderDocument(rows []documentRow) template.HTML {
 // block in it drawn as track changes. With tablesInline, an edited table row
 // stays in the Markdown, so its table stays one table with the row inside; it
 // reports false if any such row was not parsed as a table row.
-func renderStretch(rows []documentRow, tablesInline bool) (template.HTML, bool) {
+func renderStretch(rows []documentRow, images documentImagesAt, tablesInline bool) (template.HTML, bool) {
 	inline := func(row documentRow) bool {
 		return row.tracked == nil || (tablesInline && row.tracked.kind == string(review.BlockTableRow))
 	}
@@ -75,7 +75,7 @@ func renderStretch(rows []documentRow, tablesInline bool) (template.HTML, bool) 
 		for n < len(rows) && inline(rows[n]) {
 			n++
 		}
-		html, ok := renderMarkdown(rows[:n])
+		html, ok := renderMarkdown(rows[:n], images)
 		if !ok {
 			return "", false
 		}
@@ -97,7 +97,7 @@ func blockLength(rows []documentRow) int {
 // renderMarkdown renders rows of a Document as Markdown, drawing an edited
 // table row among them as track changes across a row of its table. It reports
 // false if such a row was not parsed as a table row.
-func renderMarkdown(rows []documentRow) (template.HTML, bool) {
+func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML, bool) {
 	var source strings.Builder
 	starts := make([]int, 0, len(rows))
 	tracked := map[int]template.HTML{}
@@ -116,7 +116,7 @@ func renderMarkdown(rows []documentRow) (template.HTML, bool) {
 
 	// A parser is made for each render rather than shared, as the review core
 	// does, so concurrent pages never share its state.
-	draw := &drawnSafely{rowAt: rowAt, tracked: tracked, drawn: map[int]bool{}}
+	draw := &drawnSafely{images: images, rowAt: rowAt, tracked: tracked, drawn: map[int]bool{}}
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.Table),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(draw, 100))),
@@ -243,9 +243,11 @@ func firstOffset(n ast.Node) (int, bool) {
 
 // drawnSafely overrides how goldmark draws what a Document could use to run
 // or fetch something in the Reviewer's browser: raw HTML is shown as text, and
-// an image as its alt text and path. It also draws a table row an edit
-// changed as track changes (tracked, by block), noting each one it drew.
+// an image is drawn only from the daemon, never from a remote address. It
+// also draws a table row an edit changed as track changes (tracked, by
+// block), noting each one it drew.
 type drawnSafely struct {
+	images  documentImagesAt
 	rowAt   func(offset int) documentRow
 	tracked map[int]template.HTML
 	drawn   map[int]bool
@@ -254,7 +256,7 @@ type drawnSafely struct {
 func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindRawHTML, renderRawHTMLAsText)
 	reg.Register(ast.KindHTMLBlock, renderHTMLBlockAsText)
-	reg.Register(ast.KindImage, renderImageAsText)
+	reg.Register(ast.KindImage, d.renderImage)
 	reg.Register(ast.KindText, d.renderText)
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
@@ -395,15 +397,28 @@ func renderHTMLBlockAsText(w util.BufWriter, source []byte, n ast.Node, entering
 	return ast.WalkContinue, nil
 }
 
-func renderImageAsText(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+// renderImage draws an image the daemon serves as an image, and any other as
+// its alt text with why it is not shown: the remote address it was never
+// fetched from, or that it is missing or outside the repository.
+func (d *drawnSafely) renderImage(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkSkipChildren, nil
 	}
 	image := n.(*ast.Image)
+	alt := util.EscapeHTML([]byte(plainTextOf(image, source)))
+	drawing := d.images.draw(string(image.Destination))
+	if drawing.source != "" {
+		_, _ = w.WriteString(`<img src="`)
+		_, _ = w.Write(util.EscapeHTML([]byte(drawing.source)))
+		_, _ = w.WriteString(`" alt="`)
+		_, _ = w.Write(alt)
+		_, _ = w.WriteString(`">`)
+		return ast.WalkSkipChildren, nil
+	}
 	_, _ = w.WriteString(`<span class="image">[image: `)
-	_, _ = w.Write(util.EscapeHTML([]byte(plainTextOf(image, source))))
+	_, _ = w.Write(alt)
 	_, _ = w.WriteString(" — ")
-	_, _ = w.Write(util.EscapeHTML(image.Destination))
+	_, _ = w.Write(util.EscapeHTML([]byte(drawing.why)))
 	_, _ = w.WriteString("]</span>")
 	return ast.WalkSkipChildren, nil
 }
