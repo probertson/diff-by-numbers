@@ -43,6 +43,9 @@ type documentRow struct {
 	// edited or removed one "before" and "after" above its edit (#193); nil
 	// for any other row.
 	diagram *DiagramSourcesWire
+	// notes are the Comments whose last row this is, drawn beneath the row's
+	// block in the flow of the Document, as the TUI draws them.
+	notes []commentData
 }
 
 // classes is the class attribute a block's element carries for its first
@@ -150,7 +153,7 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(draw, 100))),
 	)
 	document := md.Parser().Parse(text.NewReader(content))
-	tagBlocks(document, rowAt)
+	placeNotes(document, tagBlocks(document, rowAt), rows)
 
 	var out bytes.Buffer
 	if err := md.Renderer().Render(&out, content, document); err != nil {
@@ -191,6 +194,7 @@ func renderPlain(rows []documentRow) template.HTML {
 			out.WriteString(` class="` + classes + `"`)
 		}
 		out.WriteString(">" + strings.Join(words, " ") + "</p>\n")
+		out.WriteString(string(notesOf(rows[i:j])))
 		i = j
 	}
 	return template.HTML(out.String())
@@ -211,9 +215,11 @@ var blockElements = map[ast.NodeKind]bool{
 
 // tagBlocks marks each element that starts a block with its number, its place,
 // its treatment, and the classes its first row gives it (tracked, commented,
-// cursor). An element inside one already marked with the same block is left
-// alone, so a list item's paragraph is not marked a second time.
-func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
+// cursor), and returns the element it marked for each block. An element inside
+// one already marked with the same block is left alone, so a list item's
+// paragraph is not marked a second time.
+func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) map[int]ast.Node {
+	found := map[int]ast.Node{}
 	var marked []ast.Node
 	var blocks []int
 	_ = ast.Walk(document, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -243,8 +249,12 @@ func tagBlocks(document ast.Node, rowAt func(offset int) documentRow) {
 			n.SetAttributeString("class", classes)
 		}
 		marked, blocks = append(marked, n), append(blocks, row.block)
+		if _, ok := found[row.block]; !ok {
+			found[row.block] = n
+		}
 		return ast.WalkContinue, nil
 	})
+	return found
 }
 
 // firstOffset is where a node's source starts: its first line, or for a node
@@ -284,6 +294,7 @@ func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
 	reg.Register(ast.KindFencedCodeBlock, d.renderFencedCode)
+	reg.Register(kindNotes, renderNotes)
 }
 
 // htmlFuncs are goldmark's own renderers, for what is drawn as it would be.
@@ -506,4 +517,93 @@ func plainTextOf(n ast.Node, source []byte) string {
 		return ast.WalkContinue, nil
 	})
 	return b.String()
+}
+
+// notesOf draws the notes rows carry, in order, as the page draws a Comment's
+// note.
+func notesOf(rows []documentRow) template.HTML {
+	var out bytes.Buffer
+	for _, row := range rows {
+		for _, note := range row.notes {
+			// Drawing into memory, with a template parsed when the package
+			// loaded, does not fail.
+			_ = pageTemplates.ExecuteTemplate(&out, "comment", note)
+		}
+	}
+	return template.HTML(out.String()) // the template escapes what it draws
+}
+
+// kindNotes is the node a block's notes are drawn from, in the flow of the
+// Document after the block.
+var kindNotes = ast.NewNodeKind("Notes")
+
+type notesNode struct {
+	ast.BaseBlock
+	html template.HTML
+}
+
+func (n *notesNode) Kind() ast.NodeKind { return kindNotes }
+
+func (n *notesNode) Dump(source []byte, level int) { ast.DumpHelper(n, source, level, nil, nil) }
+
+func renderNotes(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		_, _ = w.WriteString(string(node.(*notesNode).html))
+	}
+	return ast.WalkSkipChildren, nil
+}
+
+// placeNotes puts each block's notes after the element tagBlocks marked for it
+// (marked): in a list item, under its own text and before any list nested in
+// it, so the list stays one list; for a table row, which cannot hold them,
+// after its table; otherwise after the element. A block with no element found
+// has its notes at the end, so none is lost.
+func placeNotes(document ast.Node, marked map[int]ast.Node, rows []documentRow) {
+	afterTable := map[ast.Node]ast.Node{} // the last notes put after each table
+	for i := 0; i < len(rows); {
+		n := blockLength(rows[i:])
+		html := notesOf(rows[i : i+n])
+		element, ok := marked[rows[i].block]
+		i += n
+		if html == "" {
+			continue
+		}
+		notes := &notesNode{html: html}
+		switch table := tableOf(element); {
+		case !ok:
+			document.AppendChild(document, notes)
+		case element.Kind() == ast.KindListItem:
+			underItemText(element, notes)
+		case table != nil:
+			after, seen := afterTable[table]
+			if !seen {
+				after = table
+			}
+			table.Parent().InsertAfter(table.Parent(), after, notes)
+			afterTable[table] = notes
+		default:
+			element.Parent().InsertAfter(element.Parent(), element, notes)
+		}
+	}
+}
+
+// tableOf is the table an element is in, or nil.
+func tableOf(element ast.Node) ast.Node {
+	for n := element; n != nil; n = n.Parent() {
+		if n.Kind() == east.KindTable {
+			return n
+		}
+	}
+	return nil
+}
+
+// underItemText puts notes in a list item, before any list nested in it.
+func underItemText(item, notes ast.Node) {
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		if child.Kind() == ast.KindList {
+			item.InsertBefore(item, child, notes)
+			return
+		}
+	}
+	item.AppendChild(item, notes)
 }

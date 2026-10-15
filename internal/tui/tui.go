@@ -244,6 +244,10 @@ type refreshMsg struct {
 	// released is the daemon no longer holding the review the window had open.
 	released bool
 	err      error
+	// polled is a refresh the window's own poll fetched, rather than one it
+	// asked for after doing something: what it brings may be a move made in
+	// another window open on the review.
+	polled bool
 }
 
 type tickMsg struct{}
@@ -874,6 +878,16 @@ func (m model) open(reviewID string) (tea.Model, tea.Cmd) {
 	return m, m.refresh()
 }
 
+// poll is a refresh the window fetches on its own, to keep up with the review.
+func (m model) poll() tea.Cmd {
+	refresh := m.refresh()
+	return func() tea.Msg {
+		msg := refresh().(refreshMsg)
+		msg.polled = true
+		return msg
+	}
+}
+
 func (m model) refresh() tea.Cmd {
 	return func() tea.Msg {
 		inbox, err := m.client.inbox()
@@ -896,12 +910,24 @@ func (m model) refresh() tea.Cmd {
 // the window shows, if it changed to or from one dbn holds no stop for, and
 // where the cursor is, if it moved. Keys move the cursor, and so do a new Step
 // arriving, a Document switching view and an Acknowledgement expanding.
+//
+// Every window open on a review follows its moves, so only the window that
+// made one says where its cursor landed: a poll catching this window up to a
+// move made in another says nothing, and a refresh this window asked for says
+// where the cursor is even if it has not moved since, as a poll may have
+// brought the move first. The page then follows the window in use.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	before, _ := m.cursorAt()
 	next, cmd := m.update(msg)
 	if after, ok := next.(model); ok {
 		after.reportScreenChange(m)
-		after.reportCursorMove(before)
+		switch refresh, isRefresh := msg.(refreshMsg); {
+		case isRefresh && refresh.polled:
+		case isRefresh:
+			after.reportCursor()
+		default:
+			after.reportCursorMove(before)
+		}
 	}
 	return next, cmd
 }
@@ -930,7 +956,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(m.refresh(), tick())
+		return m, tea.Batch(m.poll(), tick())
 
 	case statusMsg:
 		switch {
@@ -973,6 +999,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		positionChanged := false
 		newRound := false
+		relaid := false   // the same Step, drawn again from other rows
+		var spot codeLine // where its cursor was, to put it back
+		kept := false
 		newConnection := false
 		if msg.err != nil {
 			switch {
@@ -1019,6 +1048,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if positionChanged && !newRound {
 				m.leaveStep()
 			}
+			// Switching what the Round is compared with redraws the same Step
+			// from other rows, so its cursor is laid out again over them.
+			if m.view != nil && msg.view != nil && !positionChanged && !newRound &&
+				m.view.SincePreviousRound != msg.view.SincePreviousRound {
+				relaid = true
+				if m.inStep() && len(m.cursor.lines) > 0 {
+					spot, kept = m.cursor.lines[m.cursor.cursor], true
+				}
+			}
 			// Coming back after losing the daemon, the daemon on the other end may
 			// not be the one we left — a restart is exactly how it gets replaced by
 			// a different build — so ask again who it is. The daemon that ends a
@@ -1047,6 +1085,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if positionChanged || newRound {
 			m.enterStep()
 			m.viewport.GotoTop()
+		} else if relaid {
+			m.syncCursor()
+			if kept {
+				m.cursor.restore(spot)
+			}
 		}
 		if m.view != nil && (m.view.Finished || m.view.Concluded) {
 			// The review is done — finished, or concluded outright (an explicit
@@ -1123,13 +1166,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDone(key)
 		}
 
+		// A status reports what the last key did, and stands where the page's
+		// own keys go, so the next key takes it back: left up, it would hide
+		// them for as long as the Reviewer moves around.
+		m.status = ""
+
 		switch key {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
 			return m.quit()
 		case "enter", "right":
-			m.status = ""
 			// Advancing past the last Step lands on the conclusion screen — the
 			// pre-finish bookend to the Overview — rather than silently no-opping.
 			// It is TUI-only: the daemon stays at the last Step.
@@ -1140,11 +1187,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.client.intent("/advance")
 			return m, m.refresh()
 		case "left":
-			m.status = ""
 			m.client.intent("/back")
 			return m, m.refresh()
 		case "g":
-			m.status = ""
 			m.client.intent("/goto/0")
 			return m, m.refresh()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -1153,7 +1198,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, ok := m.chapter(int(key[0] - '0')); !ok {
 				return m, nil
 			}
-			m.status = ""
 			m.client.intent("/chapter/" + key)
 			return m, m.refresh()
 		case "r":
@@ -1221,7 +1265,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Wrapping is only how the code is drawn, so the toggle holds for the
 				// whole review rather than this Step, and the cursor does not move.
 				m.wrapAll = !m.wrapAll
-				m.status = ""
 				return m, nil
 			case "s":
 				m.toggleSource()
@@ -1231,7 +1274,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = m.noInteractionHint()
 					return m, nil
 				}
-				m.status = ""
 				m.noteBoundary(m.cursor.extend(-1))
 				return m, nil
 			case "shift+down":
@@ -1239,7 +1281,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = m.noInteractionHint()
 					return m, nil
 				}
-				m.status = ""
 				m.noteBoundary(m.cursor.extend(1))
 				return m, nil
 			case "v", " ":
@@ -1248,11 +1289,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.cursor.toggleSelect()
-				m.status = ""
 				return m, nil
 			case "esc":
 				m.cursor.sel = -1
-				m.status = ""
 				return m, nil
 			case "x":
 				if len(m.cursor.lines) == 0 {

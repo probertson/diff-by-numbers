@@ -93,3 +93,47 @@ func TestAKeyThatLeavesTheCursorWhereItIsReportsNothingMore(t *testing.T) {
 		t.Errorf("expected no further report for a cursor that did not move, got %d more", after-before)
 	}
 }
+
+// onStepTwo is review a1's view moved on to its second Step.
+func onStepTwo() *daemon.ViewWire {
+	return &daemon.ViewWire{Posted: true, ReviewID: "a1", Position: 2, StepCount: 2, Step: tallStep()}
+}
+
+// Every window open on a review follows its moves, as dbn holds one place for
+// it; a window catching up to a move made in another reports nothing, so the
+// page follows the window the Reviewer is using.
+func TestAWindowCatchingUpToAMoveMadeElsewhereReportsNothing(t *testing.T) {
+	m, reports := followedModel(t, twoParagraphs())
+	m.view.StepCount = 2
+
+	m.Update(refreshMsg{view: onStepTwo(), polled: true})
+
+	if reports.count() != 0 {
+		t.Errorf("expected a window only catching up to report nothing, got %+v", reports.sent)
+	}
+}
+
+func TestAWindowReportsWhereItLandsOnAMoveItAskedFor(t *testing.T) {
+	m, reports := followedModel(t, twoParagraphs())
+	m.view.StepCount = 2
+
+	m.Update(refreshMsg{view: onStepTwo()})
+
+	if got := reports.last(t); got.Step != 2 {
+		t.Errorf("expected the cursor reported on Step 2, where the move landed, got %+v", got)
+	}
+}
+
+// A poll can bring the move a window asked for before the window's own
+// refresh does; the window still reports where it landed.
+func TestAWindowReportsItsMoveEvenWhenAPollBroughtItFirst(t *testing.T) {
+	m, reports := followedModel(t, twoParagraphs())
+	m.view.StepCount = 2
+	polled, _ := m.Update(refreshMsg{view: onStepTwo(), polled: true})
+
+	polled.(model).Update(refreshMsg{view: onStepTwo()})
+
+	if got := reports.last(t); got.Step != 2 {
+		t.Errorf("expected the cursor reported on Step 2 once the window's own refresh came, got %+v", got)
+	}
+}

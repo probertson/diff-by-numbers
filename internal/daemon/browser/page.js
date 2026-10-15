@@ -26,7 +26,10 @@
   }
 
   // reveal scrolls the cursor's elements into view when any of them is off
-  // screen: centred if they fit, else from their top.
+  // screen or under the Step's bar: centred in the room below the bar if they
+  // fit, else from their top. On the stop's first place it scrolls to the top
+  // of the page instead, so the Step's header shows whole above it, so long as
+  // they are still on screen from there.
   function reveal(targets) {
     if (targets.length === 0) {
       return;
@@ -34,12 +37,19 @@
     var top = targets[0].getBoundingClientRect().top;
     var bottom = targets[targets.length - 1].getBoundingClientRect().bottom;
     var height = window.innerHeight;
-    if (top >= 0 && bottom <= height) {
+    if (targets[0] === main.querySelector("[data-place]") && bottom + window.scrollY <= height) {
+      window.scrollTo(0, 0);
       return;
     }
-    var by = bottom - top <= height * 0.8
-      ? (top + bottom) / 2 - height / 2
-      : top - height * 0.1;
+    var bar = main.querySelector(".progress");
+    var above = bar !== null ? Math.max(bar.getBoundingClientRect().bottom, 0) : 0;
+    if (top >= above && bottom <= height) {
+      return;
+    }
+    var room = height - above;
+    var by = bottom - top <= room * 0.8
+      ? (top + bottom) / 2 - (above + room / 2)
+      : top - above - room * 0.1;
     window.scrollBy(0, by);
   }
 
@@ -131,10 +141,12 @@
   // drawingFrom makes the drawing the page shows from Mermaid's SVG: an image
   // of it, at the size Mermaid drew it. The SVG is read in the diagrams frame,
   // whose policy allows the inline style it holds: read here, each style in it
-  // would be reported as refused.
+  // would be reported as refused. Mermaid writes its labels as HTML, a line
+  // break as an unclosed <br>, so the SVG is read as HTML; written out again,
+  // it is the well-formed XML an image needs.
   function drawingFrom(frame, svg) {
-    var root = new frame.DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
-    if (root.localName !== "svg" || root.getElementsByTagName("parsererror").length > 0) {
+    var root = new frame.DOMParser().parseFromString(svg, "text/html").body.firstElementChild;
+    if (root === null || root.localName !== "svg") {
       throw new Error("Mermaid drew something dbn could not show.");
     }
     var box = root.viewBox.baseVal;
@@ -208,21 +220,110 @@
     holder.appendChild(image);
   }
 
+  // gapOf is the gap page.css sets between a changed diagram's two drawings
+  // side by side.
+  function gapOf(pair) {
+    var gap = parseFloat(window.getComputedStyle(pair).getPropertyValue("--diagram-gap"));
+    return Number.isNaN(gap) ? 0 : gap;
+  }
+
+  // widthsOf are the full-size widths of the drawings shown in an element.
+  function widthsOf(element) {
+    return Array.prototype.map.call(element.querySelectorAll(".diagram-drawing img"), function (image) {
+      return Number(image.getAttribute("width"));
+    });
+  }
+
   // arrangePair lays a changed diagram's "before" and "after" side by side
   // when both drawings fit across the page at full size, and one above the
   // other otherwise, where each can shrink to the page's width.
   function arrangePair(pair) {
-    var images = pair.querySelectorAll(".diagram-drawing img");
-    var fits = false;
-    if (pair.querySelectorAll("figure.diagram").length === 2 && images.length === 2) {
-      // The gap page.css sets between the two side by side.
-      var gap = parseFloat(window.getComputedStyle(pair).getPropertyValue("--diagram-gap"));
-      if (Number.isNaN(gap)) {
-        gap = 0;
-      }
-      fits = Number(images[0].getAttribute("width")) + Number(images[1].getAttribute("width")) + gap <= pair.clientWidth;
-    }
+    var widths = widthsOf(pair);
+    var fits = pair.querySelectorAll("figure.diagram").length === 2 && widths.length === 2 &&
+      widths[0] + widths[1] + gapOf(pair) <= pair.clientWidth;
     pair.classList.toggle("side-by-side", fits);
+  }
+
+  // blockOf is the block a diagram is drawn in: the diagram itself, or the
+  // changed diagram it is the "before" or "after" of.
+  function blockOf(figure) {
+    var change = figure.closest(".diagram-change");
+    return change !== null ? change : figure;
+  }
+
+  // widen lets a diagram's block reach past the page's column, toward the
+  // window's right edge, when its drawings are wider than the column, so a
+  // wide window shows them at full size, or nearer it, rather than shrunk or
+  // scrolling sideways. It never makes the block narrower than page.css does.
+  function widen(block) {
+    block.style.width = "";
+    var widths = widthsOf(block);
+    if (widths.length === 0) {
+      return;
+    }
+    var box = block.getBoundingClientRect();
+    var style = window.getComputedStyle(block);
+    var padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    var gutter = parseFloat(window.getComputedStyle(main).paddingRight);
+    var room = document.documentElement.clientWidth - gutter - box.left;
+    var wanted = Math.max.apply(null, widths) + padding;
+    var pair = block.querySelector(".diagram-pair");
+    if (pair !== null && widths.length === 2) {
+      var beside = widths[0] + widths[1] + gapOf(pair) + padding;
+      if (beside <= room) {
+        wanted = beside;
+      }
+    }
+    if (wanted > box.width) {
+      block.style.width = Math.min(wanted, Math.max(room, box.width)) + "px";
+    }
+  }
+
+  // layOut fits each diagram on the stop to the window: its block widened,
+  // then a changed one's pair arranged in the width that gives it.
+  function layOut() {
+    all("figure.diagram").map(blockOf).forEach(widen);
+    all(".diagram-pair").forEach(arrangePair);
+  }
+
+  // ownText is the part of a block that is its own: for a list item, what
+  // comes before its note and any list nested in it; for any other block, all
+  // of it.
+  function ownText(block) {
+    var range = document.createRange();
+    range.selectNodeContents(block);
+    if (block.localName !== "li") {
+      return range;
+    }
+    for (var child = block.firstElementChild; child !== null; child = child.nextElementSibling) {
+      if (child.localName === "ul" || child.localName === "ol" || child.classList.contains("comment")) {
+        range.setEndBefore(child);
+        break;
+      }
+    }
+    return range;
+  }
+
+  // markComments draws the bar beside each block of a Document a Comment is
+  // on, in the Document's margin, as tall as the block's own text.
+  function markComments() {
+    all(".document .comment-bar").forEach(function (bar) {
+      bar.remove();
+    });
+    all(".document").forEach(function (doc) {
+      var origin = doc.getBoundingClientRect();
+      Array.prototype.forEach.call(doc.querySelectorAll(".commented"), function (block) {
+        var text = ownText(block).getBoundingClientRect();
+        if (text.height === 0) {
+          return;
+        }
+        var bar = document.createElement("div");
+        bar.className = "comment-bar";
+        bar.style.top = text.top - origin.top + "px";
+        bar.style.height = text.height + "px";
+        doc.appendChild(bar);
+      });
+    });
   }
 
   // drawDiagrams draws each diagram on the stop in the browser's theme, and
@@ -233,6 +334,7 @@
       var source = figure.querySelector(".diagram-source").textContent;
       return drawingOf(theme, source).then(function (drawing) {
         showDrawing(figure, drawing);
+        widen(blockOf(figure));
         var pair = figure.closest(".diagram-pair");
         if (pair !== null) {
           arrangePair(pair);
@@ -256,6 +358,7 @@
       .then(function (html) {
         var was = keyOf(main);
         main.innerHTML = html;
+        markComments();
         if (keyOf(main) !== was) {
           window.scrollTo(0, 0);
         }
@@ -281,9 +384,11 @@
 
   drawDiagrams();
   dark.addEventListener("change", drawDiagrams);
-  window.addEventListener("resize", function () {
-    all(".diagram-pair").forEach(arrangePair);
-  });
+  window.addEventListener("resize", layOut);
+  // A Comment's bar is placed by where its block is drawn, which moves
+  // whenever what is above it changes size: a drawing taking the place of
+  // its source, an image loading, the window being resized.
+  new ResizeObserver(markComments).observe(main);
 
   var events = new EventSource(body.getAttribute("data-events-url"));
   events.addEventListener("redraw", redraw);

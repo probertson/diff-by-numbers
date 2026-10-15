@@ -70,8 +70,28 @@ main {
 .warning { color: var(--warn); font-weight: 600; }
 
 .chapter, .step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
+
+/* Where the Reviewer is, held at the top of the page as the TUI's header is,
+   across the page's whole column. page.js keeps the TUI's cursor clear of it. */
+.progress {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -1.5rem -1rem 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+}
 .step-header h1 { margin: 0.25rem 0 1rem; font-size: 1.5rem; }
-.explanation { white-space: pre-wrap; max-width: 48rem; }
+/* What an agent writes around the code, rendered from its Markdown. */
+.explanation { max-width: 48rem; }
+.explanation > :first-child, .question-text > :first-child { margin-top: 0; }
+.explanation > :last-child, .question-text > :last-child { margin-bottom: 0; }
+.explanation code, .question-text code { font-family: var(--mono); font-size: 0.875em; }
+.explanation pre, .question-text pre { padding: 0.75rem; background: var(--panel); overflow-x: auto; }
+.explanation .image, .question-text .image { color: var(--dim); font-style: italic; }
 .oversize { color: var(--warn); }
 
 h2 { font-size: 1rem; }
@@ -83,7 +103,7 @@ h2 { font-size: 1rem; }
   background: var(--panel);
 }
 .questions h2 { margin: 0.25rem 0; color: var(--accent); }
-.question-text { white-space: pre-wrap; }
+.question-text { margin: 0.5rem 0; }
 .answer .label { color: var(--dim); }
 
 .excerpt, .acknowledgement, .loose-comments { margin-top: 2rem; }
@@ -138,7 +158,17 @@ h2 { font-size: 1rem; }
 .document blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--rule); color: var(--dim); }
 .document .image { color: var(--dim); font-style: italic; }
 .document img { max-width: 100%; height: auto; border: 1px solid var(--rule); }
-.document .commented { box-shadow: inset 3px 0 0 var(--comment); padding-left: 0.5rem; }
+/* A block a Comment is on is marked by a bar in the Document's margin, level
+   with the signs however far the block is indented. page.js draws each bar as
+   tall as its block's own text, so a list nested in a list item is not marked
+   along with the item. */
+.document .comment-bar {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  background: var(--comment);
+  pointer-events: none;
+}
 
 /* The TUI's cursor: its block or line drawn bright, the rest of the Excerpts
    dimmed. An element holding the cursor (a table holding its row) stays bright.
@@ -150,21 +180,33 @@ h2 { font-size: 1rem; }
 .stop .excerpt .row, .stop .excerpt .document :is([data-block], [data-place]) { transition: opacity 120ms ease-out; }
 .row.cursor, .document .cursor { background: var(--cursor-bg); }
 
-/* Each new, edited or removed block marked as the TUI's gutter marks it. */
-.document { padding-left: 1.5em; }
+/* Each new, edited or removed block marked as the TUI's gutter marks it. The
+   sign is placed against the Document, not its block, so every sign stands in
+   one column however far its block is indented (a list item, a block quote's
+   paragraph); left unset, its top stays level with the block's first line.
+   It is the body text's size on every block, a heading's too, and stands in a
+   line as tall as its block's first line (--block-line, the block's own line
+   height, kept as a length), so it sits level with that line. */
+@property --block-line {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.document { padding-left: 1.5em; position: relative; }
+.document [data-treatment] { --block-line: 1lh; }
 .document [data-treatment="new"] { --mark: var(--added); --sign: "+"; }
 .document [data-treatment="edited"] { --mark: var(--edited); --sign: "±"; }
 .document [data-treatment="removed"] { --mark: var(--removed); --sign: "-"; }
-.document [data-treatment] { position: relative; }
 .document [data-treatment]::before {
   content: var(--sign);
   position: absolute;
-  left: -1.25em;
+  left: 0.25em;
   color: var(--mark);
   font-family: var(--mono);
+  font-size: 1.0625rem;
   font-weight: 600;
+  line-height: var(--block-line);
 }
-.document li[data-treatment]::before { left: -3.6em; }
 /* A table row cannot hold a sign beside it, so it is marked by a bar. */
 .document tr[data-treatment]::before, .document thead[data-treatment]::before { content: none; }
 .document tr[data-treatment] > :first-child,
@@ -174,6 +216,12 @@ h2 { font-size: 1rem; }
    inserted words, and its Markdown markers shown muted rather than rendered. */
 .document .tracked { margin: 1em 0; }
 .document .tracked .line { white-space: pre-wrap; }
+/* A paragraph's or list item's lines flow as one paragraph, as Markdown (and
+   the TUI) reflows them, joined by a space and broken only after a line that
+   ends in a hard break. */
+.document .tracked.flow .line { display: inline; white-space: normal; }
+.document .tracked.flow .line + .line::before { content: " "; }
+.document .tracked.flow .line.hard-break::after { content: "\A"; white-space: pre; }
 .document .tracked.heading { font-family: var(--sans); font-weight: 600; }
 .document .tracked.table-row, .document .tracked.code, .document .tracked.frontmatter,
 .document .source-row { font-family: var(--mono); font-size: 0.875em; }
@@ -188,7 +236,8 @@ h2 { font-size: 1rem; }
 /* A Mermaid diagram: its source until it is drawn, then the drawing, shrunk
    to fit the page and scrolling sideways past where its text stays legible
    (page.js sets that width). A diagram Mermaid cannot draw shows why, above
-   its source. The diagram may use the page's whole width, beyond the prose.
+   its source. The diagram may use the page's whole width, beyond the prose,
+   and one wider than that reaches toward the window's right edge (page.js).
    Padded, so the cursor's highlight frames the drawing and a Comment's bar
    stands clear of it. */
 .document {

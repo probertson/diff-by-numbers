@@ -114,7 +114,7 @@ func (x excerptContext) onCursor(places ...string) bool {
 type introData struct {
 	Heading string
 	Range   string
-	Intro   string
+	Intro   template.HTML
 	Steps   []introStepData
 }
 
@@ -126,11 +126,14 @@ type introStepData struct {
 type stepData struct {
 	Number int
 	Count  int
+	// Seen and Total are the changed lines the Reviewer has seen of all the
+	// review shows, as the TUI's header counts them.
+	Seen, Total int
 	// Chapter names the Step's Chapter by number and name, "" in a Round
 	// without Chapters.
 	Chapter     string
 	Name        string
-	Explanation string
+	Explanation template.HTML
 	Oversize    string
 	Questions   []questionData
 	Excerpts    []excerptData
@@ -142,7 +145,7 @@ type stepData struct {
 }
 
 type questionData struct {
-	Text   string
+	Text   template.HTML
 	Answer string
 }
 
@@ -222,13 +225,19 @@ func newPageData(label string, view ViewWire, ctx pageContext) pageData {
 }
 
 // newStopData is the stop the Reviewer is at: a Step or a Chapter's intro, or
-// a notice of where they are for anywhere else.
+// a notice of where they are for anywhere else. A review handed off is held
+// at its last Step, but the Reviewer has left it, so the page says it was
+// handed off, which dbn knows without the TUI saying.
 func newStopData(view ViewWire, ctx pageContext) stopData {
-	switch ctx.screen {
-	case ScreenConclusion:
-		return stopData{Key: "conclusion", Notice: "At the end of the review. This page shows each Step as you reach it."}
-	case ScreenInbox:
+	switch {
+	case ctx.screen == ScreenInbox:
 		return stopData{Key: "inbox", Notice: "At the Inbox. This page shows this review again when you open it."}
+	case view.Concluded:
+		return stopData{Key: "handed-off", Notice: "Handed off. The review is complete."}
+	case view.Finished:
+		return stopData{Key: "handed-off", Notice: "Handed off to your agent. This page follows its Revision Round when it arrives."}
+	case ctx.screen == ScreenConclusion:
+		return stopData{Key: "conclusion", Notice: "At the end of the review. This page shows each Step as you reach it."}
 	}
 	if view.Step != nil {
 		step := newStepData(view, ctx)
@@ -245,7 +254,7 @@ func newIntroData(view ViewWire, chapter ChapterWire) *introData {
 	data := &introData{
 		Heading: chapterHeading(chapter),
 		Range:   fmt.Sprintf("%s of %d", present.StepRange(chapter.FirstStep, chapter.LastStep), view.StepCount),
-		Intro:   chapter.Intro,
+		Intro:   renderProse(chapter.Intro),
 	}
 	for step := chapter.FirstStep; step <= chapter.LastStep && step <= len(view.StepNames); step++ {
 		data.Steps = append(data.Steps, introStepData{Number: step, Name: view.StepNames[step-1]})
@@ -258,15 +267,17 @@ func newStepData(view ViewWire, ctx pageContext) *stepData {
 	data := &stepData{
 		Number:      step.Number,
 		Count:       view.StepCount,
+		Seen:        view.Coverage.Seen,
+		Total:       view.Coverage.Total,
 		Name:        step.Name,
-		Explanation: step.Explanation,
+		Explanation: renderProse(step.Explanation),
 		Oversize:    step.OversizeJustification,
 	}
 	if chapter, ok := chapterOf(view, step.Chapter); ok {
 		data.Chapter = chapterHeading(chapter)
 	}
 	for _, question := range step.Questions {
-		data.Questions = append(data.Questions, questionData{Text: question.Text, Answer: question.Answer})
+		data.Questions = append(data.Questions, questionData{Text: renderProse(question.Text), Answer: question.Answer})
 	}
 
 	var own []CommentWire
@@ -331,7 +342,7 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 	if excerpt.Problem != "" {
 		return data
 	}
-	pieces, pieceOfRow, following := layoutExcerpt(excerpt, comments, x)
+	pieces, pieceOfRow, following, inFlow := layoutExcerpt(excerpt, comments, x)
 	last := map[int]int{}
 	for i, line := range excerpt.Lines {
 		for _, comment := range comments {
@@ -341,6 +352,10 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 		}
 	}
 	for _, comment := range comments {
+		if inFlow[comment.ID] {
+			placed[comment.ID] = true
+			continue
+		}
 		if piece, ok := last[comment.ID]; ok && piece < len(pieces) {
 			pieces[piece].Comments = append(pieces[piece].Comments, toCommentData(comment))
 			placed[comment.ID] = true
@@ -378,13 +393,37 @@ func sideOf(line LineWire, excerpt ExcerptWire) string {
 // and unchanged blocks is rendered, with each edited or removed block in it
 // drawn as track changes; a row in no block is drawn as source.
 //
-// The rows at the place the TUI's cursor is at are marked as its.
-func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext) ([]pieceData, []int, bool) {
+// The rows at the place the TUI's cursor is at are marked as its. A Comment
+// whose last row is in a block drawn in a stretch has its note drawn beneath
+// that block, in the Document's flow, as the TUI draws it; inFlow names those
+// Comments, whose notes need no other place.
+func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext) (pieces []pieceData, pieceOfRow []int, following bool, inFlow map[int]bool) {
 	if drawsDiagramFile(excerpt) {
-		return layoutDiagramFile(excerpt, comments, x)
+		pieces, pieceOfRow, following = layoutDiagramFile(excerpt, comments, x)
+		return pieces, pieceOfRow, following, nil
 	}
-	pieceOfRow := make([]int, len(excerpt.Lines))
-	following := false
+	inFlow = map[int]bool{}
+	lastRow := map[int]int{}
+	for i, line := range excerpt.Lines {
+		for _, comment := range comments {
+			if covers(comment, excerpt, line) {
+				lastRow[comment.ID] = i
+			}
+		}
+	}
+	// notesAt are the notes of the Comments whose last row is row i, now
+	// drawn in the flow.
+	notesAt := func(i int) []commentData {
+		var notes []commentData
+		for _, comment := range comments {
+			if last, ok := lastRow[comment.ID]; ok && last == i {
+				notes = append(notes, toCommentData(comment))
+				inFlow[comment.ID] = true
+			}
+		}
+		return notes
+	}
+	pieceOfRow = make([]int, len(excerpt.Lines))
 	// drawn notes whether a row drawn is the cursor's.
 	drawn := func(cursor bool) bool {
 		following = following || cursor
@@ -399,7 +438,6 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 		}
 	}
 
-	var pieces []pieceData
 	var stretch []documentRow
 	var rows []rowData
 	var pending []int // the rows of the piece being gathered
@@ -429,7 +467,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
-				diagram: wholeDiagram(line.Block, excerpt),
+				diagram: wholeDiagram(line.Block, excerpt), notes: notesAt(i),
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
@@ -443,6 +481,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				row := trackedRow(line, block, commentedBlocks[line.Block])
 				row.place, row.cursor = x.blockPlace(line.Block), drawn(x.onCursor(x.blockPlace(line.Block)))
 				row.diagram = wholeDiagram(line.Block, excerpt)
+				row.notes = notesAt(i)
 				stretch = append(stretch, row)
 			}
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
@@ -467,7 +506,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 		pending = append(pending, i)
 	}
 	flush()
-	return pieces, pieceOfRow, following
+	return pieces, pieceOfRow, following, inFlow
 }
 
 // drawsDiagramFile reports whether an Excerpt of a diagram file is drawn as

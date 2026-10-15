@@ -509,6 +509,23 @@ func TestTheBoundaryMessageIsTakenBackOnceMovementSucceeds(t *testing.T) {
 	}
 }
 
+func TestAKeypressOnAStepTakesTheStatusBackSoTheStepsKeysShowAgain(t *testing.T) {
+	// A status reports what the last key did, and stands where the Step's own
+	// keys go: left up, it would hide them (e edit among them) for as long as
+	// the Reviewer moves around.
+	m := stepModel(t, tallStep())
+	m.status = "Comment added"
+
+	after := press(m, "down")
+
+	if after.status != "" {
+		t.Errorf("expected the next keypress to take the status back, got %q", after.status)
+	}
+	if !strings.Contains(after.View(), "↑/↓"+nbsp+"move") {
+		t.Error("expected the Step's own keys back in the keybar once the status is gone")
+	}
+}
+
 func TestTheCursorCrossesExcerptsFreelyWithNoSelection(t *testing.T) {
 	// The clamp belongs to a live selection, not to the key: reading is unrestricted.
 	cur := newStepCursor(twoExcerptStep(), nil, false)

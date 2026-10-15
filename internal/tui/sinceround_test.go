@@ -134,3 +134,23 @@ func TestAPreviousRoundRowIsDrawnAsARemoval(t *testing.T) {
 		t.Errorf("expected the previous round's line drawn as a removal above its replacement, got %+v", rows)
 	}
 }
+
+// Switching the comparison redraws the same Step from other rows (a Document's
+// blocks are laid out from what it is compared with), so the cursor is laid
+// out again over them rather than left pointing at rows that may be gone.
+func TestSwitchingTheComparisonLaysTheStepOutAgain(t *testing.T) {
+	m := stepModel(t, documentStep(retries()))
+	m.view.Round, m.view.PreviousRound = 2, 1
+	m.cursor.cursor = len(m.cursor.lines) - 1
+	since := *m.view
+	since.SincePreviousRound = true
+	since.Step = documentStep(documentExcerpt("docs/retries.md", heading(1, "Retries")))
+
+	updated, _ := m.Update(refreshMsg{view: &since})
+	after := updated.(model)
+
+	_ = drawnStep(after) // drawn from the old cursor, this indexed past the Step's rows
+	if after.cursor.cursor >= len(after.cursor.lines) {
+		t.Errorf("expected the cursor on a row of the Step as now drawn, got %d of %d", after.cursor.cursor, len(after.cursor.lines))
+	}
+}

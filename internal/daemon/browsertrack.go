@@ -51,10 +51,13 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 		return renderDiagramChange(changedDiagram{
 			sources: *first.diagram, treatment: first.treatment, block: first.block, place: first.place,
 			commented: first.commented, cursor: first.cursor, edit: rows,
-		})
+		}) + notesOf(rows)
 	}
 	var out strings.Builder
 	out.WriteString(`<div class="tracked ` + template.HTMLEscapeString(first.tracked.kind))
+	if flows(first.tracked.kind, plain) {
+		out.WriteString(" flow")
+	}
 	if first.commented {
 		out.WriteString(" commented")
 	}
@@ -65,25 +68,53 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 		template.HTMLEscapeString(first.place) + `" data-treatment="` + template.HTMLEscapeString(first.treatment) + `">`)
 	out.WriteString(string(trackedLines(rows, plain)))
 	out.WriteString("</div>\n")
+	out.WriteString(string(notesOf(rows)))
 	return template.HTML(out.String())
 }
 
 // trackedLines draws an edited or removed block's rows as track changes, a
-// line each, a line the Excerpt was widened by dimmed as context.
+// line each, a line the Excerpt was widened by dimmed as context. The lines of
+// a block that flows are marked where one ends in a hard break, the only place
+// its flow breaks, and leave out the markers a block quote repeats on each.
 func trackedLines(rows []documentRow, plain bool) template.HTML {
 	var out strings.Builder
 	var st present.Spans
+	kind := rows[0].tracked.kind
+	flowing := flows(kind, plain)
 	for i, row := range rows {
 		out.WriteString(`<div class="line`)
 		if row.widened {
 			out.WriteString(" widened")
 		}
+		if flowing && i < len(rows)-1 && endsInHardBreak(row.tracked.runs) {
+			out.WriteString(" hard-break")
+		}
 		out.WriteString(`">`)
-		line := blockLine{kind: rows[0].tracked.kind, first: i == 0, plain: plain}
+		line := blockLine{kind: kind, first: i == 0, plain: plain, continued: flowing && i > 0}
 		line.write(&out, separated(row.tracked.runs), &st)
 		out.WriteString("</div>")
 	}
 	return template.HTML(out.String())
+}
+
+// flows reports whether a block's lines flow as one paragraph, as Markdown
+// reflows them (and the TUI draws them): a paragraph's or a list item's, and
+// any block of prose that is not Markdown.
+func flows(kind string, plain bool) bool {
+	return plain || kind == string(review.BlockParagraph) || kind == string(review.BlockListItem)
+}
+
+// endsInHardBreak reports whether a line, as the file has it now, ends in a
+// Markdown hard break: two spaces, or a backslash.
+func endsInHardBreak(runs []RunWire) bool {
+	var current strings.Builder
+	for _, run := range runs {
+		if run.Change != string(review.WordsRemoved) {
+			current.WriteString(run.Text)
+		}
+	}
+	text := current.String()
+	return strings.HasSuffix(text, "  ") || strings.HasSuffix(text, "\\")
 }
 
 // separated sets struck runs apart from the text either side with a space:
@@ -98,11 +129,13 @@ func separated(runs []RunWire) []RunWire {
 
 // blockLine is how one line of a block's source is read for its markers: the
 // block's kind, whether it is the block's first line, and whether the
-// Document is Markdown at all.
+// Document is Markdown at all. A continued line of a block that flows leaves
+// out the markers leading it, which would otherwise stand mid-paragraph.
 type blockLine struct {
-	kind  string
-	first bool
-	plain bool
+	kind      string
+	first     bool
+	plain     bool
+	continued bool
 }
 
 var (
@@ -191,7 +224,7 @@ func (l blockLine) write(out *strings.Builder, runs []RunWire, st *present.Spans
 // writeText draws a run of text whose first lead bytes are markers that stand
 // at the start of the line, and the rest read for inline markers.
 func (l blockLine) writeText(out *strings.Builder, text string, lead int, st *present.Spans) {
-	if lead > 0 {
+	if lead > 0 && !l.continued {
 		writeSpan(out, "md", text[:lead])
 	}
 	if !l.inline() {

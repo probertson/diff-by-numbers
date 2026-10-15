@@ -244,3 +244,39 @@ func TestARemovedTableRowShownWithoutItsTableIsStillTrackChanges(t *testing.T) {
 		t.Errorf("expected the row not read as a paragraph, got:\n%s", out)
 	}
 }
+
+// The TUI reflows an edited paragraph as Markdown would, its source lines
+// joined; the page draws it as one flowing paragraph too, broken only where
+// a line ends in a hard break, rather than at every source line.
+func TestAnEditedParagraphFlowsAsOneParagraph(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"A request is retried\nwhen the transport\nfails.\n",
+		"A request is resent\nwhen the transport  \nfails.\n",
+		lines{"new", 1, 3})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	wantIn(t, out,
+		`class="tracked paragraph flow`,
+		`<div class="line hard-break">when the transport`,
+	)
+}
+
+// A block quote's markers lead its first line only once its lines flow, as
+// the TUI draws them, rather than standing in the middle of the paragraph.
+func TestAFlowingQuoteShowsItsMarkerOnlyOnItsFirstLine(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"> A request is retried\n> when it fails.\n",
+		"> A request is resent\n> when it fails.\n",
+		lines{"new", 1, 2})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	if markers := strings.Count(out, `<span class="md">&gt; </span>`) + strings.Count(out, `<span class="md">> </span>`); markers != 1 {
+		t.Errorf("expected the quote's marker once, on its first line, got %d in:\n%s", markers, out)
+	}
+}

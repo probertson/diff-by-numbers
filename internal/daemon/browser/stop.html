@@ -20,11 +20,11 @@
 {{- end}}
 
 {{define "step" -}}
+<div class="progress">Step {{.Number}} of {{.Count}}<span class="dim">  ·  {{.Seen}}/{{.Total}} changed lines seen</span></div>
 <header class="step-header">
 {{- if .Chapter}}
 <p class="chapter">{{.Chapter}}</p>
 {{- end}}
-<p class="step-number">Step {{.Number}} of {{.Count}}</p>
 <h1>{{.Name}}</h1>
 </header>
 <div class="explanation">{{.Explanation}}</div>
@@ -36,7 +36,7 @@
 <h2>Agent Questions</h2>
 {{- range .Questions}}
 <div class="question">
-<p class="question-text">{{.Text}}</p>
+<div class="question-text">{{.Text}}</div>
 {{- if .Answer}}
 <p class="answer"><span class="label">You answered:</span> {{.Answer}}</p>
 {{- end}}

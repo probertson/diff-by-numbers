@@ -191,3 +191,14 @@ func (m model) reportCursorMove(before cursorPlace) {
 	}
 	m.cursorReport(at.review, at.cursor)
 }
+
+// reportCursor tells dbn where the cursor is, for the review's page to follow,
+// wherever it was before.
+func (m model) reportCursor() {
+	if m.cursorReport == nil {
+		return
+	}
+	if at, ok := m.cursorAt(); ok {
+		m.cursorReport(at.review, at.cursor)
+	}
+}

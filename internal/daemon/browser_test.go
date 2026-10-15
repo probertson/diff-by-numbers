@@ -417,3 +417,34 @@ func TestTheChangeStreamFollowsOnlyItsOwnReview(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// Once the Reviewer hands off, the page says so rather than going back to the
+// last Step, which is where dbn holds a review that has been handed off.
+func TestThePageSaysTheReviewWasHandedOff(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "# Title\n\nSome text.\n")
+	raiseComment(t, reviewURL(server.URL, reviewID), 0, 3, 3, "a change")
+
+	httpPost(t, reviewURL(server.URL, reviewID)+"/finish")
+
+	out := stop(t, server.URL, reviewID)
+	if !strings.Contains(out, "Handed off") || strings.Contains(out, "Some text.") {
+		t.Errorf("expected the page to say the review was handed off, not show its last Step, got:\n%s", out)
+	}
+}
+
+// A bar that stays at the top of the page says where the Reviewer is, as the
+// TUI's header does: the Step, and how many changed lines they have seen.
+func TestTheStepsBarSaysWhereTheReviewerIsAndWhatTheyHaveSeen(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "# Title\n\nSome text.\n")
+
+	out := stop(t, server.URL, reviewID)
+
+	bar := regexp.MustCompile(`(?s)<div class="progress">.*?</div>`).FindString(out)
+	if !strings.Contains(bar, "Step 1 of 1") || !strings.Contains(bar, "3/3 changed lines seen") {
+		t.Errorf("expected the bar to give the Step and the lines seen, got %q in:\n%s", bar, out)
+	}
+}
