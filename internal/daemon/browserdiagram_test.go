@@ -257,20 +257,46 @@ func TestARemovedDiagramIsHeldBeforeOnlyAndDimmed(t *testing.T) {
 	}
 }
 
-// Part of a diagram is not the diagram its author drew, so a diagram an
-// Excerpt cuts into is shown as its source, as code.
-func TestADiagramAnExcerptCutsIntoIsShownAsCode(t *testing.T) {
+// An Excerpt that cuts into a diagram still has it drawn, whole: a large
+// diagram's edit seldom fits a Step whole, and dbn holds the diagram's whole
+// source to draw from. Each Excerpt showing part of it draws it.
+func TestADiagramAnExcerptCutsIntoIsDrawnWhole(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	reviewID := onExcerptsOfANewDocument(t, server.URL, diagramDocument, [2]int{1, 5}, [2]int{6, 7})
 
 	out := stop(t, server.URL, reviewID)
 
-	if strings.Contains(out, `class="diagram`) {
-		t.Errorf("expected no diagram container for part of a diagram, got:\n%s", out)
+	containers := regexp.MustCompile(`(?s)<figure class="diagram[^"]*"[^>]*>(.*?)</figure>`).FindAllStringSubmatch(out, -1)
+	if len(containers) != 2 {
+		t.Fatalf("expected the diagram drawn in each Excerpt that cuts into it, got %d in:\n%s", len(containers), out)
 	}
-	if !strings.Contains(out, "tui --&gt; daemon") {
-		t.Errorf("expected the part shown as source, got:\n%s", out)
+	for _, container := range containers {
+		if want := "flowchart LR\n  tui --&gt; daemon\n  style daemon fill:#f9f\n"; !strings.Contains(container[1], want) {
+			t.Errorf("expected the container to hold the whole diagram %q, got:\n%s", want, container[1])
+		}
+	}
+}
+
+// An edited diagram an Excerpt cuts into is drawn before and after, whole,
+// with the part of the edit the Excerpt shows beneath.
+func TestAnEditedDiagramAnExcerptCutsIntoIsDrawnBeforeAndAfterWhole(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL, diagramBefore, diagramAfter, lines{"new", 5, 6})
+
+	out := stop(t, server.URL, reviewID)
+
+	_, beforeHolds, _ := figure(t, out, "diagram before")
+	_, afterHolds, afterEnds := figure(t, out, "diagram after")
+	if want := "flowchart LR\n  tui --&gt; daemon\n</code>"; !strings.Contains(beforeHolds, want) {
+		t.Errorf("expected before to hold the whole diagram as it was, %q, got:\n%s", want, beforeHolds)
+	}
+	if want := "flowchart LR\n  tui --&gt; daemon\n  daemon --&gt; store\n</code>"; !strings.Contains(afterHolds, want) {
+		t.Errorf("expected after to hold the whole diagram as it is, %q, got:\n%s", want, afterHolds)
+	}
+	if !strings.Contains(out[afterEnds:], "<ins>") || !strings.Contains(out[afterEnds:], "store</ins>") {
+		t.Errorf("expected the part of the edit the Excerpt shows beneath the drawings, got:\n%s", out)
 	}
 }
 
@@ -300,20 +326,23 @@ func TestANewDiagramFileIsHeldInADiagramContainerWithItsSource(t *testing.T) {
 	}
 }
 
-// As with a diagram in a Document, part of a diagram file is not the diagram
-// its author drew, so an Excerpt showing part of one shows it as code.
-func TestAnExcerptShowingPartOfADiagramFileShowsItAsCode(t *testing.T) {
+// As with a diagram in a Document, an Excerpt showing part of a diagram file
+// has the diagram drawn whole.
+func TestAnExcerptShowingPartOfADiagramFileDrawsItWhole(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	reviewID := onExcerptsOfANewFile(t, server.URL, "flow.mmd", diagramFile, [2]int{1, 2}, [2]int{3, 3})
 
 	out := stop(t, server.URL, reviewID)
 
-	if strings.Contains(out, `class="diagram`) {
-		t.Errorf("expected no diagram container for part of a diagram file, got:\n%s", out)
+	containers := regexp.MustCompile(`(?s)<figure class="diagram[^"]*"[^>]*>(.*?)</figure>`).FindAllStringSubmatch(out, -1)
+	if len(containers) != 2 {
+		t.Fatalf("expected the diagram file drawn in each Excerpt showing part of it, got %d in:\n%s", len(containers), out)
 	}
-	if !strings.Contains(out, "tui --&gt; daemon") {
-		t.Errorf("expected the part shown as source, got:\n%s", out)
+	for _, container := range containers {
+		if want := "flowchart LR\n  tui --&gt; daemon\n  style daemon fill:#f9f\n"; !strings.Contains(container[1], want) {
+			t.Errorf("expected the container to hold the whole file %q, got:\n%s", want, container[1])
+		}
 	}
 }
 

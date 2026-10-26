@@ -172,8 +172,10 @@ h2 { font-size: 1rem; }
 
 /* The TUI's cursor: its block or line drawn bright, the rest of the Excerpts
    dimmed. An element holding the cursor (a table holding its row) stays bright.
-   A diagram file's diagram is in no block, but dims as a block does. */
-.stop.following .excerpt .row:not(.cursor),
+   A diagram file's diagram is in no block, but dims as a block does. A
+   signpost is no part of the change the cursor moves through, and is already
+   drawn as quietly as the file's heading, so it is not dimmed further. */
+.stop.following .excerpt .row:not(.cursor):not(.signpost),
 .stop.following .excerpt .document :is([data-block], [data-place]):not(.cursor):not(:has(.cursor)) {
   opacity: 0.4;
 }
@@ -214,7 +216,7 @@ h2 { font-size: 1rem; }
 
 /* An edited or removed block, as track changes over its source: struck and
    inserted words, and its Markdown markers shown muted rather than rendered. */
-.document .tracked { margin: 1em 0; }
+.document div.tracked { margin: 1em 0; }
 .document .tracked .line { white-space: pre-wrap; }
 /* A paragraph's or list item's lines flow as one paragraph, as Markdown (and
    the TUI) reflows them, joined by a space and broken only after a line that

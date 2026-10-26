@@ -23,7 +23,32 @@ func TestADocumentExcerptIsHeadedByItsHeadingPath(t *testing.T) {
 
 	out := html.UnescapeString(stop(t, server.URL, reviewID))
 
-	if want := "spec.md:5–5 › Retry policy › Backoff"; !strings.Contains(out, want) {
+	if want := "spec.md · new 5 › Retry policy › Backoff"; !strings.Contains(out, want) {
+		t.Errorf("expected the Excerpt headed %q, got:\n%s", want, out)
+	}
+}
+
+// An Excerpt's header names the lines it shows on each side, since the old
+// lines an edit replaced or removed are drawn among the new ones: a range alone
+// would leave which file's lines it counts unsaid, and miss the old ones.
+func TestAnExcerptsHeaderNamesTheLinesItShowsOnEachSide(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"1. **Keep.** The first item stays.\n"+
+			"2. **The sauce.** As the cook, I can make the sauce.\n"+
+			"   1. Tomatoes go in first.\n"+
+			"   2. Herbs go in last.\n"+
+			"3. **The garnish.** As the cook, I can add the garnish\n"+
+			"   for the one plate being served now.\n",
+		"1. **Keep.** The first item stays.\n"+
+			"2. **The garnish.** As the cook, I can add the garnish\n"+
+			"   for the one plate being served now.\n",
+		lines{"new", 1, 3})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	if want := "spec.md · new 1–3 · old 2–5"; !strings.Contains(out, want) {
 		t.Errorf("expected the Excerpt headed %q, got:\n%s", want, out)
 	}
 }

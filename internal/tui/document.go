@@ -548,13 +548,6 @@ func renderDocRow(row docRow, heading, dim bool) string {
 	return b.String()
 }
 
-// rangeLabel names a block's source lines.
-func rangeLabel(first, last int) string {
-	if first == last {
-		return fmt.Sprint(first)
-	}
-	return fmt.Sprintf("%d–%d", first, last)
-}
 
 // blockLines is every row of a block stop, in order. An edited block's rows
 // include the lines its edit replaced, on the other side.
@@ -594,9 +587,9 @@ func blockRefs(line codeLine, excerpt daemon.ExcerptWire) []rowRef {
 func blockLabel(line codeLine, excerpt daemon.ExcerptWire) string {
 	own := ownLines(line, excerpt)
 	if len(own) == 0 {
-		return rangeLabel(0, 0)
+		return present.LineRange(0, 0)
 	}
-	return rangeLabel(own[0].Number, own[len(own)-1].Number)
+	return present.LineRange(own[0].Number, own[len(own)-1].Number)
 }
 
 // sourceOf is a block's own source lines as its Excerpt shows them, in pieces:

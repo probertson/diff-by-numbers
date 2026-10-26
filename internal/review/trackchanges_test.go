@@ -290,3 +290,47 @@ func TestAWhollyNewRunBesideAnEditIsNewAndARunWithNothingAfterItIsRemoved(t *tes
 		t.Errorf("expected the new block to carry no runs, got %+v", runs)
 	}
 }
+
+// git can pair an edit's replaced lines with a line in one Step while their
+// words were matched with a block in another. Where none of the blocks they
+// were matched with is shown, the lines are removed blocks of their own, as
+// any deletion is, rather than rows of no block, which the Reviewer's
+// surfaces could only draw as raw source.
+func TestReplacedLinesShownApartFromTheBlocksTheyWereMatchedWithAreRemovedBlocks(t *testing.T) {
+	files := modifying("docs/decisions.md",
+		"# Decisions\n\n"+
+			"- **Recipe A.** Some text.\n"+
+			"  - **Chose:** bread at fixed times.\n"+
+			"  - **Over:** baking the bread at fixed times, because the right time depends on the\n"+
+			"    oven and on how many loaves get made.\n"+
+			"  - **Cost:** the kitchen stays quiet until the head baker plans loaves and sets the times.\n",
+		"# Decisions\n\n"+
+			"- **Recipe A.** Some text.\n"+
+			"  - **Chose:** bread at fixed times.\n"+
+			"  - **Cost:** quiet at first.\n"+
+			"- *Discussed.* **Baking on demand is the rule.**\n"+
+			"  - **Chose:** no morning, noon or evening batches.\n"+
+			"  - **Over:** baking the bread at fixed times, because the oven has no timer.\n"+
+			"  - **Cost:** the kitchen stays quiet until the head baker plans loaves and grows busy.\n",
+	)
+	session := openDocumentRound(t, files,
+		showingLines("The new decision", "docs/decisions.md", review.NewSide, 6, 9),
+		showingLines("Its cost", "docs/decisions.md", review.NewSide, 3, 5),
+	)
+	mustAdvance(t, session)
+
+	view := session.View().Step.Excerpts[0]
+
+	for _, line := range view.Lines {
+		if line.Side != review.OldSide {
+			continue
+		}
+		if line.Block == 0 {
+			t.Errorf("expected old line %d in a block, got none", line.Number)
+			continue
+		}
+		if b := view.Blocks[line.Block-1]; b.Side != review.OldSide || b.Treatment != review.TreatmentRemoved {
+			t.Errorf("expected old line %d in a removed block of its own, got %+v", line.Number, b)
+		}
+	}
+}

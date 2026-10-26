@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -98,7 +99,8 @@ func TestAnEditedBlockIsDrawnAsTrackChanges(t *testing.T) {
 }
 
 // An edited block's Markdown is shown as source, its markers muted, since the
-// edit may be to the markers themselves.
+// edit may be to the markers themselves; a list item's bullet is its list's,
+// drawn as an item of the list.
 func TestAnEditedBlockShowsItsMarkdownMarkersMutedRatherThanRendered(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
@@ -111,9 +113,12 @@ func TestAnEditedBlockShowsItsMarkdownMarkersMutedRatherThanRendered(t *testing.
 
 	wantIn(t, out,
 		`<span class="md">## </span>Retry policy`,
-		`<span class="md">- </span>A request is <del><span class="md">**</span><span class="bold">retried</span><span class="md">**</span></del> <ins><span class="md">**</span><span class="bold">resent</span><span class="md">**</span></ins> when it fails.`,
+		`<div class="line">A request is <del><span class="md">**</span><span class="bold">retried</span><span class="md">**</span></del> <ins><span class="md">**</span><span class="bold">resent</span><span class="md">**</span></ins> when it fails.`,
 	)
-	for _, rendered := range []string{"Retry policy</h", "<strong>", "<li"} {
+	if !regexp.MustCompile(`<li [^>]*data-treatment="edited"`).MatchString(out) {
+		t.Errorf("expected the edited list item drawn as an item of its list, got:\n%s", out)
+	}
+	for _, rendered := range []string{"Retry policy</h", "<strong>"} {
 		if strings.Contains(out, rendered) {
 			t.Errorf("expected an edited block's Markdown not rendered, found %s in:\n%s", rendered, out)
 		}
@@ -278,5 +283,86 @@ func TestAFlowingQuoteShowsItsMarkerOnlyOnItsFirstLine(t *testing.T) {
 
 	if markers := strings.Count(out, `<span class="md">&gt; </span>`) + strings.Count(out, `<span class="md">> </span>`); markers != 1 {
 		t.Errorf("expected the quote's marker once, on its first line, got %d in:\n%s", markers, out)
+	}
+}
+
+// An edited block is drawn where it begins, as the TUI lays it out and moves
+// its cursor through it, even when the lines its edit replaced begin above
+// blocks the change removed: an item renumbered into the place of one removed
+// with its sub-items comes before them, not after.
+func TestAnEditedBlockIsDrawnWhereItBeginsAsTheTUIOrdersIt(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"1. **Keep.** The first item stays.\n"+
+			"2. **The sauce.** As the cook, I can make the sauce.\n"+
+			"   1. Tomatoes go in first.\n"+
+			"   2. Herbs go in last.\n"+
+			"3. **The garnish.** As the cook, I can add the garnish\n"+
+			"   for the one plate being served now.\n",
+		"1. **Keep.** The first item stays.\n"+
+			"2. **The garnish.** As the cook, I can add the garnish\n"+
+			"   for the one plate being served now.\n",
+		lines{"new", 1, 3})
+
+	out := stop(t, server.URL, reviewID)
+
+	edited := strings.Index(out, `data-treatment="edited"`)
+	removed := strings.Index(out, `data-treatment="removed"`)
+	if edited < 0 || removed < 0 || edited > removed {
+		t.Errorf("expected the edited item drawn before the sub-items removed beneath where it begins, got:\n%s", out)
+	}
+}
+
+// A Document's run is read as Markdown whole, its edited and removed blocks in
+// place, so a paragraph that continues a list item after an edited one stays
+// a paragraph of its list rather than becoming an indented code block, and is
+// found by the TUI's cursor like any other block.
+func TestAParagraphAfterAnEditedItemStaysInItsList(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	document := "- Parent item.\n" +
+		"  - **Chose:** every jar starts empty:\n" +
+		"    - no jar has a label\n" +
+		"    - the shelf holds %s\n" +
+		"\n" +
+		"    Each change only adds, so nothing is lost.\n" +
+		"  - **Over:** filling every jar first.\n"
+	reviewID := onAnEditedDocument(t, server.URL,
+		fmt.Sprintf(document, "4 jars"), fmt.Sprintf(document, "3 jars"), lines{"new", 1, 7})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	if strings.Contains(out, "<pre") {
+		t.Errorf("expected no code block, got:\n%s", out)
+	}
+	paragraph := regexp.MustCompile(`<p [^>]*data-place="[^"]+"[^>]*>Each change only adds`)
+	if !paragraph.MatchString(out) {
+		t.Errorf("expected the continuing paragraph drawn as a block of the list, got:\n%s", out)
+	}
+	if lists := strings.Count(out, "<ul"); lists != 3 {
+		t.Errorf("expected the nested list kept whole, three lists deep, got %d in:\n%s", lists, out)
+	}
+}
+
+// A removed list item stays an item of its list, its bullet the list's and its
+// text struck, rather than its Markdown standing as text outside the list.
+func TestARemovedListItemIsDrawnAsAnItemOfItsList(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"- keep\n- the item is going\n  - and its child\n",
+		"- keep\n",
+		lines{"new", 1, 1}, lines{"old", 2, 3})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	for _, text := range []string{"the item is going", "and its child"} {
+		if !regexp.MustCompile(`<li [^>]*data-treatment="removed"[^>]*>(\s*<[^>]+>)*` + text).MatchString(out) {
+			t.Errorf("expected %q drawn as an item of its list, got:\n%s", text, out)
+		}
+	}
+	if regexp.MustCompile(`<span class="md">\s*- </span>`).MatchString(out) {
+		t.Errorf("expected each item's bullet to be its list's, not its marker shown as text, got:\n%s", out)
 	}
 }

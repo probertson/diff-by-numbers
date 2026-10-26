@@ -245,17 +245,21 @@ func (s *Session) withBlocks(view ExcerptView, sincePrevious bool) ExcerptView {
 		// The row sits under the other side's headings, whichever block it is
 		// drawn in, or none.
 		lines[i].Path = t.before.blocks[node].path
+		// It is drawn in the first shown block it was matched with, whose
+		// edit strikes its words; where none of them is shown (git paired it
+		// with a line in this Excerpt while its words went to a block shown
+		// elsewhere), it is a removed block of its own, as any deletion is.
 		group := t.group[node]
-		if afters := t.afterBlocksOf(group); len(afters) > 0 {
-			for _, n := range afters {
-				if shown[n] {
-					lines[i].Block = number(afterBlock(n))
-					break
-				}
+		matched := false
+		for _, n := range t.afterBlocksOf(group) {
+			if shown[n] {
+				lines[i].Block, matched = number(afterBlock(n)), true
+				break
 			}
-			continue
 		}
-		lines[i].Block = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved))
+		if !matched {
+			lines[i].Block = number(t.before.blocks[node].shown(otherSide, TreatmentRemoved))
+		}
 	}
 	return withDocumentBlocks(view, lines, own, blocks)
 }

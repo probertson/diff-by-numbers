@@ -144,3 +144,11 @@ func StepRange(first, last int) string {
 	}
 	return fmt.Sprintf("Steps %d–%d", first, last)
 }
+
+// LineRange names a run of a file's lines, e.g. "12–16", or "3" for one line.
+func LineRange(first, last int) string {
+	if first == last {
+		return fmt.Sprint(first)
+	}
+	return fmt.Sprintf("%d–%d", first, last)
+}

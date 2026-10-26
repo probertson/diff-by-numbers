@@ -44,14 +44,21 @@ func trackedRow(line LineWire, block BlockWire, commented bool) documentRow {
 }
 
 // renderTracked draws one edited or removed block, its rows given in order,
-// as track changes. Prose that is not Markdown (plain) has no markers.
+// as track changes, followed by the notes of the Comments on it. Prose that is
+// not Markdown (plain) has no markers.
 func renderTracked(rows []documentRow, plain bool) template.HTML {
+	return drawTracked(rows, plain) + notesOf(rows)
+}
+
+// drawTracked draws one edited or removed block, its rows given in order, as
+// track changes.
+func drawTracked(rows []documentRow, plain bool) template.HTML {
 	first := rows[0]
 	if first.diagram != nil {
 		return renderDiagramChange(changedDiagram{
 			sources: *first.diagram, treatment: first.treatment, block: first.block, place: first.place,
 			commented: first.commented, cursor: first.cursor, edit: rows,
-		}) + notesOf(rows)
+		})
 	}
 	var out strings.Builder
 	out.WriteString(`<div class="tracked ` + template.HTMLEscapeString(first.tracked.kind))
@@ -68,7 +75,6 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 		template.HTMLEscapeString(first.place) + `" data-treatment="` + template.HTMLEscapeString(first.treatment) + `">`)
 	out.WriteString(string(trackedLines(rows, plain)))
 	out.WriteString("</div>\n")
-	out.WriteString(string(notesOf(rows)))
 	return template.HTML(out.String())
 }
 
@@ -77,6 +83,17 @@ func renderTracked(rows []documentRow, plain bool) template.HTML {
 // a block that flows are marked where one ends in a hard break, the only place
 // its flow breaks, and leave out the markers a block quote repeats on each.
 func trackedLines(rows []documentRow, plain bool) template.HTML {
+	return drawLines(rows, plain, false)
+}
+
+// trackedItemLines draws a list item's rows as track changes, as trackedLines
+// does, for the item the list draws: its bullet or number is the list's, so the
+// markers leading each line are left out.
+func trackedItemLines(rows []documentRow) template.HTML {
+	return drawLines(rows, false, true)
+}
+
+func drawLines(rows []documentRow, plain, item bool) template.HTML {
 	var out strings.Builder
 	var st present.Spans
 	kind := rows[0].tracked.kind
@@ -90,7 +107,7 @@ func trackedLines(rows []documentRow, plain bool) template.HTML {
 			out.WriteString(" hard-break")
 		}
 		out.WriteString(`">`)
-		line := blockLine{kind: kind, first: i == 0, plain: plain, continued: flowing && i > 0}
+		line := blockLine{kind: kind, first: i == 0, plain: plain, continued: item || (flowing && i > 0)}
 		line.write(&out, separated(row.tracked.runs), &st)
 		out.WriteString("</div>")
 	}

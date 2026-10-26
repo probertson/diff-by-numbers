@@ -334,7 +334,7 @@ func toCommentData(comment CommentWire) commentData {
 func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]bool, x excerptContext) excerptData {
 	data := excerptData{
 		Index:         x.index,
-		Label:         fmt.Sprintf("%s:%d–%d", excerpt.File, excerpt.FirstLine, excerpt.LastLine),
+		Label:         excerptLabel(excerpt),
 		Path:          openingPath(excerpt),
 		Problem:       excerpt.Problem,
 		ChangedOnDisk: excerpt.ChangedOnDisk,
@@ -363,6 +363,45 @@ func newExcerptData(excerpt ExcerptWire, comments []CommentWire, placed map[int]
 	}
 	data.Pieces, data.following = pieces, following
 	return data
+}
+
+// excerptLabel heads an Excerpt with its file and the lines it shows on each
+// side, its own first: the old lines an edit replaced or removed are drawn
+// among the new ones, so a range alone would leave unsaid which file's lines
+// it counts, and miss the others. An Excerpt that cannot be shown names the
+// range it asked for.
+func excerptLabel(excerpt ExcerptWire) string {
+	type span struct{ first, last int }
+	spans := map[string]*span{}
+	for _, line := range excerpt.Lines {
+		if line.Signpost || line.Number < 1 {
+			continue
+		}
+		side := sideOf(line, excerpt)
+		if s, ok := spans[side]; ok {
+			s.first, s.last = min(s.first, line.Number), max(s.last, line.Number)
+		} else {
+			spans[side] = &span{line.Number, line.Number}
+		}
+	}
+	if len(spans) == 0 {
+		spans[excerpt.Side] = &span{excerpt.FirstLine, excerpt.LastLine}
+	}
+	label := excerpt.File
+	for _, side := range []string{excerpt.Side, otherSideOf(excerpt.Side)} {
+		if s, ok := spans[side]; ok {
+			label += " · " + side + " " + present.LineRange(s.first, s.last)
+		}
+	}
+	return label
+}
+
+// otherSideOf is the side an Excerpt is not on.
+func otherSideOf(side string) string {
+	if side == "old" {
+		return "new"
+	}
+	return "old"
 }
 
 // openingPath is the heading path of an Excerpt's first row, as dbn decides it:
@@ -424,6 +463,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 		return notes
 	}
 	pieceOfRow = make([]int, len(excerpt.Lines))
+	begun := map[int]bool{} // the edited or removed blocks drawn so far
 	// drawn notes whether a row drawn is the cursor's.
 	drawn := func(cursor bool) bool {
 		following = following || cursor
@@ -467,23 +507,23 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
-				diagram: wholeDiagram(line.Block, excerpt), notes: notesAt(i),
+				diagram: excerpt.Blocks[line.Block-1].Diagram, cutInto: !shownWhole(line.Block, excerpt), notes: notesAt(i),
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
 			// stretch it sits in, from its own rows; the lines an edit
 			// replaced draw nothing, as their struck words are in those rows.
-			block := excerpt.Blocks[line.Block-1]
-			if sideOf(line, excerpt) == block.Side {
-				if len(rows) > 0 {
-					flush()
-				}
-				row := trackedRow(line, block, commentedBlocks[line.Block])
-				row.place, row.cursor = x.blockPlace(line.Block), drawn(x.onCursor(x.blockPlace(line.Block)))
-				row.diagram = wholeDiagram(line.Block, excerpt)
-				row.notes = notesAt(i)
-				stretch = append(stretch, row)
+			// It is drawn where it begins, on either side, as the TUI lays it
+			// out: an edit's replaced lines can begin above blocks the change
+			// removed, and its own rows come after them.
+			if begun[line.Block] {
+				break
 			}
+			begun[line.Block] = true
+			if len(rows) > 0 {
+				flush()
+			}
+			stretch = append(stretch, trackedBlock(excerpt, i, x, commentedBlocks[line.Block], notesAt, drawn)...)
 		case len(excerpt.Blocks) > 0 && blankBetweenBlocks(line, excerpt):
 			// A blank line between blocks belongs to the stretch it sits in,
 			// where it keeps two paragraphs apart; on its own it draws nothing.
@@ -509,29 +549,50 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 	return pieces, pieceOfRow, following, inFlow
 }
 
-// drawsDiagramFile reports whether an Excerpt of a diagram file is drawn as
-// its diagram: when it shows every line of the file on its side. Part of a
-// diagram file stays code, as part of a fenced diagram does (wholeDiagram).
-func drawsDiagramFile(excerpt ExcerptWire) bool {
-	file := excerpt.DiagramFile
-	if file == nil || !file.Read {
-		return false
-	}
-	shown := map[int]bool{}
-	for _, line := range excerpt.Lines {
-		if !line.Signpost && sideOf(line, excerpt) == excerpt.Side {
-			shown[line.Number] = true
+// trackedBlock is the rows an edited or removed block is drawn from, the
+// block whose first row is row first: its rows on its own side, in order,
+// the last carrying the notes of every Comment whose last row is any of the
+// block's, either side.
+func trackedBlock(excerpt ExcerptWire, first int, x excerptContext, commented bool, notesAt func(int) []commentData, drawn func(bool) bool) []documentRow {
+	number := excerpt.Lines[first].Block
+	block := excerpt.Blocks[number-1]
+	place := x.blockPlace(number)
+	var own []documentRow
+	var rows []int // every row of the block, either side
+	for i := first; i < len(excerpt.Lines); i++ {
+		line := excerpt.Lines[i]
+		if line.Block != number || !edited(line, excerpt) {
+			continue
 		}
-	}
-	for n := file.FirstLine; n <= file.LastLine; n++ {
-		if !shown[n] {
-			return false
+		rows = append(rows, i)
+		if sideOf(line, excerpt) != block.Side {
+			continue
 		}
+		row := trackedRow(line, block, commented)
+		row.place, row.cursor = place, drawn(x.onCursor(place))
+		row.diagram, row.cutInto = block.Diagram, !shownWhole(number, excerpt)
+		own = append(own, row)
 	}
-	return true
+	// A block drawn from no rows has nowhere for notes, which then follow
+	// the piece, as notes on any other row in no stretch do.
+	if len(own) == 0 {
+		return nil
+	}
+	for _, i := range rows {
+		own[len(own)-1].notes = append(own[len(own)-1].notes, notesAt(i)...)
+	}
+	return own
 }
 
-// layoutDiagramFile lays out an Excerpt showing a whole diagram file as a
+// drawsDiagramFile reports whether an Excerpt of a diagram file is drawn as
+// its diagram: whenever dbn could read the file, however much of it the
+// Excerpt shows, since dbn holds the diagram's whole source to draw from.
+func drawsDiagramFile(excerpt ExcerptWire) bool {
+	return excerpt.DiagramFile != nil && excerpt.DiagramFile.Read
+}
+
+// layoutDiagramFile lays out an Excerpt showing a diagram file, or any part of
+// one, as a
 // fenced diagram is drawn: a new or unchanged one as a diagram container, and
 // an edited or removed one as renderDiagramChange draws it, the file's rows
 // the edit beneath. What holds the diagram is at the places of every row, as a
@@ -603,18 +664,6 @@ func rendered(line LineWire, excerpt ExcerptWire) bool {
 		return false
 	}
 	return sideOf(line, excerpt) == block.Side
-}
-
-// wholeDiagram is the source of one of an Excerpt's blocks (numbered from 1)
-// that is a Mermaid diagram the Excerpt shows whole, and nil for any other
-// block. A diagram an Excerpt cuts into is not drawn, since a part of one is
-// not the diagram its author drew.
-func wholeDiagram(block int, excerpt ExcerptWire) *DiagramSourcesWire {
-	diagram := excerpt.Blocks[block-1].Diagram
-	if diagram == nil || !shownWhole(block, excerpt) {
-		return nil
-	}
-	return diagram
 }
 
 // shownWhole reports whether an Excerpt shows every line of one of its blocks

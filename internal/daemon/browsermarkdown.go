@@ -38,11 +38,13 @@ type documentRow struct {
 	// tracked is, for a row of an edited or removed block, how the page draws
 	// it as track changes; nil for a row rendered as Markdown.
 	tracked *trackedLine
-	// diagram is, for a row of a Mermaid diagram the stretch shows whole, the
-	// diagram's source: the page draws a new or unchanged one (#191), and an
-	// edited or removed one "before" and "after" above its edit (#193); nil
-	// for any other row.
+	// diagram is, for a row of a Mermaid diagram, the diagram's whole source:
+	// the page draws a new or unchanged one (#191), and an edited or removed
+	// one "before" and "after" above its edit (#193); nil for any other row.
+	// cutInto is the Excerpt showing only part of the diagram, which is drawn
+	// whole all the same.
 	diagram *DiagramSourcesWire
+	cutInto bool
 	// notes are the Comments whose last row this is, drawn beneath the row's
 	// block in the flow of the Document, as the TUI draws them.
 	notes []commentData
@@ -80,19 +82,22 @@ func renderDocument(rows []documentRow, images documentImagesAt) template.HTML {
 	if html, ok := renderStretch(rows, images, true); ok {
 		return html
 	}
-	// An edited table row the parse did not find in a table (one an Excerpt
-	// shows without its header) is drawn on its own instead.
+	// A stretch whose edited or removed blocks the parse did not all find
+	// where dbn put them (an edited table row an Excerpt shows without its
+	// header, say) has each drawn on its own instead.
 	html, _ := renderStretch(rows, images, false)
 	return html
 }
 
 // renderStretch renders a stretch as Markdown, with each edited or removed
-// block in it drawn as track changes. With tablesInline, an edited table row
-// stays in the Markdown, so its table stays one table with the row inside; it
-// reports false if any such row was not parsed as a table row.
-func renderStretch(rows []documentRow, images documentImagesAt, tablesInline bool) (template.HTML, bool) {
+// block in it drawn as track changes. inPlace keeps every block in the one
+// Markdown read, so the structure around an edited or removed block stays
+// whole (the list it is an item of, the table it is a row of, the quote it is
+// in); it reports false if any such block was not found where dbn put it.
+// Without inPlace, each is drawn on its own between the Markdown either side.
+func renderStretch(rows []documentRow, images documentImagesAt, inPlace bool) (template.HTML, bool) {
 	inline := func(row documentRow) bool {
-		return row.tracked == nil || (tablesInline && row.tracked.kind == string(review.BlockTableRow))
+		return row.tracked == nil || inPlace
 	}
 	var out strings.Builder
 	for len(rows) > 0 {
@@ -125,17 +130,24 @@ func blockLength(rows []documentRow) int {
 	return n
 }
 
-// renderMarkdown renders rows of a Document as Markdown, drawing an edited
-// table row among them as track changes across a row of its table. It reports
-// false if such a row was not parsed as a table row.
+// renderMarkdown renders rows of a Document as Markdown, drawing each edited
+// or removed block among them as track changes where the parse put it: a table
+// row across a row of its table, a list item as an item of its list, anything
+// else in its place. It reports false if such a block was not found there.
 func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML, bool) {
 	var source strings.Builder
 	starts := make([]int, 0, len(rows))
 	tracked := map[int]template.HTML{}
 	for i, row := range rows {
 		starts = append(starts, source.Len())
-		source.WriteString(row.text)
-		source.WriteByte('\n')
+		switch {
+		case !standsIn(row):
+			source.WriteString(row.text)
+			source.WriteByte('\n')
+		case i == 0 || rows[i-1].block != row.block:
+			source.WriteString(standIn(row))
+			source.WriteByte('\n')
+		}
 		if _, seen := tracked[row.block]; row.tracked != nil && !seen {
 			tracked[row.block] = trackedLines(rows[i:i+blockLength(rows[i:])], false)
 		}
@@ -153,7 +165,9 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(draw, 100))),
 	)
 	document := md.Parser().Parse(text.NewReader(content))
-	placeNotes(document, tagBlocks(document, rowAt), rows)
+	marked := tagBlocks(document, rowAt)
+	inPlace := drawInPlace(marked, rows, content)
+	placeNotes(document, marked, rows)
 
 	var out bytes.Buffer
 	if err := md.Renderer().Render(&out, content, document); err != nil {
@@ -162,7 +176,122 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 		return template.HTML("<pre>" + template.HTMLEscapeString(source.String()) + "</pre>"), true
 	}
 	// Raw HTML was escaped by drawnSafely.
-	return template.HTML(out.String()), len(draw.drawn) == len(tracked)
+	for _, row := range rows {
+		if (row.tracked != nil || standsIn(row)) && !inPlace[row.block] && !draw.drawn[row.block] {
+			return template.HTML(out.String()), false
+		}
+	}
+	return template.HTML(out.String()), true
+}
+
+// standsIn reports whether a block is read into the Markdown as one line
+// standing in for it, and drawn in that line's place: an edited or removed
+// block other than a list item or a table row, whose own text its list or
+// table is read from, and a diagram an Excerpt cuts into. Read as they stand,
+// the part of a block an Excerpt shows could read as something else (part of
+// a fenced block, without its fences, as prose), and an edited block's lines
+// are drawn from the review's runs anyway.
+func standsIn(row documentRow) bool {
+	if row.diagram != nil && row.cutInto {
+		return true
+	}
+	return row.tracked != nil && row.tracked.kind != string(review.BlockListItem) && row.tracked.kind != string(review.BlockTableRow)
+}
+
+// standIn is the line a block is read as: its first row's indent and quote
+// markers, so it falls where the block does, then its stand-in word.
+func standIn(row documentRow) string {
+	lead := len(row.text) - len(strings.TrimLeft(row.text, " \t>"))
+	return row.text[:lead] + standInWord(row.block)
+}
+
+// standInWord names a block in the Markdown it stands in for.
+func standInWord(block int) string { return "dbnstandin" + strconv.Itoa(block) }
+
+// drawStandIn draws a block in the place of the line that stood in for it: an
+// edited or removed one as track changes; a new or unchanged diagram an
+// Excerpt cuts into as the whole diagram, as a fenced one shown whole is.
+func drawStandIn(rows []documentRow) template.HTML {
+	first := rows[0]
+	if first.tracked != nil {
+		return drawTracked(rows, false)
+	}
+	var out strings.Builder
+	writeDiagram(&out, first.classes(), func() {
+		out.WriteString(` data-block="` + strconv.Itoa(first.block) + `" data-place="` + template.HTMLEscapeString(first.place) + `"`)
+		if first.treatment != "" && first.treatment != string(review.TreatmentContext) {
+			out.WriteString(` data-treatment="` + template.HTMLEscapeString(first.treatment) + `"`)
+		}
+	}, first.diagram.After)
+	return template.HTML(out.String())
+}
+
+// linesOf is the text of a block element's own lines.
+func linesOf(n ast.Node, source []byte) string {
+	var b strings.Builder
+	for i := 0; i < n.Lines().Len(); i++ {
+		segment := n.Lines().At(i)
+		b.Write(segment.Value(source))
+	}
+	return b.String()
+}
+
+// drawInPlace draws the blocks among rows that the Markdown does not draw as
+// they are, where the parse put them, the elements tagBlocks marked for them
+// (marked): an edited or removed list item stays an item of its list, its
+// bullet and any list nested in it kept, with its own text drawn as track
+// changes; a block read as a stand-in line (standsIn) is drawn in that line's
+// place, and marked updated to it, so long as the line stood alone. An edited
+// table row is left to its table (renderTableRow). It returns the blocks it
+// drew.
+func drawInPlace(marked map[int]ast.Node, rows []documentRow, source []byte) map[int]bool {
+	drawn := map[int]bool{}
+	for i := 0; i < len(rows); {
+		n := blockLength(rows[i:])
+		block := rows[i : i+n]
+		i += n
+		first := block[0]
+		element, ok := marked[first.block]
+		if !ok {
+			continue
+		}
+		switch {
+		case standsIn(first):
+			// A stand-in line read into the block before it (a paragraph's
+			// lazy continuation, say) is not where the block stands.
+			if strings.TrimSpace(linesOf(element, source)) != standInWord(first.block) {
+				continue
+			}
+			drawing := &drawnNode{html: drawStandIn(block)}
+			element.Parent().ReplaceChild(element.Parent(), element, drawing)
+			marked[first.block] = drawing
+		case first.tracked != nil && element.Kind() == ast.KindListItem:
+			replaceItemText(element, &drawnNode{html: trackedItemLines(block)})
+			classes, _ := element.AttributeString("class")
+			class, _ := classes.(string)
+			element.SetAttributeString("class", strings.TrimSpace(class+" "+first.tracked.kind+" flow"))
+		default:
+			continue
+		}
+		drawn[first.block] = true
+	}
+	return drawn
+}
+
+// replaceItemText puts text in place of a list item's own text: what comes
+// before any list nested in it, or any block of the Document's own in it.
+func replaceItemText(item, text ast.Node) {
+	for child := item.FirstChild(); child != nil && child.Kind() != ast.KindList; child = item.FirstChild() {
+		if _, own := child.AttributeString("data-block"); own {
+			break
+		}
+		item.RemoveChild(item, child)
+	}
+	if first := item.FirstChild(); first != nil {
+		item.InsertBefore(item, first, text)
+		return
+	}
+	item.AppendChild(item, text)
 }
 
 // renderPlain renders a stretch of a Document that is prose but not Markdown:
@@ -294,7 +423,7 @@ func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
 	reg.Register(ast.KindFencedCodeBlock, d.renderFencedCode)
-	reg.Register(kindNotes, renderNotes)
+	reg.Register(kindDrawn, renderDrawn)
 }
 
 // htmlFuncs are goldmark's own renderers, for what is drawn as it would be.
@@ -533,22 +662,22 @@ func notesOf(rows []documentRow) template.HTML {
 	return template.HTML(out.String()) // the template escapes what it draws
 }
 
-// kindNotes is the node a block's notes are drawn from, in the flow of the
-// Document after the block.
-var kindNotes = ast.NewNodeKind("Notes")
+// kindDrawn is a node of HTML dbn drew itself, put into the flow of the
+// Document: a block's notes, or a block drawn as track changes.
+var kindDrawn = ast.NewNodeKind("Drawn")
 
-type notesNode struct {
+type drawnNode struct {
 	ast.BaseBlock
 	html template.HTML
 }
 
-func (n *notesNode) Kind() ast.NodeKind { return kindNotes }
+func (n *drawnNode) Kind() ast.NodeKind { return kindDrawn }
 
-func (n *notesNode) Dump(source []byte, level int) { ast.DumpHelper(n, source, level, nil, nil) }
+func (n *drawnNode) Dump(source []byte, level int) { ast.DumpHelper(n, source, level, nil, nil) }
 
-func renderNotes(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func renderDrawn(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		_, _ = w.WriteString(string(node.(*notesNode).html))
+		_, _ = w.WriteString(string(node.(*drawnNode).html))
 	}
 	return ast.WalkSkipChildren, nil
 }
@@ -568,7 +697,7 @@ func placeNotes(document ast.Node, marked map[int]ast.Node, rows []documentRow) 
 		if html == "" {
 			continue
 		}
-		notes := &notesNode{html: html}
+		notes := &drawnNode{html: html}
 		switch table := tableOf(element); {
 		case !ok:
 			document.AppendChild(document, notes)
