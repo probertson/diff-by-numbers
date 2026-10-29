@@ -45,6 +45,9 @@ type documentRow struct {
 	// whole all the same.
 	diagram *DiagramSourcesWire
 	cutInto bool
+	// frontmatter is a row of the Document's front matter, which the page
+	// draws as its fields (drawFrontMatter).
+	frontmatter bool
 	// notes are the Comments whose last row this is, drawn beneath the row's
 	// block in the flow of the Document, as the TUI draws them.
 	notes []commentData
@@ -187,12 +190,13 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 // standsIn reports whether a block is read into the Markdown as one line
 // standing in for it, and drawn in that line's place: an edited or removed
 // block other than a list item or a table row, whose own text its list or
-// table is read from, and a diagram an Excerpt cuts into. Read as they stand,
+// table is read from, a diagram an Excerpt cuts into, and front matter. Read
+// as they stand,
 // the part of a block an Excerpt shows could read as something else (part of
 // a fenced block, without its fences, as prose), and an edited block's lines
 // are drawn from the review's runs anyway.
 func standsIn(row documentRow) bool {
-	if row.diagram != nil && row.cutInto {
+	if (row.diagram != nil && row.cutInto) || (row.frontmatter && row.tracked == nil) {
 		return true
 	}
 	return row.tracked != nil && row.tracked.kind != string(review.BlockListItem) && row.tracked.kind != string(review.BlockTableRow)
@@ -209,12 +213,16 @@ func standIn(row documentRow) string {
 func standInWord(block int) string { return "dbnstandin" + strconv.Itoa(block) }
 
 // drawStandIn draws a block in the place of the line that stood in for it: an
-// edited or removed one as track changes; a new or unchanged diagram an
-// Excerpt cuts into as the whole diagram, as a fenced one shown whole is.
+// edited or removed one as track changes; new or unchanged front matter as
+// its fields; a new or unchanged diagram an Excerpt cuts into as the whole
+// diagram, as a fenced one shown whole is.
 func drawStandIn(rows []documentRow) template.HTML {
 	first := rows[0]
-	if first.tracked != nil {
+	switch {
+	case first.tracked != nil:
 		return drawTracked(rows, false)
+	case first.frontmatter:
+		return drawFrontMatter(rows)
 	}
 	var out strings.Builder
 	writeDiagram(&out, first.classes(), func() {

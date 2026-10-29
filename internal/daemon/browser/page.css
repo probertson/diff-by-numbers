@@ -2,6 +2,8 @@
   color-scheme: light dark;
   --bg: #ffffff;
   --fg: #1f2328;
+  --prose-fg: #3a3f45;
+  --strong: #000000;
   --dim: #6b6b6b;
   --rule: #d0d7de;
   --panel: #f6f8fa;
@@ -23,6 +25,8 @@
   :root {
     --bg: #16181c;
     --fg: #e6e6e6;
+    --prose-fg: #d4d4d4;
+    --strong: #ffffff;
     --dim: #9a9a9a;
     --rule: #30363d;
     --panel: #1e2228;
@@ -228,12 +232,22 @@ h2 { font-size: 1rem; }
 .document .tracked.table-row, .document .tracked.code, .document .tracked.frontmatter,
 .document .source-row { font-family: var(--mono); font-size: 0.875em; }
 .document .md { color: var(--dim); }
-.document .bold { font-weight: 600; }
 .document .italic { font-style: italic; }
 .document .code { font-family: var(--mono); font-size: 0.875em; }
 .document del { color: var(--removed); background: var(--removed-bg); text-decoration: line-through; }
 .document ins { color: var(--added); background: var(--added-bg); text-decoration: underline; }
 .document del .md, .document ins .md { color: inherit; opacity: 0.7; }
+
+/* Prose's regular text is a touch softer than the page's, and its bold the
+   strongest, so bold stands out by brightness as well as weight: a serif's
+   bold barely does by weight alone on a dark background. Bold in an edit
+   keeps the edit's color. */
+.document, .explanation, .question-text { color: var(--prose-fg); }
+.document :is(strong, b, .bold), .explanation :is(strong, b), .question-text :is(strong, b) {
+  font-weight: 700;
+  color: var(--strong);
+}
+.document :is(del, ins) :is(strong, b, .bold) { color: inherit; }
 
 /* A Mermaid diagram: its source until it is drawn, then the drawing, shrunk
    to fit the page and scrolling sideways past where its text stays legible
@@ -305,6 +319,22 @@ h2 { font-size: 1rem; }
   border: 0;
   visibility: hidden;
 }
+
+/* A Document's front matter, as its fields between its fences, muted: each
+   key a label beside its value, a multi-line value rendered as Markdown. */
+.document .frontmatter { margin: 1em 0; }
+.document .frontmatter .fence { font-family: var(--mono); font-size: 0.875em; color: var(--dim); }
+.document .frontmatter dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 1rem;
+  margin: 0.35rem 0;
+}
+.document .frontmatter dt { font-family: var(--sans); font-size: 0.875rem; color: var(--dim); padding-top: 0.15em; }
+.document .frontmatter dd { margin: 0; }
+.document .frontmatter dd.prose > :first-child { margin-top: 0; }
+.document .frontmatter dd.prose > :last-child { margin-bottom: 0; }
+.document .frontmatter dd pre { margin: 0; }
 
 /* What an Excerpt was widened by, so that no block is read in part. */
 .document .widened { color: var(--dim); }

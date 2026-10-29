@@ -20,12 +20,20 @@ import (
 // Document, raw HTML is shown as text, never passed through, and an image is
 // shown as its alt text, never fetched.
 func renderProse(text string) template.HTML {
+	return renderMarkdownProse(text, true)
+}
+
+// renderMarkdownProse renders prose as renderProse does, keeping each line
+// break written (hardWraps) or joining lines into paragraphs, as Markdown
+// itself does.
+func renderMarkdownProse(text string, hardWraps bool) template.HTML {
+	options := []renderer.Option{renderer.WithNodeRenderers(util.Prioritized(proseSafely{}, 100))}
+	if hardWraps {
+		options = append(options, html.WithHardWraps())
+	}
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.NewTable(tableAlignment)),
-		goldmark.WithRendererOptions(
-			html.WithHardWraps(),
-			renderer.WithNodeRenderers(util.Prioritized(proseSafely{}, 100)),
-		),
+		goldmark.WithRendererOptions(options...),
 	)
 	var out bytes.Buffer
 	if err := md.Convert([]byte(text), &out); err != nil {

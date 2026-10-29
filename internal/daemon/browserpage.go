@@ -508,6 +508,7 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
 				diagram: excerpt.Blocks[line.Block-1].Diagram, cutInto: !shownWhole(line.Block, excerpt), notes: notesAt(i),
+				frontmatter: excerpt.Blocks[line.Block-1].Kind == string(review.BlockFrontmatter),
 			})
 		case edited(line, excerpt):
 			// An edited or removed block is drawn as track changes in the
@@ -658,7 +659,7 @@ func rendered(line LineWire, excerpt ExcerptWire) bool {
 	}
 	block := excerpt.Blocks[line.Block-1]
 	switch {
-	case block.Kind == string(review.BlockFrontmatter):
+	case block.Kind == string(review.BlockFrontmatter) && excerpt.Plain:
 		return false
 	case block.Treatment != string(review.TreatmentNew) && block.Treatment != string(review.TreatmentContext):
 		return false

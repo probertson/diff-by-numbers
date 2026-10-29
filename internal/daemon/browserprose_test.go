@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,5 +60,44 @@ func TestAnExplanationsRawHTMLAndImagesAreShownAsText(t *testing.T) {
 	}
 	if !strings.Contains(out, "&lt;script&gt;") || !strings.Contains(out, "a chart") {
 		t.Errorf("expected the raw HTML escaped and the image's alt text kept, got:\n%s", out)
+	}
+}
+
+// A Document's front matter is drawn as its fields rather than as YAML
+// source: each key a label, a plain value as text, and a multi-line value
+// rendered as the Markdown it so often is, between its fences, muted. The TUI
+// shows it as written.
+func TestFrontMatterIsDrawnAsItsFields(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "---\n"+
+		"title: \"A sample plan, part 1\"\n"+
+		"kind: epic\n"+
+		"summary: |\n"+
+		"  **Why:** the kettle whistles too early.\n"+
+		"\n"+
+		"  **Finished when:** the kettle is quiet.\n"+
+		"---\n"+
+		"\n"+
+		"# A sample plan\n")
+
+	out := stop(t, server.URL, reviewID)
+
+	for _, want := range []string{
+		`<dt>title</dt><dd>A sample plan, part 1</dd>`,
+		`<dt>kind</dt><dd>epic</dd>`,
+		`<strong>Why:</strong> the kettle whistles too early.`,
+		`<strong>Finished when:</strong> the kettle is quiet.`,
+		`<div class="fence">---</div>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %s in the front matter, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `class="row`) {
+		t.Errorf("expected no source rows, got:\n%s", out)
+	}
+	if !regexp.MustCompile(`<div class="frontmatter[^"]*" data-block="1" data-place="[^"]+" data-treatment="new">`).MatchString(out) {
+		t.Errorf("expected the front matter one block, marked new, that the TUI's cursor finds, got:\n%s", out)
 	}
 }
