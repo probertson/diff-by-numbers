@@ -134,6 +134,28 @@ func TestTheOverviewHangsAWrappedAnswerInAFixedBlock(t *testing.T) {
 	}
 }
 
+func TestTheOverviewHangsEveryParagraphOfAComment(t *testing.T) {
+	note := addressed(1)
+	note.Note = "the first thought\n\nSECONDPARA, after a blank line\nTHIRDLINE, after a single break"
+	m := roundModel(80, note)
+
+	out := m.brief()
+
+	second := lineWith(t, out, "SECONDPARA")
+	third := lineWith(t, out, "THIRDLINE")
+	if got := indentOf(second); got != 10 {
+		t.Errorf("a later paragraph hangs with the continuations, got %d in %q", got, second)
+	}
+	if got := indentOf(third); got != 10 {
+		t.Errorf("a line after a single break hangs too, got %d in %q", got, third)
+	}
+	rows := strings.Split(out, "\n")
+	i := slices.Index(rows, second)
+	if i < 1 || strings.TrimSpace(rows[i-1]) != "" {
+		t.Errorf("the blank line between paragraphs is kept, got:\n%s", out)
+	}
+}
+
 func TestTheOverviewStaysInsideANarrowViewport(t *testing.T) {
 	// Narrower than the label, and narrower than the indent, are both reachable on
 	// a split terminal. Neither may put a row past the edge.

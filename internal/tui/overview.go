@@ -220,35 +220,61 @@ func fitRow(plain, dressed string, room int) string {
 // hangingField draws one labelled field of an item: the label and the start of
 // its text at the label indent, and every continuation a fixed step further in.
 // It wraps on spaces, the same rule the Step pane's code wrap follows, and takes
-// no row cap — an agent's reasoning is the thing being read. labelStyle dresses
-// the label alone; the text it introduces is left plain.
+// no row cap — an agent's reasoning is the thing being read. A line break in
+// the text starts a new row in the same block, and a blank line stays blank, so
+// a Comment written in paragraphs hangs whole rather than falling back to the
+// left edge. labelStyle dresses the label alone; the text it introduces is left
+// plain.
 func hangingField(label, text string, labelStyle lipgloss.Style, width int) []string {
 	lead := strings.Repeat(" ", dispositionLabelIndent)
 	hang := strings.Repeat(" ", dispositionLabelIndent+dispositionHang)
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	if width < 1 {
 		// Not sized yet: no limit, the reading wrapTo gives it.
-		return []string{lead + labelStyle.Render(label) + text}
+		rows := []string{lead + labelStyle.Render(label) + lines[0]}
+		for _, line := range lines[1:] {
+			rows = append(rows, hungRow(hang, line))
+		}
+		return rows
 	}
 	first := width - dispositionLabelIndent - lipgloss.Width(label)
 	rest := width - dispositionLabelIndent - dispositionHang
 	if rest < 1 {
 		// Narrower than the indent, so there is no block to hang: clip the row.
-		return []string{truncateTo(lead+label+text, width)}
+		return []string{truncateTo(lead+label+strings.Join(lines, " "), width)}
 	}
+	var rows []string
 	if first < 1 {
 		// The label alone fills its row; what it introduces starts on the next.
-		rows := []string{truncateTo(lead+label, width)}
-		for _, chunk := range wrapCode(text, rest, rest, len(text)+1) {
+		rows = append(rows, truncateTo(lead+label, width))
+	}
+	for i, line := range lines {
+		if i == 0 && first >= 1 {
+			chunks := wrapCode(line, first, rest, len(line)+1)
+			rows = append(rows, lead+labelStyle.Render(label)+chunks[0])
+			for _, chunk := range chunks[1:] {
+				rows = append(rows, hang+chunk)
+			}
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			rows = append(rows, "")
+			continue
+		}
+		for _, chunk := range wrapCode(line, rest, rest, len(line)+1) {
 			rows = append(rows, hang+chunk)
 		}
-		return rows
-	}
-	chunks := wrapCode(text, first, rest, len(text)+1)
-	rows := []string{lead + labelStyle.Render(label) + chunks[0]}
-	for _, chunk := range chunks[1:] {
-		rows = append(rows, hang+chunk)
 	}
 	return rows
+}
+
+// hungRow is one line of a field's text on a row of its own, at the hang; a
+// blank line is left empty rather than padded.
+func hungRow(hang, line string) string {
+	if strings.TrimSpace(line) == "" {
+		return ""
+	}
+	return hang + line
 }
 
 // declinesHint is the conclusion screen's last chance to push back: the round
