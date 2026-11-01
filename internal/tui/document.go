@@ -548,7 +548,6 @@ func renderDocRow(row docRow, heading, dim bool) string {
 	return b.String()
 }
 
-
 // blockLines is every row of a block stop, in order. An edited block's rows
 // include the lines its edit replaced, on the other side.
 func blockLines(line codeLine, excerpt daemon.ExcerptWire) []daemon.LineWire {
