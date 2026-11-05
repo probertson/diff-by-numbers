@@ -448,3 +448,20 @@ func TestTheStepsBarSaysWhereTheReviewerIsAndWhatTheyHaveSeen(t *testing.T) {
 		t.Errorf("expected the bar to give the Step and the lines seen, got %q in:\n%s", bar, out)
 	}
 }
+
+// The bar offers to wrap long lines of code, as the TUI's w does, as a
+// switch. page.js keeps the choice in the browser, so the page is served with
+// it off.
+func TestTheStepsBarOffersToWrapCodeLines(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "# Title\n\nSome text.\n")
+
+	out := stop(t, server.URL, reviewID)
+
+	bar := regexp.MustCompile(`(?s)<div class="progress">.*?</div>`).FindString(out)
+	toggle := regexp.MustCompile(`<label[^>]*><input type="checkbox" role="switch" data-wrap-lines> Wrap code lines</label>`)
+	if !toggle.MatchString(bar) {
+		t.Errorf("expected the bar to offer to wrap long lines, got %q", bar)
+	}
+}

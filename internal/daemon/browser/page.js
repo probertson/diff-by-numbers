@@ -343,6 +343,45 @@
     }));
   }
 
+  // Whether long lines of code wrap is the Reviewer's choice for this
+  // browser, not the review's, so it is kept here and outlives a redraw.
+  // Storage can be refused; the page then starts unwrapped every time.
+  var wrapKey = "dbn.wrapLines";
+  var wrapping = false;
+  try {
+    wrapping = window.localStorage.getItem(wrapKey) === "on";
+  } catch (error) {}
+
+  // showWrap draws the stop as the choice says: wrapped or not, its switch
+  // set to match, and each code line's indent measured so a wrapped line
+  // hangs under its own code.
+  function showWrap() {
+    body.classList.toggle("wrap-lines", wrapping);
+    all("[data-wrap-lines]").forEach(function (box) {
+      box.checked = wrapping;
+    });
+    all(".row .text").forEach(function (text) {
+      var lead = /^[ \t]*/.exec(text.textContent)[0];
+      var columns = 0;
+      for (var i = 0; i < lead.length; i++) {
+        // A tab reaches the next of the browser's tab stops, every 8 columns.
+        columns = lead[i] === "\t" ? columns + 8 - (columns % 8) : columns + 1;
+      }
+      text.style.setProperty("--hang", columns + "ch");
+    });
+  }
+
+  main.addEventListener("change", function (event) {
+    if (!event.target.matches("[data-wrap-lines]")) {
+      return;
+    }
+    wrapping = event.target.checked;
+    try {
+      window.localStorage.setItem(wrapKey, wrapping ? "on" : "off");
+    } catch (error) {}
+    showWrap();
+  });
+
   function redraw() {
     var seen = moves;
     fetch(body.getAttribute("data-stop-url"), { cache: "no-store" })
@@ -358,6 +397,7 @@
       .then(function (html) {
         var was = keyOf(main);
         main.innerHTML = html;
+        showWrap();
         markComments();
         if (keyOf(main) !== was) {
           window.scrollTo(0, 0);
@@ -382,6 +422,7 @@
       });
   }
 
+  showWrap();
   drawDiagrams();
   dark.addEventListener("change", drawDiagrams);
   window.addEventListener("resize", layOut);

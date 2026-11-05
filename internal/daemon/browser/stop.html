@@ -20,7 +20,7 @@
 {{- end}}
 
 {{define "step" -}}
-<div class="progress">Step {{.Number}} of {{.Count}}<span class="dim">  ·  {{.Seen}}/{{.Total}} changed lines seen</span></div>
+<div class="progress"><span>Step {{.Number}} of {{.Count}}<span class="dim">  ·  {{.Seen}}/{{.Total}} changed lines seen</span></span><label class="wrap-toggle"><input type="checkbox" role="switch" data-wrap-lines> Wrap code lines</label></div>
 <header class="step-header">
 {{- if .Chapter}}
 <p class="chapter">{{.Chapter}}</p>
