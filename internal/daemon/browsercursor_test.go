@@ -198,6 +198,32 @@ func TestACursorOnAnEditedBlockMarksItsTrackChanges(t *testing.T) {
 	}
 }
 
+// A code block, fenced or indented, carries its block as any other block does,
+// so the cursor on it marks it rather than marking nothing on the page.
+func TestACursorOnACodeBlockMarksTheCodeBlock(t *testing.T) {
+	for name, code := range map[string]string{
+		"fenced":   "```text\nSugar: empty, because the bakery is closed.\n```\n",
+		"indented": "    Sugar: empty, because the bakery is closed.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(daemon.New().Handler())
+			defer server.Close()
+			reviewID := onANewDocument(t, server.URL, "# Pantry\n\nAn empty jar gets a label:\n\n"+code+"\nThe season changes nothing.\n")
+
+			reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Block: 3})
+
+			out := stop(t, server.URL, reviewID)
+			tag := openingTag(out, `data-block="3"`)
+			if !strings.HasPrefix(tag, "<pre") || !strings.Contains(tag, `data-place="1.0.b3"`) || !isTheCursors(tag) {
+				t.Errorf("expected the code block marked as the cursor's, got %q in:\n%s", tag, out)
+			}
+			if !strings.Contains(out, "Sugar: empty, because the bakery is closed.") {
+				t.Errorf("expected the code block's text drawn, got:\n%s", out)
+			}
+		})
+	}
+}
+
 // An edited table row stays a row of its table, which the cursor marks as the
 // row's, leaving the table holding it bright.
 func TestACursorOnAnEditedTableRowMarksThatRow(t *testing.T) {

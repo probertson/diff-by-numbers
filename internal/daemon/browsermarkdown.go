@@ -431,6 +431,7 @@ func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
 	reg.Register(ast.KindFencedCodeBlock, d.renderFencedCode)
+	reg.Register(ast.KindCodeBlock, renderCode)
 	reg.Register(kindDrawn, renderDrawn)
 }
 
@@ -541,12 +542,12 @@ func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node
 
 // renderFencedCode draws a fence dbn marked as a Mermaid diagram as a diagram
 // container holding its source as dbn read it, which the page's script has
-// Mermaid draw (page.js); any other fence is drawn as goldmark draws it. The
+// Mermaid draw (page.js); any other fence is drawn as code (renderCode). The
 // container carries the block's attributes, as the fence would have.
 func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	offset, ok := firstOffset(node)
 	if !ok || d.rowAt(offset).diagram == nil {
-		return htmlFuncs[ast.KindFencedCodeBlock](w, source, node, entering)
+		return renderCode(w, source, node, entering)
 	}
 	if !entering {
 		return ast.WalkContinue, nil
@@ -555,6 +556,33 @@ func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast
 	class, _ := classes.(string)
 	writeDiagram(w, class, func() { html.RenderAttributes(w, node, onlyData) }, d.rowAt(offset).diagram.After)
 	return ast.WalkSkipChildren, nil
+}
+
+// renderCode draws a code block, fenced or indented, as goldmark draws it, but
+// with the block's attributes on its pre, which goldmark leaves off: without
+// them the page finds no element at the block the TUI's cursor is on.
+func renderCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		_, _ = w.WriteString("</code></pre>\n")
+		return ast.WalkContinue, nil
+	}
+	_, _ = w.WriteString("<pre")
+	html.RenderAttributes(w, node, nil)
+	_, _ = w.WriteString("><code")
+	if fence, ok := node.(*ast.FencedCodeBlock); ok {
+		if language := fence.Language(source); language != nil {
+			_, _ = w.WriteString(` class="language-`)
+			html.DefaultWriter.Write(w, language)
+			_ = w.WriteByte('"')
+		}
+	}
+	_ = w.WriteByte('>')
+	lines := node.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		line := lines.At(i)
+		html.DefaultWriter.RawWrite(w, line.Value(source))
+	}
+	return ast.WalkContinue, nil
 }
 
 // writeDiagram writes a diagram container: a figure of class "diagram" and
