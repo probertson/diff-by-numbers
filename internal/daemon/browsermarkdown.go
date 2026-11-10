@@ -140,7 +140,7 @@ func blockLength(rows []documentRow) int {
 func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML, bool) {
 	var source strings.Builder
 	starts := make([]int, 0, len(rows))
-	tracked := map[int]template.HTML{}
+	tracked := map[int][]documentRow{}
 	for i, row := range rows {
 		starts = append(starts, source.Len())
 		switch {
@@ -152,7 +152,7 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 			source.WriteByte('\n')
 		}
 		if _, seen := tracked[row.block]; row.tracked != nil && !seen {
-			tracked[row.block] = trackedLines(rows[i:i+blockLength(rows[i:])], false)
+			tracked[row.block] = rows[i : i+blockLength(rows[i:])]
 		}
 	}
 	content := []byte(source.String())
@@ -419,7 +419,7 @@ func firstOffset(n ast.Node) (int, bool) {
 type drawnSafely struct {
 	images  documentImagesAt
 	rowAt   func(offset int) documentRow
-	tracked map[int]template.HTML
+	tracked map[int][]documentRow
 	drawn   map[int]bool
 }
 
@@ -476,36 +476,56 @@ type registered map[ast.NodeKind]renderer.NodeRendererFunc
 
 func (r registered) Register(kind ast.NodeKind, f renderer.NodeRendererFunc) { r[kind] = f }
 
-// trackedRowOf is the track changes to draw for a table row (or header) an
-// edit changed, and its block, if it is one.
-func (d *drawnSafely) trackedRowOf(n ast.Node) (template.HTML, int, bool) {
+// trackedRowOf is the rows of a table row (or header) an edit changed or
+// removed, and its block, if it is one.
+func (d *drawnSafely) trackedRowOf(n ast.Node) ([]documentRow, int, bool) {
 	offset, ok := firstOffset(n)
 	if !ok {
-		return "", 0, false
+		return nil, 0, false
 	}
 	block := d.rowAt(offset).block
-	lines, ok := d.tracked[block]
-	return lines, block, ok
+	rows, ok := d.tracked[block]
+	return rows, block, ok
 }
 
-// writeTrackedRow draws a table row an edit changed as one <tr>: its source
-// lines as track changes, across all of the table's columns.
-func writeTrackedRow(w util.BufWriter, n ast.Node, attributes ast.Node, lines template.HTML) {
+// writeTrackedRow draws a table row an edit changed or removed as one <tr>,
+// cell by cell, each cell's words struck and added in that cell. A row whose
+// cells the edit changed, which may then not be its table's columns, is drawn
+// as its source lines instead, across all of the columns.
+func writeTrackedRow(w util.BufWriter, n ast.Node, attributes ast.Node, rows []documentRow) {
+	table, _ := n.Parent().(*east.Table)
 	columns := 1
-	if table, ok := n.Parent().(*east.Table); ok {
+	if table != nil {
 		columns = max(len(table.Alignments), 1)
 	}
 	_, _ = w.WriteString("<tr")
 	if attributes != nil {
 		html.RenderAttributes(w, attributes, nil)
 	}
-	_, _ = w.WriteString(`><td class="source-row" colspan="` + strconv.Itoa(columns) + `">`)
-	_, _ = w.WriteString(string(lines))
-	_, _ = w.WriteString("</td></tr>\n")
+	_ = w.WriteByte('>')
+	cells, ok := rowCells(rows, columns)
+	if !ok || table == nil {
+		_, _ = w.WriteString(`<td class="source-row" colspan="` + strconv.Itoa(columns) + `">`)
+		_, _ = w.WriteString(string(trackedLines(rows, false)))
+		_, _ = w.WriteString("</td></tr>\n")
+		return
+	}
+	tag := "td"
+	if n.Kind() == east.KindTableHeader {
+		tag = "th"
+	}
+	for i, cell := range cells {
+		_, _ = w.WriteString("<" + tag)
+		if alignment := table.Alignments[i]; alignment != east.AlignNone {
+			_, _ = w.WriteString(` align="` + alignment.String() + `"`)
+		}
+		_, _ = w.WriteString(">" + string(trackedCell(cell)) + "</" + tag + ">")
+	}
+	_, _ = w.WriteString("</tr>\n")
 }
 
 func (d *drawnSafely) renderTableHeader(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
-	lines, block, ok := d.trackedRowOf(n)
+	rows, block, ok := d.trackedRowOf(n)
 	if !ok {
 		return tableFuncs[east.KindTableHeader](w, source, n, entering)
 	}
@@ -516,7 +536,7 @@ func (d *drawnSafely) renderTableHeader(w util.BufWriter, source []byte, n ast.N
 	_, _ = w.WriteString("<thead")
 	html.RenderAttributes(w, n, nil)
 	_, _ = w.WriteString(">\n")
-	writeTrackedRow(w, n, nil, lines)
+	writeTrackedRow(w, n, nil, rows)
 	_, _ = w.WriteString("</thead>\n")
 	if n.NextSibling() != nil {
 		_, _ = w.WriteString("<tbody>\n")
@@ -525,7 +545,7 @@ func (d *drawnSafely) renderTableHeader(w util.BufWriter, source []byte, n ast.N
 }
 
 func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
-	lines, block, ok := d.trackedRowOf(n)
+	rows, block, ok := d.trackedRowOf(n)
 	if !ok {
 		return tableFuncs[east.KindTableRow](w, source, n, entering)
 	}
@@ -533,7 +553,7 @@ func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node
 		return ast.WalkContinue, nil
 	}
 	d.drawn[block] = true
-	writeTrackedRow(w, n, n, lines)
+	writeTrackedRow(w, n, n, rows)
 	if n.Parent().LastChild() == n {
 		_, _ = w.WriteString("</tbody>\n")
 	}

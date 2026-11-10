@@ -159,17 +159,18 @@ func TestANewBlockIsMarkedNewAndUnchangedTextIsNot(t *testing.T) {
 	)
 }
 
-// An edited table row is a styled source row inside its table, so a table cut
-// by an edit stays one table under its header.
-func TestAnEditedTableRowIsASourceRowInsideItsTable(t *testing.T) {
+// An edited table row is drawn as a row of its table, cell by cell, each
+// cell's struck and added words in that cell, so a table cut by an edit stays
+// one table under its header and reads as one.
+func TestAnEditedTableRowIsDrawnCellByCellInItsTable(t *testing.T) {
 	server := httptest.NewServer(daemon.New().Handler())
 	defer server.Close()
 	table := "# Retries\n\n" +
-		"| Attempt | Delay |\n" +
-		"| ------- | ----- |\n" +
-		"| 1       | 1s    |\n" +
-		"| 2       | %s    |\n" +
-		"| 3       | 4s    |\n"
+		"| Attempt | Delay | Note |\n" +
+		"| ------- | ----: | ---- |\n" +
+		"| 1       | 1s    | -    |\n" +
+		"| 2       | %s    | - `retry` and **firm** |\n" +
+		"| 3       | 4s    | -    |\n"
 	reviewID := onAnEditedDocument(t, server.URL,
 		strings.Replace(table, "%s", "2s", 1),
 		strings.Replace(table, "%s", "3s", 1),
@@ -180,18 +181,78 @@ func TestAnEditedTableRowIsASourceRowInsideItsTable(t *testing.T) {
 	if got := strings.Count(out, "<table"); got != 1 {
 		t.Errorf("expected the rows drawn as one table, got %d tables in:\n%s", got, out)
 	}
-	wantIn(t, out,
-		"Attempt</span></th>",
-		">1s</td>",
-		">4s</td>",
-		`<span class="md">|</span>`,
-		`<del>2s</del> <ins>3s</ins>`,
+	edited := regexp.MustCompile(`(?s)<tr[^>]*data-treatment="edited"[^>]*>.*?</tr>`).FindString(out)
+	if edited == "" {
+		t.Fatalf("expected the edited row drawn as a row of the table, got:\n%s", out)
+	}
+	wantIn(t, edited,
+		"<td>2</td>",
+		`<td align="right"><del>2s</del> <ins>3s</ins></td>`,
+		`<td>- <span class="md">`+"`"+`</span><span class="code">retry</span><span class="md">`+"`"+`</span> and <span class="md">**</span><span class="bold">firm</span><span class="md">**</span></td>`,
 	)
+	if strings.Contains(edited, "source-row") {
+		t.Errorf("expected the edited row's cells, not its source, got:\n%s", edited)
+	}
 	start, end := strings.Index(out, "<table"), strings.Index(out, "</table>")
-	edit := strings.Index(out, `data-treatment="edited"`)
-	if edit < start || edit > end {
+	if edit := strings.Index(out, `data-treatment="edited"`); edit < start || edit > end {
 		t.Errorf("expected the edited row inside the table, got:\n%s", out)
 	}
+}
+
+// An edited header row is drawn cell by cell as the table's header.
+func TestAnEditedTableHeaderIsDrawnCellByCell(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	table := "| Attempt | %s |\n| ------- | ----- |\n| 1       | 1s    |\n"
+	reviewID := onAnEditedDocument(t, server.URL,
+		fmt.Sprintf(table, "Delay"), fmt.Sprintf(table, "Wait "),
+		lines{"new", 1, 3})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	head := regexp.MustCompile(`(?s)<thead[^>]*data-treatment="edited"[^>]*>.*?</thead>`).FindString(out)
+	if head == "" {
+		t.Fatalf("expected the edited header drawn as the table's header, got:\n%s", out)
+	}
+	wantIn(t, head, "<th>Attempt</th>", "<th><del>Delay</del> <ins>Wait</ins></th>")
+}
+
+// A removed table row inside its table is drawn cell by cell, each cell struck.
+func TestARemovedTableRowIsDrawnCellByCellInItsTable(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onAnEditedDocument(t, server.URL,
+		"| Attempt | Delay |\n| ------- | ----- |\n| 1       | 1s    |\n| 2       | 2s    |\n| 3       | 4s    |\n",
+		"| Attempt | Delay |\n| ------- | ----- |\n| 1       | 1s    |\n| 3       | 8s    |\n",
+		lines{"new", 3, 4})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	removed := regexp.MustCompile(`(?s)<tr[^>]*data-treatment="removed"[^>]*>.*?</tr>`).FindString(out)
+	if removed == "" {
+		t.Fatalf("expected the removed row drawn as a row of the table, got:\n%s", out)
+	}
+	wantIn(t, removed, "<td><del>2</del></td>", "<td><del>2s</del></td>")
+}
+
+// An edit that adds, removes or moves a row's pipes changes which cells the
+// row has, which then match no column of its table, so the row is drawn as its
+// source across the table, as track changes.
+func TestAnEditThatChangesARowsCellsDrawsTheRowAsItsSource(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	table := "| Attempt | Delay |\n| ------- | ----- |\n| 1       | 1s    |\n| 2       | %s |\n"
+	reviewID := onAnEditedDocument(t, server.URL,
+		fmt.Sprintf(table, "2s   "), fmt.Sprintf(table, "3s | then stop"),
+		lines{"new", 3, 4})
+
+	out := html.UnescapeString(stop(t, server.URL, reviewID))
+
+	edited := regexp.MustCompile(`(?s)<tr[^>]*data-treatment="edited"[^>]*>.*?</tr>`).FindString(out)
+	if edited == "" {
+		t.Fatalf("expected the edited row drawn as a row of the table, got:\n%s", out)
+	}
+	wantIn(t, edited, `<td class="source-row" colspan="2">`, `<span class="md">|</span>`)
 }
 
 // A table cut by an Excerpt is given its header row, and a paragraph it cuts
