@@ -223,3 +223,19 @@ func TestACodeFileIsDescribedWithNoCost(t *testing.T) {
 		t.Errorf("expected code to carry no cost in words, got %+v", got)
 	}
 }
+
+func TestACodeBlockInADocumentIsLeftOutOfItsDescribedCost(t *testing.T) {
+	// A heading of 2 words on line 1, a paragraph of 25 on 3-5, and a code
+	// block on 7-26, which is charged in changed lines instead.
+	files := adding("docs/retries.md", markdown("## Retry policy", paragraph(25), fenced("go", codeLines(1, 18))))
+
+	d := describingOver(t, files)
+
+	want := &review.DocumentCost{Words: 27, NewBlocks: []review.BlockCost{
+		{Lines: review.LineRange{First: 1, Last: 1}, Words: 2},
+		{Lines: review.LineRange{First: 3, Last: 5}, Words: 25},
+	}}
+	if got := fileNamed(t, d, "docs/retries.md").Cost; !reflect.DeepEqual(got, want) {
+		t.Errorf("expected %+v, got %+v", want, got)
+	}
+}

@@ -92,6 +92,13 @@ struck from it. A block whose words did not change, as in a rewrap, costs
 nothing, and neither does text the reviewer read last round. Bare Markdown
 markers, such as `#`, `-` or a table's `|`, are not words.
 
+**A code block is charged as code.** A fenced or indented code block in a
+Document, a Mermaid diagram included, is charged by its changed lines against
+code's 30-line budget, not in words, and `describe_changes` leaves it out of a
+Document's `cost` and `new_blocks`. An edit to two lines of a long code block
+costs those lines, on both sides of the edit; a new code block costs every line
+of it, its fences included.
+
 **Carry one change across every Document it touches.** *One idea per Step* in
 SKILL.md holds for Documents, edits to existing ones included. When two changes
 run across the same files — a renamed term and a new rule, say, both touching

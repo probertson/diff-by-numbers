@@ -282,11 +282,10 @@ func TestAStepOfMoreThanAThousandNewWordsIsRefusedWithItsCostInWords(t *testing.
 	assertDetailOmits(t, err, "changed lines toward")
 }
 
-// markedUp is a new Document of 116 words of markup — frontmatter, a heading, a
-// table, a list, a block quote, a thematic break and a fenced code block — and a
-// paragraph of the given number of words. Its bare markers (`---`, `#`, `|`,
-// `-`, `>`, the fences) number over a hundred, so counting any kind of them would
-// show.
+// markedUp is a new Document of 114 words of markup — frontmatter, a heading, a
+// table, a list, a block quote and a thematic break — and a paragraph of the
+// given number of words. Its bare markers (`---`, `#`, `|`, `-`, `>`) number over
+// a hundred, so counting any kind of them would show.
 func markedUp(paragraphWords int) workingFiles {
 	table := []string{"| Term | Meaning |", "|---|---|"}
 	for range 29 {
@@ -298,14 +297,13 @@ func markedUp(paragraphWords int) workingFiles {
 		strings.Join(table, "\n"),  // 60
 		"- "+paragraph(10)+"\n- "+paragraph(10)+"\n- "+paragraph(10), // 30
 		"> "+paragraph(10)+"\n> "+paragraph(10),                      // 20
-		"---",                              // 0
-		"```\nretry := policy.Next()\n```", // 2
+		"---", // 0
 		paragraph(paragraphWords),
 	))
 }
 
 func TestBareMarkdownMarkersAreNotCountedAsWords(t *testing.T) {
-	files := markedUp(884)
+	files := markedUp(886)
 
 	err := postingOver(files, showingWhole("The retry policy", files, review.NewSide, "docs/retries.md"))
 
@@ -315,7 +313,7 @@ func TestBareMarkdownMarkersAreNotCountedAsWords(t *testing.T) {
 }
 
 func TestEveryWordAroundTheMarkersIsCounted(t *testing.T) {
-	files := markedUp(885)
+	files := markedUp(887)
 
 	err := postingOver(files, showingWhole("The retry policy", files, review.NewSide, "docs/retries.md"))
 
@@ -494,4 +492,59 @@ func TestDeletedDocumentTextIsChargedInWordsToo(t *testing.T) {
 	assertRejected(t, err, review.RejectedOversizedStep)
 	assertDetailContains(t, err, `Step 1 ("Retire the old notes") counts 1101 words of Document text`)
 	assertDetailOmits(t, err, "changed lines toward")
+}
+
+// codeLines is n lines of code of ten words each, numbered from first so that
+// two runs of them diff only where they really differ.
+func codeLines(first, n int) []string {
+	var out []string
+	for i := first; i < first+n; i++ {
+		out = append(out, fmt.Sprintf("attempt%d := retry(policy, after, limit, jitter, budget, step, of, %d)", i, i))
+	}
+	return out
+}
+
+// fenced is a fenced code block of the given info string around the lines.
+func fenced(info string, lines []string) string {
+	return "```" + info + "\n" + strings.Join(lines, "\n") + "\n```"
+}
+
+func TestAnEditToACodeBlockInADocumentIsChargedOnlyItsChangedLines(t *testing.T) {
+	// A code block of 150 lines and 1,500 words, two of whose lines the edit
+	// changes: 4 changed lines, where charging the block whole would be 1,500
+	// words.
+	block := codeLines(1, 150)
+	edited := slices.Clone(block)
+	edited[40], edited[41] = "attempt41 := retry(policy, sooner)", "attempt42 := retry(policy, later)"
+	files := workingFiles{
+		before: map[string]string{"docs/retries.md": markdown("## Retry policy", paragraph(10), fenced("go", block))},
+		after:  map[string]string{"docs/retries.md": markdown("## Retry policy", paragraph(10), fenced("go", edited))},
+	}
+
+	err := postingOver(files, showingWhole("The retry loop", files, review.NewSide, "docs/retries.md"))
+
+	if err != nil {
+		t.Fatalf("expected an edit to two lines of a code block to be charged those lines, got %v", err)
+	}
+}
+
+func TestACodeBlockInADocumentIsChargedInChangedLinesAsCodeIs(t *testing.T) {
+	for _, tc := range []struct {
+		name, block string
+	}{
+		// 29 lines between two fences: 31 changed lines.
+		{"fenced", fenced("go", codeLines(1, 29))},
+		{"indented", "    " + strings.Join(codeLines(1, 31), "\n    ")},
+		{"a diagram", fenced("mermaid", append([]string{"flowchart TD"}, slices.Repeat([]string{"  Retry --> Wait"}, 28)...))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := adding("docs/retries.md", markdown("## Retry policy", paragraph(10), tc.block))
+
+			err := postingOver(files, showingWhole("The retry loop", files, review.NewSide, "docs/retries.md"))
+
+			assertRejected(t, err, review.RejectedOversizedStep)
+			assertDetailContains(t, err, `Step 1 ("The retry loop") counts 31 changed lines toward the budget of 30, and gives no justification`)
+			assertDetailOmits(t, err, "words of Document text")
+		})
+	}
 }

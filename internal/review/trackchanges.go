@@ -299,7 +299,7 @@ func (s *Session) trackedSincePrevious(ref fileRef, mapping RoundMapping) tracke
 		var before document
 		if reader, ok := s.resolver.(FileReader); ok {
 			if lines, err := reader.ReadFile(ref.repository, mapping.PathIn(ref.file), NewSide, s.previous.round); err == nil {
-				before = document{lines: lines, blocks: blocksOf(ref.file, lines)}
+				before = documentOf(ref.file, lines)
 			}
 		}
 		after := s.ledger.documents[documentSide{ref, NewSide}]

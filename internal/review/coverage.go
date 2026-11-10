@@ -472,14 +472,15 @@ func (over oversizedSteps) countOf(o oversizedStep) string {
 // says why the count can be lower than the lines a Step shows, so an agent
 // tallying its own Excerpts is not left with a number it cannot reproduce. When
 // Document text is over, it also says how words are counted, since a block is
-// charged whole however little of it an Excerpt shows, and a rewrap that changed
-// every line of one is charged nothing.
+// charged whole however little of it an Excerpt shows, a rewrap that changed
+// every line of one is charged nothing, and a code block is no part of it.
 func (over oversizedSteps) splitFirst() string {
 	advice := "Split by idea into smaller Steps, and justify a Step only if it cannot be split; " +
 		"whitespace-only lines and lines already shown last round are not counted"
 	if over.overInWords() {
 		advice += "; Document text costs every word of each changed block a Step's Excerpts touch, " +
-			"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing"
+			"with the words struck from it; a block whose words did not change, as in a rewrap, costs nothing; " +
+			"a code block in a Document costs its changed lines, as code does"
 	}
 	return advice
 }

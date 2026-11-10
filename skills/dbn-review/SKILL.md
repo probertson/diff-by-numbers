@@ -136,8 +136,8 @@ they will see, or give the before-side yourself with an `old`-side Excerpt.
 30 changed lines, and prefer more, smaller Steps: each comprehensible at a
 glance, never two functions to hold in your head at once. That budget is for
 code. Documents have one of their own, counted in words, and the document
-guidance says how to size their Steps; a Step showing both is checked against
-each. An edit shows both its before and after, and the code budget counts both
+guidance says how to size their Steps; a Document's code blocks count toward
+the code budget, as code. A Step showing both is checked against each. An edit shows both its before and after, and the code budget counts both
 sides, so a rewrite fills it faster than an addition. That pressure is
 intentional. Split by idea first; `oversize_justification` is only for a Step
 whose idea genuinely does not divide, never a routine alternative to splitting.

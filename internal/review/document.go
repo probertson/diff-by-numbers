@@ -70,17 +70,32 @@ func (l ledger) withDocuments(resolver Resolver, round RoundSource) ledger {
 			if err != nil {
 				continue
 			}
-			l.documents[documentSide{ref, side}] = document{lines: source, blocks: blocksOf(ref.file, source)}
+			l.documents[documentSide{ref, side}] = documentOf(ref.file, source)
 		}
 	}
 	return l
 }
 
-// document is one side of a Document: its source lines and the blocks they
-// make.
+// document is one side of a Document: its source lines, the blocks they make,
+// and which of the lines are in a code block.
 type document struct {
 	lines  []string
 	blocks []block
+	code   map[int]bool
+}
+
+// documentOf parses one side of a Document from its source lines.
+func documentOf(path string, source []string) document {
+	d := document{lines: source, blocks: blocksOf(path, source), code: map[int]bool{}}
+	for _, b := range d.blocks {
+		if b.kind != BlockCode {
+			continue
+		}
+		for line := b.lines.First; line <= b.lines.Last; line++ {
+			d.code[line] = true
+		}
+	}
+	return d
 }
 
 // nodeOfLine is, for each line in order, the block it falls in, numbered from
@@ -111,10 +126,12 @@ func (d document) linesExcept(set map[int]bool) []int {
 
 // isChargedInWords reports whether a Changed Line is charged in words, as
 // Document text, rather than as a line of code: it is in a Document, after
-// overruling, whose text could be read.
+// overruling, whose text could be read, and not in one of its code blocks. A
+// code block, a diagram's included, is read line by line as code is, so an edit
+// to two of its lines costs those lines and not the whole block's words.
 func (l ledger) isChargedInWords(line ChangedLine) bool {
-	_, ok := l.documents[sideOf(line)]
-	return ok
+	d, ok := l.documents[sideOf(line)]
+	return ok && !d.code[line.Line]
 }
 
 // costedBlock is what one changed block of a Document costs to read, in words. It
@@ -195,12 +212,20 @@ func (l ledger) costsOf(ref fileRef, lines []ChangedLine) []costedBlock {
 		}
 		return costs[group]
 	}
+	// A code block is charged in Changed Lines instead, so it is no part of
+	// any block's cost.
 	for n, b := range before.blocks {
+		if b.kind == BlockCode {
+			continue
+		}
 		c := costOf(n)
 		c.before = append(c.before, b.lines)
 		c.words += d.struck[n]
 	}
 	for n, b := range after.blocks {
+		if b.kind == BlockCode {
+			continue
+		}
 		c := costOf(len(before.blocks) + n)
 		c.after = append(c.after, b.lines)
 		c.words += len(b.words)
