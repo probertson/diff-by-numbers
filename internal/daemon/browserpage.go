@@ -103,6 +103,20 @@ func (x excerptContext) rowPlaces(line LineWire, excerpt ExcerptWire) []string {
 	return append(places, placeOfLine(x.step, x.index, sideOf(line, excerpt), line.Number))
 }
 
+// codeLinePlace is, for a row of a code block, which the TUI's cursor goes
+// through a line at a time, the place of its own line; "" for a row of any
+// other block, a diagram's among them, which the cursor takes whole.
+func (x excerptContext) codeLinePlace(line LineWire, excerpt ExcerptWire) string {
+	if line.Block < 1 || line.Block > len(excerpt.Blocks) {
+		return ""
+	}
+	block := excerpt.Blocks[line.Block-1]
+	if block.Kind != string(review.BlockCode) || block.Diagram != nil {
+		return ""
+	}
+	return placeOfLine(x.step, x.index, sideOf(line, excerpt), line.Number)
+}
+
 // onCursor reports whether the TUI's cursor is at any of places.
 func (x excerptContext) onCursor(places ...string) bool {
 	return x.cursor != "" && slices.Contains(places, x.cursor)
@@ -503,9 +517,11 @@ func layoutExcerpt(excerpt ExcerptWire, comments []CommentWire, x excerptContext
 			if len(rows) > 0 {
 				flush()
 			}
+			lineAt := x.codeLinePlace(line, excerpt)
 			stretch = append(stretch, documentRow{
 				text: line.Text, block: line.Block, commented: commentedBlocks[line.Block],
 				place: x.blockPlace(line.Block), cursor: drawn(x.onCursor(x.blockPlace(line.Block))),
+				line: lineAt, lineCursor: drawn(lineAt != "" && x.onCursor(lineAt)),
 				treatment: excerpt.Blocks[line.Block-1].Treatment, widened: line.Widened,
 				diagram: excerpt.Blocks[line.Block-1].Diagram, cutInto: !shownWhole(line.Block, excerpt), notes: notesAt(i),
 				frontmatter: excerpt.Blocks[line.Block-1].Kind == string(review.BlockFrontmatter),
@@ -571,6 +587,8 @@ func trackedBlock(excerpt ExcerptWire, first int, x excerptContext, commented bo
 		}
 		row := trackedRow(line, block, commented)
 		row.place, row.cursor = place, drawn(x.onCursor(place))
+		row.line = x.codeLinePlace(line, excerpt)
+		row.lineCursor = drawn(row.line != "" && x.onCursor(row.line))
 		row.diagram, row.cutInto = block.Diagram, !shownWhole(number, excerpt)
 		own = append(own, row)
 	}

@@ -319,6 +319,89 @@ func TestAMixedStepMovesByBlockInItsDocumentAndByLineInItsCode(t *testing.T) {
 	}
 }
 
+// pantryNotes is a new Document of a paragraph (line 1) and a fenced code block
+// (lines 3-6).
+func pantryNotes() *daemon.StepWire {
+	return documentStep(documentExcerpt("docs/pantry.md",
+		para("An empty jar gets a label:"),
+		docBlock{kind: "code", text: []string{"```text", "Sugar: empty", "Flour: half", "```"}},
+	))
+}
+
+// A code block is read as code is, a line at a time, so the cursor stops on
+// each of its lines, fences too, rather than on the block whole.
+func TestTheCursorMovesThroughACodeBlockLineByLine(t *testing.T) {
+	m := stepModel(t, pantryNotes())
+
+	var visited []string
+	for range 5 {
+		visited = append(visited, ansi.Strip(lineWith(t, drawnStep(m), "▸")))
+		m = press(m, "down")
+	}
+
+	for i, want := range []string{"An empty jar", "```text", "Sugar: empty", "Flour: half", "```"} {
+		if !strings.Contains(visited[i], want) {
+			t.Errorf("stop %d: expected the cursor on %q, got %q", i+1, want, visited[i])
+		}
+	}
+	if strings.Contains(visited[2], "Flour") {
+		t.Errorf("expected the cursor on one line of the block, got %q", visited[2])
+	}
+}
+
+// The page draws each line of a code block, so the cursor on one is followed
+// as that line; on a fence, which the page does not draw, as the block.
+func TestALineOfACodeBlockReportsTheLineAndAFenceTheBlock(t *testing.T) {
+	m, reports := followedModel(t, pantryNotes())
+
+	m = press(m, "down")
+	onFence := reports.last(t)
+	press(m, "down")
+	onLine := reports.last(t)
+
+	if want := (daemon.CursorWire{Step: 1, Excerpt: 0, Block: 2}); onFence != want {
+		t.Errorf("expected the cursor on a fence reported as %+v, got %+v", want, onFence)
+	}
+	if want := (daemon.CursorWire{Step: 1, Excerpt: 0, Side: "new", Line: 4}); onLine != want {
+		t.Errorf("expected the cursor on a line of code reported as %+v, got %+v", want, onLine)
+	}
+}
+
+// A Mermaid diagram is drawn as a picture, so it stays one stop.
+func TestADiagramBlockIsStillOneStop(t *testing.T) {
+	step := documentStep(documentExcerpt("docs/flow.md",
+		para("The flow:"),
+		docBlock{kind: "code", text: []string{"```mermaid", "graph TD", "A --> B", "```"}},
+		para("After it."),
+	))
+	step.Excerpts[0].Blocks[1].Diagram = &daemon.DiagramSourcesWire{After: "graph TD\nA --> B\n"}
+	m := stepModel(t, step)
+
+	m = press(press(m, "down"), "down")
+
+	if row := ansi.Strip(lineWith(t, drawnStep(m), "▸")); !strings.Contains(row, "After it.") {
+		t.Errorf("expected two moves to pass the diagram whole, got the cursor on %q", row)
+	}
+}
+
+// Lines of a code block are selected and anchored as lines of code are.
+func TestCommentingOnLinesOfACodeBlockAsksForThoseLines(t *testing.T) {
+	m := stepModel(t, pantryNotes())
+	asked := anchorServer(t, &m, "Re: docs/pantry.md — after 4-5")
+	m = press(press(press(press(m, "down"), "down"), "v"), "down")
+
+	press(m, "c")
+
+	want := []map[string]any{{
+		"excerpt_index": float64(0),
+		"start":         map[string]any{"side": "new", "line": float64(4)},
+		"end":           map[string]any{"side": "new", "line": float64(5)},
+	}}
+	if !reflect.DeepEqual(*asked, want) {
+		t.Errorf("expected the lines selected anchored\n%v\ngot\n%v", want, *asked)
+	}
+}
+
 func TestACommentInADocumentIsMarkedOnceOnItsBlocksFirstRow(t *testing.T) {
 	inColour(t)
 	step := documentStep(retries())

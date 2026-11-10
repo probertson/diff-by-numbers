@@ -29,6 +29,11 @@ type documentRow struct {
 	place     string
 	commented bool
 	cursor    bool
+	// line is, for a row of a code block, the place of its own line, where the
+	// TUI's cursor goes through the block a line at a time; lineCursor reports
+	// whether the cursor is at it.
+	line       string
+	lineCursor bool
 	// treatment is how an edit changed the row's block: a new block is marked
 	// as the TUI's gutter marks it.
 	treatment string
@@ -431,7 +436,7 @@ func (d *drawnSafely) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(east.KindTableHeader, d.renderTableHeader)
 	reg.Register(east.KindTableRow, d.renderTableRow)
 	reg.Register(ast.KindFencedCodeBlock, d.renderFencedCode)
-	reg.Register(ast.KindCodeBlock, renderCode)
+	reg.Register(ast.KindCodeBlock, d.renderCode)
 	reg.Register(kindDrawn, renderDrawn)
 }
 
@@ -562,12 +567,12 @@ func (d *drawnSafely) renderTableRow(w util.BufWriter, source []byte, n ast.Node
 
 // renderFencedCode draws a fence dbn marked as a Mermaid diagram as a diagram
 // container holding its source as dbn read it, which the page's script has
-// Mermaid draw (page.js); any other fence is drawn as code (renderCode). The
+// Mermaid draw (page.js); any other fence is drawn as code (d.renderCode). The
 // container carries the block's attributes, as the fence would have.
 func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	offset, ok := firstOffset(node)
 	if !ok || d.rowAt(offset).diagram == nil {
-		return renderCode(w, source, node, entering)
+		return d.renderCode(w, source, node, entering)
 	}
 	if !entering {
 		return ast.WalkContinue, nil
@@ -580,8 +585,10 @@ func (d *drawnSafely) renderFencedCode(w util.BufWriter, source []byte, node ast
 
 // renderCode draws a code block, fenced or indented, as goldmark draws it, but
 // with the block's attributes on its pre, which goldmark leaves off: without
-// them the page finds no element at the block the TUI's cursor is on.
-func renderCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+// them the page finds no element at the block the TUI's cursor is on. Each of
+// its lines is drawn at its own place, as the TUI's cursor goes through the
+// block a line at a time (codeLine), the cursor's marked as its.
+func (d *drawnSafely) renderCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		_, _ = w.WriteString("</code></pre>\n")
 		return ast.WalkContinue, nil
@@ -600,9 +607,28 @@ func renderCode(w util.BufWriter, source []byte, node ast.Node, entering bool) (
 	lines := node.Lines()
 	for i := 0; i < lines.Len(); i++ {
 		line := lines.At(i)
-		html.DefaultWriter.RawWrite(w, line.Value(source))
+		row := d.rowAt(line.Start)
+		if row.line == "" {
+			html.DefaultWriter.RawWrite(w, line.Value(source))
+			continue
+		}
+		writeCodeLine(w, row, func() {
+			html.DefaultWriter.RawWrite(w, bytes.TrimRight(line.Value(source), "\r\n"))
+		})
 	}
 	return ast.WalkContinue, nil
+}
+
+// writeCodeLine draws one line of a code block at its own place, its text
+// written by text.
+func writeCodeLine(w io.StringWriter, row documentRow, text func()) {
+	class := "code-line"
+	if row.lineCursor {
+		class += " cursor"
+	}
+	_, _ = w.WriteString(`<span class="` + class + `" data-place="` + template.HTMLEscapeString(row.line) + `">`)
+	text()
+	_, _ = w.WriteString("</span>")
 }
 
 // writeDiagram writes a diagram container: a figure of class "diagram" and

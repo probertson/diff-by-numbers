@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -219,6 +220,46 @@ func TestACursorOnACodeBlockMarksTheCodeBlock(t *testing.T) {
 			}
 			if !strings.Contains(out, "Sugar: empty, because the bakery is closed.") {
 				t.Errorf("expected the code block's text drawn, got:\n%s", out)
+			}
+		})
+	}
+}
+
+// The TUI's cursor goes through a code block a line at a time, so each line is
+// drawn at its own place, which the cursor marks, leaving the block holding it
+// bright and its other lines dimmed.
+func TestACursorOnALineOfACodeBlockMarksThatLine(t *testing.T) {
+	pantry := "# Pantry\n\n```text\nSugar: %s\nFlour: half\n```\n"
+	for name, open := range map[string]func(t *testing.T, baseURL string) string{
+		"fenced": func(t *testing.T, baseURL string) string {
+			return onANewDocument(t, baseURL, fmt.Sprintf(pantry, "full"))
+		},
+		"indented": func(t *testing.T, baseURL string) string {
+			return onANewDocument(t, baseURL, "# Pantry\n\n    (fence)\n    Sugar: full\n    Flour: half\n")
+		},
+		"edited": func(t *testing.T, baseURL string) string {
+			return onAnEditedDocument(t, baseURL, fmt.Sprintf(pantry, "full"), fmt.Sprintf(pantry, "empty"), lines{"new", 1, 6})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(daemon.New().Handler())
+			defer server.Close()
+			reviewID := open(t, server.URL)
+
+			reportCursor(t, server.URL, reviewID, daemon.CursorWire{Step: 1, Excerpt: 0, Side: "new", Line: 4})
+
+			out := stop(t, server.URL, reviewID)
+			if tag := openingTag(out, `data-place="1.0.new4"`); !isTheCursors(tag) {
+				t.Errorf("expected line 4 marked as the cursor's, got %q in:\n%s", tag, out)
+			}
+			if tag := openingTag(out, `data-place="1.0.new5"`); tag == "" || isTheCursors(tag) {
+				t.Errorf("expected line 5 drawn at its place and not the cursor's, got %q in:\n%s", tag, out)
+			}
+			if tag := openingTag(out, `data-block="2"`); isTheCursors(tag) {
+				t.Errorf("expected the block holding the line not marked itself, got %q", tag)
+			}
+			if !strings.Contains(out, `class="stop following"`) {
+				t.Errorf("expected the rest of the page dimmed around the cursor's line, got:\n%s", out)
 			}
 		})
 	}

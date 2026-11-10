@@ -74,6 +74,10 @@ type codeLine struct {
 	block   int
 	rows    []int
 	lastRow rowRef
+	// codeLine marks a stop on one line of a Document's code block, which is
+	// read as code is, a line at a time: its block is the code block's, and
+	// rows that line's, with any lines an edit replaced above it.
+	codeLine bool
 	// inBlock is, for a line of a Document shown as source, the block it
 	// belongs to, so the cursor can go from the line to its block when the
 	// Document is formatted again. A blank line between blocks belongs to the
@@ -162,11 +166,20 @@ func newStepCursor(step *daemon.StepWire, expanded map[int][]daemon.ExcerptWire,
 //
 // A block's rows are one stop even where they are not together: the lines an
 // edit replaced are drawn above the lines that replaced them, and a block an
-// edit removed outright may sit between the two.
+// edit removed outright may sit between the two. A code block, other than a
+// diagram, is code, so it stops on each of its lines (codeLine).
 func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 	var stops []codeLine
-	stopOf := map[int]int{}  // by block
-	hinted := map[int]bool{} // diagram blocks already headed, shown as source
+	stopOf := map[int]int{}     // by block
+	hinted := map[int]bool{}    // diagram blocks already headed, shown as source
+	replaced := map[int][]int{} // a code block's replaced rows, not yet given a line's stop
+	// A code block none of whose own lines is shown is one stop, as any block is.
+	byLine := map[int]bool{}
+	for _, line := range excerpt.Lines {
+		if isCodeBlock(excerpt, line.Block) && !line.Signpost && lineSide(line, excerpt) == excerpt.Blocks[line.Block-1].Side {
+			byLine[line.Block] = true
+		}
+	}
 	for i, line := range excerpt.Lines {
 		if source && len(excerpt.Blocks) > 0 {
 			stop := rowFor(line, excerpt, ack, ei)
@@ -185,6 +198,22 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 			continue
 		}
 		last := rowRef{side: lineSide(line, excerpt), line: line.Number}
+		if byLine[line.Block] {
+			block := excerpt.Blocks[line.Block-1]
+			// The lines an edit replaced are drawn above the line after them,
+			// whose stop they join.
+			if lineSide(line, excerpt) != block.Side {
+				replaced[line.Block] = append(replaced[line.Block], i)
+				continue
+			}
+			stop := rowFor(line, excerpt, ack, ei)
+			stop.block, stop.codeLine, stop.lastRow, stop.path = line.Block, true, last, block.Path
+			stop.rows = append(replaced[line.Block], i)
+			delete(replaced, line.Block)
+			stopOf[line.Block] = len(stops)
+			stops = append(stops, stop)
+			continue
+		}
 		if n, ok := stopOf[line.Block]; ok {
 			stops[n].rows = append(stops[n].rows, i)
 			stops[n].lastRow = last
@@ -201,11 +230,21 @@ func stopsIn(excerpt daemon.ExcerptWire, ack, ei int, source bool) []codeLine {
 		}
 		stops = append(stops, stop)
 	}
+	// Replaced lines with no line after them join the block's last line.
+	for b, rows := range replaced {
+		stops[stopOf[b]].rows = append(stops[stopOf[b]].rows, rows...)
+	}
 	// A diagram file is code, so it is headed where each of its Excerpts begins.
 	if excerpt.DiagramFile != nil && len(stops) > 0 {
 		stops[0].diagramHint = true
 	}
 	return stops
+}
+
+// isCodeBlock reports whether block b of a Document Excerpt is a code block
+// read as code: any but a diagram, which is drawn as a picture.
+func isCodeBlock(excerpt daemon.ExcerptWire, b int) bool {
+	return b > 0 && b <= len(excerpt.Blocks) && excerpt.Blocks[b-1].Kind == string(blockCode) && !isDiagramBlock(excerpt, b)
 }
 
 // blockNear is the block row i of a Document lies in or, for a row in none, the
@@ -423,12 +462,15 @@ func (c stepCursor) selection() (selectedRun, bool) {
 		end:     rowRef{side: last.side, line: last.number},
 		rows:    end - start + 1,
 	}
-	if first.block > 0 && last.block > 0 {
+	if first.block > 0 && last.block > 0 && !(first.codeLine && last.codeLine) {
 		// A run of blocks: the daemon takes each block whole, with whatever the
 		// Anchor needs to read it by (a table's header row), and the rows of one
 		// block need not be one run, so the ends name blocks, not a range of rows.
+		// A run from or to a line of a code block takes that block whole too.
+		counted := map[int]bool{}
 		for _, line := range c.lines[start : end+1] {
-			if line.block > 0 {
+			if line.block > 0 && !counted[line.block] {
+				counted[line.block] = true
 				run.blocks++
 			}
 		}

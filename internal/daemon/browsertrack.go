@@ -107,7 +107,16 @@ func drawLines(rows []documentRow, plain, item bool) template.HTML {
 		if flowing && i < len(rows)-1 && endsInHardBreak(row.tracked.runs) {
 			out.WriteString(" hard-break")
 		}
-		out.WriteString(`">`)
+		if row.lineCursor {
+			out.WriteString(" cursor")
+		}
+		out.WriteString(`"`)
+		if row.line != "" {
+			// A line of a code block, which the TUI's cursor goes through a
+			// line at a time, is at its own place.
+			out.WriteString(` data-place="` + template.HTMLEscapeString(row.line) + `"`)
+		}
+		out.WriteString(`>`)
 		line := blockLine{kind: kind, first: i == 0, plain: plain, continued: item || (flowing && i > 0)}
 		line.write(&out, separated(row.tracked.runs), &st)
 		out.WriteString("</div>")

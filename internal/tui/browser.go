@@ -159,8 +159,10 @@ type cursorPlace struct {
 
 // cursorAt is where the cursor is, or false off a Step. The page draws each
 // Document rendered, so in a Document the cursor is its block, even where the
-// pane shows the Document as source; in code it is the line. Anywhere the page
-// does not draw, an Acknowledgement, is in no Excerpt.
+// pane shows the Document as source; in code, and on a line of a Document's
+// code block, it is the line. A code block's fence, which the page does not
+// draw, is the block. Anywhere the page does not draw, an Acknowledgement, is
+// in no Excerpt.
 func (m model) cursorAt() (cursorPlace, bool) {
 	if !m.inStep() || len(m.cursor.lines) == 0 {
 		return cursorPlace{}, false
@@ -169,6 +171,8 @@ func (m model) cursorAt() (cursorPlace, bool) {
 	at := daemon.CursorWire{Step: m.view.Position, Excerpt: -1}
 	switch {
 	case line.ack >= 0 || line.excerpt < 0:
+	case line.codeLine && !fence.MatchString(line.text):
+		at.Excerpt, at.Side, at.Line = line.excerpt, line.side, line.number
 	case line.block > 0:
 		at.Excerpt, at.Block = line.excerpt, line.block
 	case m.cursor.source && line.inBlock > 0:
