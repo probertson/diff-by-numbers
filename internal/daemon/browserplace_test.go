@@ -89,30 +89,6 @@ func TestAChaptersIntroShowsTheIntro(t *testing.T) {
 	}
 }
 
-// On the Overview the page says so in a line, and keeps following: the next
-// advance brings a Step back.
-func TestOnTheOverviewThePageSaysSoAndFollowsOnToAStep(t *testing.T) {
-	server := httptest.NewServer(daemon.New().Handler())
-	t.Cleanup(server.Close)
-	root := featureRepo(t)
-	posted := postRound(t, server.URL, roundWithRepository(root, map[string]any{"root": root, "base": "main"}))
-	events := follow(t, server.URL, posted.ReviewID)
-
-	if out := stop(t, server.URL, posted.ReviewID); !strings.Contains(out, "On the Overview") ||
-		strings.Contains(out, "NAME-the-change") {
-		t.Errorf("expected only a notice that the Reviewer is on the Overview, got:\n%s", out)
-	}
-
-	httpPost(t, reviewURL(server.URL, posted.ReviewID)+"/advance")
-
-	if got := nextEvent(events); got != "redraw" {
-		t.Fatalf("expected a redraw event after the advance, got %q", got)
-	}
-	if out := stop(t, server.URL, posted.ReviewID); !strings.Contains(out, "NAME-the-change") {
-		t.Errorf("expected the advance to bring the Step back, got:\n%s", out)
-	}
-}
-
 // reportScreen tells dbn which of its screens the TUI shows for a review, as
 // the TUI does for the screens only it knows of.
 func reportScreen(t *testing.T, baseURL, reviewID, screen string) {

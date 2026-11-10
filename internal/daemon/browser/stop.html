@@ -1,6 +1,6 @@
 {{define "stop" -}}
 <div class="stop{{if .Following}} following{{end}}" data-key="{{.Key}}">
-{{- if .Step}}{{template "step" .Step}}{{else if .Intro}}{{template "intro" .Intro}}{{else}}
+{{- if .Step}}{{template "step" .Step}}{{else if .Intro}}{{template "intro" .Intro}}{{else if .Overview}}{{template "overview" .Overview}}{{else}}
 <p class="notice">{{.Notice}}</p>
 {{- end}}
 </div>
@@ -19,6 +19,137 @@
 </ol>
 {{- end}}
 
+{{define "questions" -}}
+<section class="questions">
+<h2>Agent Questions</h2>
+{{- range .}}
+<div class="question">
+<div class="question-text">{{.Text}}</div>
+{{- if .Answer}}
+<p class="answer"><span class="label">You answered:</span> {{.Answer}}</p>
+{{- end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+
+{{define "overview" -}}
+<header class="step-header">
+<p class="step-number">Overview{{if gt .Round 1}} · round {{.Round}}{{end}}</p>
+<h1>{{.Label}}</h1>
+</header>
+<section class="overview-section">
+<h2>Goal</h2>
+<div class="explanation">{{.Goal}}</div>
+</section>
+{{- if .Background}}
+<section class="overview-section">
+<h2>Background</h2>
+<div class="explanation">{{.Background}}</div>
+</section>
+{{- end}}
+{{- if .Questions}}{{template "questions" .Questions}}{{end}}
+{{- if .Carried}}
+<section class="overview-section">
+<h2>Carried over from the replaced Round</h2>
+{{- range .Carried}}
+<div class="outcome-item">
+<p class="dim">#{{.ID}}</p>
+<div class="field"><span class="label">agent asked:</span><div class="value question-text">{{.Text}}</div></div>
+<div class="field"><span class="label">you answered:</span><span class="value">{{.Answer}}</span></div>
+</div>
+{{- end}}
+</section>
+{{- end}}
+{{- if .Since}}
+<section class="overview-section">
+<h2>Since the last round</h2>
+{{- range .Since}}
+<div class="outcome {{.Status}}">
+<h3>{{.Heading}}</h3>
+{{- $mark := .Mark}}
+{{- range .Comments}}
+<div class="outcome-item">
+<p><span class="outcome-mark">{{$mark}}</span> <span class="dim">#{{.ID}}  {{.Location}}</span></p>
+{{- if .ReRaised}}
+<p class="reraised">↻ {{.ReRaised}}</p>
+{{- end}}
+<div class="field"><span class="label">you asked:</span><span class="value">{{.Note}}</span></div>
+{{- if .Response}}
+<div class="field"><span class="label agent">agent:</span><span class="value">{{.Response}}</span></div>
+{{- end}}
+</div>
+{{- end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+{{- if .Accounted}}
+<section class="overview-section">
+<h2>Agent Questions from the last round</h2>
+{{- range .Accounted}}
+<div class="outcome {{.Status}}">
+<h3>{{.Heading}}</h3>
+{{- $mark := .Mark}}
+{{- range .Questions}}
+<div class="outcome-item">
+<p><span class="outcome-mark">{{$mark}}</span> <span class="dim">#{{.ID}}  {{.Where}}</span></p>
+{{- if .AskedAgain}}
+<p class="reraised">{{.AskedAgain}}</p>
+{{- end}}
+<div class="field"><span class="label">agent asked:</span><div class="value question-text">{{.Text}}</div></div>
+<div class="field"><span class="label">you answered:</span><span class="value">{{if .Answer}}{{.Answer}}{{else}}nothing — it went back unanswered{{end}}</span></div>
+{{- if .Response}}
+<div class="field"><span class="label agent">agent:</span><span class="value">{{.Response}}</span></div>
+{{- end}}
+</div>
+{{- end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+{{- if .Withdrawn}}
+<section class="overview-section">
+<h2>Withdrawn since round {{.PreviousRound}}</h2>
+{{- range .Withdrawn}}
+<h3 class="file-header">{{.Heading}}</h3>
+<div class="source">
+{{- range .Lines}}
+<div class="row removed"><span class="sign">-</span><span class="text">{{.}}</span></div>
+{{- end}}
+</div>
+{{- end}}
+</section>
+{{- end}}
+<section class="overview-section">
+<h2>Under review</h2>
+<ul class="repositories">
+{{- range .Repositories}}
+<li><span class="file">{{.Root}}</span> <span class="dim">(base: {{.Base}})</span></li>
+{{- end}}
+</ul>
+</section>
+{{- if .Chapters}}
+<section class="overview-section">
+<h2>Chapters</h2>
+<ol class="overview-list">
+{{- range .Chapters}}
+<li value="{{.Number}}"><span class="seen">{{if .Seen}}✓{{end}}</span>{{.Name}} <span class="dim">{{.Range}}</span>{{if .Unchanged}} <span class="dim">{{.Unchanged}}</span>{{end}}{{if .Asks}} <span class="asks">◆ {{.Asks}}</span>{{end}}</li>
+{{- end}}
+</ol>
+</section>
+{{- else}}
+<section class="overview-section">
+<h2>Steps</h2>
+<ol class="overview-list">
+{{- range .Steps}}
+<li value="{{.Number}}"><span class="seen">{{if .Seen}}✓{{end}}</span>{{.Name}}{{if .Unchanged}} <span class="dim">{{.Unchanged}}</span>{{end}}{{if .Asks}} <span class="asks">◆ {{.Asks}}</span>{{end}}</li>
+{{- end}}
+</ol>
+</section>
+{{- end}}
+{{- end}}
+
 {{define "step" -}}
 <div class="progress"><span>Step {{.Number}} of {{.Count}}<span class="dim">  ·  {{.Seen}}/{{.Total}} changed lines seen</span></span><label class="wrap-toggle"><input type="checkbox" role="switch" data-wrap-lines> Wrap code lines</label></div>
 <header class="step-header">
@@ -31,19 +162,7 @@
 {{- if .Oversize}}
 <p class="oversize"><strong>oversized:</strong> {{.Oversize}}</p>
 {{- end}}
-{{- if .Questions}}
-<section class="questions">
-<h2>Agent Questions</h2>
-{{- range .Questions}}
-<div class="question">
-<div class="question-text">{{.Text}}</div>
-{{- if .Answer}}
-<p class="answer"><span class="label">You answered:</span> {{.Answer}}</p>
-{{- end}}
-</div>
-{{- end}}
-</section>
-{{- end}}
+{{- if .Questions}}{{template "questions" .Questions}}{{end}}
 {{- range .Excerpts}}{{template "excerpt" .}}{{end}}
 {{- range .Acknowledgements}}
 <section class="acknowledgement">

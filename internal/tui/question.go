@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 // answerPlaceholder is what an empty Answer input says. "Your call" is a real
@@ -89,15 +90,6 @@ func (m model) answerPhrases() []string {
 		return []string{pluralize(unanswered, "agent question") + " left unanswered"}
 	}
 	return nil
-}
-
-// askedWhere names where a question was asked: on a Step, or with the Brief
-// for one asked on the Round.
-func askedWhere(step int) string {
-	if step == 0 {
-		return "with the Brief"
-	}
-	return fmt.Sprintf("Step %d", step)
 }
 
 // andList reads a list as a phrase: "a", "a and b", "a, b and c".
@@ -421,7 +413,7 @@ func (m model) handOffCheckView() string {
 		if i == m.questionCursor {
 			cursor = accentSt.Render("▸ ")
 		}
-		rows := []string{cursor + dimSt.Render(askedWhere(question.Step))}
+		rows := []string{cursor + dimSt.Render(present.AskedWhere(question.Step))}
 		for _, line := range strings.Split(wrapTo(question.Text, m.width-listItemIndent), "\n") {
 			rows = append(rows, strings.Repeat(" ", listItemIndent)+line)
 		}

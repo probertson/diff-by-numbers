@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/probertson/diff-by-numbers/internal/daemon"
+	"github.com/probertson/diff-by-numbers/internal/present"
 )
 
 const (
@@ -21,10 +23,9 @@ const (
 	dispositionHang = 4
 )
 
-// dispositionGroup is one heading of "Since the last round" and the mark its
-// items carry. Declines come first: they are the ones the Reviewer may want to
-// push back on, and burying them under the changes is what made the agent's
-// reasoning easy to miss (#75).
+// dispositionGroup is one heading of "Since the last round", or of the
+// previous round's Agent Questions (present.CommentOutcomes and
+// present.QuestionOutcomes), and how the TUI styles its mark.
 type dispositionGroup struct {
 	status  string
 	heading string
@@ -35,12 +36,26 @@ type dispositionGroup struct {
 	disputable bool
 }
 
-func dispositionGroups() []dispositionGroup {
-	return []dispositionGroup{
-		{status: "declined", heading: "Declined", mark: "✗", style: warnSt, disputable: true},
-		{status: "answered", heading: "Answered", mark: "↩", style: accentSt, disputable: true},
-		{status: "addressed", heading: "Addressed", mark: "✓", style: addSt},
+// outcomeStyles color each heading's mark by what it asks of the Reviewer.
+var outcomeStyles = map[string]lipgloss.Style{
+	"declined": warnSt, "answered": accentSt, "addressed": addSt,
+	"agents_call": warnSt, "asked_again": accentSt, "no_change_needed": accentSt,
+}
+
+// groupsOf styles the outcomes as the TUI draws them.
+func groupsOf(outcomes []present.Outcome, disputable ...string) []dispositionGroup {
+	var out []dispositionGroup
+	for _, outcome := range outcomes {
+		out = append(out, dispositionGroup{
+			status: outcome.Status, heading: outcome.Heading, mark: outcome.Mark,
+			style: outcomeStyles[outcome.Status], disputable: slices.Contains(disputable, outcome.Status),
+		})
 	}
+	return out
+}
+
+func dispositionGroups() []dispositionGroup {
+	return groupsOf(present.CommentOutcomes, "declined", "answered")
 }
 
 // sinceTheLastRound draws what the agent did with the previous round's Comments,
@@ -94,15 +109,9 @@ func (m model) sinceTheLastRound(width int) string {
 }
 
 // questionGroups are the headings the previous round's Agent Questions sit
-// under, by the status the agent gave each. The agent's own calls come first:
-// the Reviewer was asked and never decided them, so they are the ones to check.
+// under, by the status the agent gave each.
 func questionGroups() []dispositionGroup {
-	return []dispositionGroup{
-		{status: "agents_call", heading: "Agent's call", mark: "◆", style: warnSt},
-		{status: "asked_again", heading: "Asked again", mark: "↻", style: accentSt},
-		{status: "addressed", heading: "Addressed", mark: "✓", style: addSt},
-		{status: "no_change_needed", heading: "No change needed", mark: "=", style: accentSt},
-	}
+	return groupsOf(present.QuestionOutcomes)
 }
 
 // questionsFromTheLastRound draws what the agent did with each Agent Question
@@ -139,7 +148,7 @@ func (m model) questionsFromTheLastRound(width int) string {
 // response, each hanging in its own block like a Comment's.
 func accountedQuestionItem(group dispositionGroup, accounted daemon.AccountedQuestionWire, width int) []string {
 	question := accounted.Question
-	tail := fmt.Sprintf(" #%d  %s", question.ID, askedWhere(question.Step))
+	tail := fmt.Sprintf(" #%d  %s", question.ID, present.AskedWhere(question.Step))
 	rows := []string{strings.Repeat(" ", dispositionIndent) +
 		fitRow(group.mark+tail, group.style.Render(group.mark)+dimSt.Render(tail), width-dispositionIndent)}
 	// Where it was asked again, and not what: the new question is read where
@@ -167,18 +176,10 @@ func accountedQuestionItem(group dispositionGroup, accounted daemon.AccountedQue
 	return append(rows, "")
 }
 
-// dispositionStatus is the group a disposition belongs to, defaulting anything
-// the daemon did not name to addressed, which is what the Overview showed before
-// answered and declined were distinguished. Every surface that sorts by status
-// goes through here, so a status none of them knows is counted once rather than
-// in one place and not another.
+// dispositionStatus is the group a disposition belongs to (see
+// present.CommentStatus).
 func dispositionStatus(disposition daemon.DispositionWire) string {
-	switch disposition.Status {
-	case "declined", "answered":
-		return disposition.Status
-	default:
-		return "addressed"
-	}
+	return present.CommentStatus(disposition.Status)
 }
 
 // dispositionItem draws one Comment's outcome: the mark, its number and where it

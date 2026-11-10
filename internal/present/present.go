@@ -152,3 +152,53 @@ func LineRange(first, last int) string {
 	}
 	return fmt.Sprintf("%d–%d", first, last)
 }
+
+// Outcome is one heading a Revision Round's Overview sorts the previous
+// round's Comments or Agent Questions under, by the status the agent gave each,
+// and the mark each item under it carries.
+type Outcome struct {
+	Status, Heading, Mark string
+}
+
+// CommentOutcomes are the headings of "Since the last round", in order.
+// Declines come first: they are the ones the Reviewer may want to push back
+// on, and burying them under the changes is what made the agent's reasoning
+// easy to miss (#75).
+var CommentOutcomes = []Outcome{
+	{Status: "declined", Heading: "Declined", Mark: "✗"},
+	{Status: "answered", Heading: "Answered", Mark: "↩"},
+	{Status: "addressed", Heading: "Addressed", Mark: "✓"},
+}
+
+// QuestionOutcomes are the headings of the previous round's Agent Questions,
+// in order. The agent's own calls come first: the Reviewer was asked and never
+// decided them, so they are the ones to check.
+var QuestionOutcomes = []Outcome{
+	{Status: "agents_call", Heading: "Agent's call", Mark: "◆"},
+	{Status: "asked_again", Heading: "Asked again", Mark: "↻"},
+	{Status: "addressed", Heading: "Addressed", Mark: "✓"},
+	{Status: "no_change_needed", Heading: "No change needed", Mark: "="},
+}
+
+// CommentStatus is the status a Comment's disposition is sorted by, defaulting
+// anything the daemon did not name to addressed, which is what the Overview
+// showed before answered and declined were distinguished. Every surface that
+// sorts by status goes through here, so a status none of them knows is counted
+// once rather than in one place and not another.
+func CommentStatus(status string) string {
+	switch status {
+	case "declined", "answered":
+		return status
+	default:
+		return "addressed"
+	}
+}
+
+// AskedWhere names where an Agent Question was asked: on a Step, or with the
+// Brief for one asked on the Round.
+func AskedWhere(step int) string {
+	if step == 0 {
+		return "with the Brief"
+	}
+	return fmt.Sprintf("Step %d", step)
+}

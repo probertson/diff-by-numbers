@@ -47,14 +47,16 @@ type pageData struct {
 	Stop        stopData
 }
 
-// stopData is what the page draws for where the Reviewer is: a Step, or a
-// one-line notice for anywhere else. Key names the stop, so the script can tell
-// a move to another stop (scroll to the top) from a redraw of the same one.
+// stopData is what the page draws for where the Reviewer is: a Step, a
+// Chapter's intro or the Overview, or a one-line notice for anywhere else. Key
+// names the stop, so the script can tell a move to another stop (scroll to the
+// top) from a redraw of the same one.
 type stopData struct {
-	Key    string
-	Notice string
-	Step   *stepData
-	Intro  *introData
+	Key      string
+	Notice   string
+	Step     *stepData
+	Intro    *introData
+	Overview *overviewData
 	// Following is the TUI's cursor being on something this stop draws, which
 	// it brightens and dims the rest around (#187).
 	Following bool
@@ -234,15 +236,15 @@ func newPageData(label string, view ViewWire, ctx pageContext) pageData {
 		DiagramsURL: diagramsPath,
 		Style:       pageStyle,
 		Script:      pageScript,
-		Stop:        newStopData(view, ctx),
+		Stop:        newStopData(label, view, ctx),
 	}
 }
 
-// newStopData is the stop the Reviewer is at: a Step or a Chapter's intro, or
-// a notice of where they are for anywhere else. A review handed off is held
-// at its last Step, but the Reviewer has left it, so the page says it was
-// handed off, which dbn knows without the TUI saying.
-func newStopData(view ViewWire, ctx pageContext) stopData {
+// newStopData is the stop the Reviewer is at: a Step, a Chapter's intro or the
+// Overview, or a notice of where they are for anywhere else. A review handed
+// off is held at its last Step, but the Reviewer has left it, so the page says
+// it was handed off, which dbn knows without the TUI saying.
+func newStopData(label string, view ViewWire, ctx pageContext) stopData {
 	switch {
 	case ctx.screen == ScreenInbox:
 		return stopData{Key: "inbox", Notice: "At the Inbox. This page shows this review again when you open it."}
@@ -261,7 +263,7 @@ func newStopData(view ViewWire, ctx pageContext) stopData {
 	if chapter, ok := chapterOf(view, view.ChapterIntro); ok {
 		return stopData{Key: fmt.Sprintf("intro-%d", view.ChapterIntro), Intro: newIntroData(view, chapter)}
 	}
-	return stopData{Key: "overview", Notice: "On the Overview. This page shows each Step as you reach it."}
+	return stopData{Key: "overview", Overview: newOverviewData(label, view)}
 }
 
 func newIntroData(view ViewWire, chapter ChapterWire) *introData {
