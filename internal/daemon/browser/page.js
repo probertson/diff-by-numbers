@@ -28,8 +28,9 @@
   // reveal scrolls the cursor's elements into view when any of them is off
   // screen or under the Step's bar: centred in the room below the bar if they
   // fit, else from their top. On the stop's first place it scrolls to the top
-  // of the page instead, so the Step's header shows whole above it, so long as
-  // they are still on screen from there.
+  // of the page instead, so the Step's header and explanation show whole above
+  // it, so long as its top is still on screen from there: a block too tall for
+  // the screen is read from the top down, after them.
   function reveal(targets) {
     if (targets.length === 0) {
       return;
@@ -37,7 +38,7 @@
     var top = targets[0].getBoundingClientRect().top;
     var bottom = targets[targets.length - 1].getBoundingClientRect().bottom;
     var height = window.innerHeight;
-    if (targets[0] === main.querySelector("[data-place]") && bottom + window.scrollY <= height) {
+    if (targets[0] === main.querySelector("[data-place]") && top + window.scrollY < height) {
       window.scrollTo(0, 0);
       return;
     }
