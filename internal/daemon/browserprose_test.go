@@ -101,3 +101,21 @@ func TestFrontMatterIsDrawnAsItsFields(t *testing.T) {
 		t.Errorf("expected the front matter one block, marked new, that the TUI's cursor finds, got:\n%s", out)
 	}
 }
+
+// Markdown lets a paragraph start on the line after front matter's closing
+// fence. The front matter is still drawn as its fields, and the paragraph as a
+// paragraph of its own.
+func TestFrontMatterRightAboveAParagraphIsDrawnWithIt(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onANewDocument(t, server.URL, "---\n"+
+		"title: \"A sample plan\"\n"+
+		"---\n"+
+		"An opening paragraph, right under the fence.\n")
+
+	out := stop(t, server.URL, reviewID)
+
+	wantIn(t, out,
+		`<dt>title</dt><dd>A sample plan</dd>`,
+		`data-block="2" data-place="1.0.b2" data-treatment="new">An opening paragraph, right under the fence.</p>`)
+}

@@ -511,3 +511,17 @@ func TestAnEditedDiagramWithNoBeforeIsDrawnOnceUnlabelled(t *testing.T) {
 		t.Errorf("expected the container to hold the diagram's source %q, got:\n%s", want, figures[0][0])
 	}
 }
+
+// Markdown lets a paragraph start on the line after a fence closes. A diagram
+// an Excerpt cuts into is still drawn whole there, and the paragraph as a
+// paragraph of its own.
+func TestADiagramCutIntoRightAboveAParagraphIsDrawnWithIt(t *testing.T) {
+	server := httptest.NewServer(daemon.New().Handler())
+	defer server.Close()
+	reviewID := onExcerptsOfANewDocument(t, server.URL,
+		"```mermaid\nflowchart LR\n  tui --> daemon\n```\nA paragraph, right under the fence.\n", [2]int{1, 2}, [2]int{3, 5})
+
+	out := stop(t, server.URL, reviewID)
+
+	wantIn(t, out, `<figure class="diagram`, `>A paragraph, right under the fence.</p>`)
+}

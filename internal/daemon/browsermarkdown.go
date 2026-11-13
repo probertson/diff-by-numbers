@@ -93,8 +93,16 @@ func renderDocument(rows []documentRow, images documentImagesAt) template.HTML {
 	// A stretch whose edited or removed blocks the parse did not all find
 	// where dbn put them (an edited table row an Excerpt shows without its
 	// header, say) has each drawn on its own instead.
-	html, _ := renderStretch(rows, images, false)
-	return html
+	if html, ok := renderStretch(rows, images, false); ok {
+		return html
+	}
+	// Should a block still not be found, the stretch is shown as its source,
+	// which is still worth reading, rather than as nothing.
+	var source strings.Builder
+	for _, row := range rows {
+		source.WriteString(row.text + "\n")
+	}
+	return template.HTML("<pre>" + template.HTMLEscapeString(source.String()) + "</pre>")
 }
 
 // renderStretch renders a stretch as Markdown, with each edited or removed
@@ -153,8 +161,18 @@ func renderMarkdown(rows []documentRow, images documentImagesAt) (template.HTML,
 			source.WriteString(row.text)
 			source.WriteByte('\n')
 		case i == 0 || rows[i-1].block != row.block:
+			// Markdown lets a paragraph run on from the line before a heading or
+			// a fence and start on the line after one, but a stand-in line would
+			// read as part of that paragraph, so a blank line keeps it apart.
+			next := i + blockLength(rows[i:])
+			if i > 0 && !isBlank(rows[i-1].text) {
+				source.WriteString(blankLineIn(row))
+			}
 			source.WriteString(standIn(row))
 			source.WriteByte('\n')
+			if next < len(rows) && !isBlank(rows[next].text) {
+				source.WriteString(blankLineIn(row))
+			}
 		}
 		if _, seen := tracked[row.block]; row.tracked != nil && !seen {
 			tracked[row.block] = rows[i : i+blockLength(rows[i:])]
@@ -213,6 +231,17 @@ func standIn(row documentRow) string {
 	lead := len(row.text) - len(strings.TrimLeft(row.text, " \t>"))
 	return row.text[:lead] + standInWord(row.block)
 }
+
+// blankLineIn is a blank line where a block is: its first row's quote
+// markers, so a quote it is in goes on past it.
+func blankLineIn(row documentRow) string {
+	lead := len(row.text) - len(strings.TrimLeft(row.text, " \t>"))
+	return strings.TrimRight(row.text[:lead], " \t") + "\n"
+}
+
+// isBlank reports whether a row of a Document is blank, inside any quote it
+// is in.
+func isBlank(text string) bool { return strings.TrimLeft(text, " \t>") == "" }
 
 // standInWord names a block in the Markdown it stands in for.
 func standInWord(block int) string { return "dbnstandin" + strconv.Itoa(block) }
