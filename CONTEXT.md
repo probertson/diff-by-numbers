@@ -306,17 +306,16 @@ is open is the window's business, not the daemon's, and every call about a revie
 names it by its id (ADR-0015).
 _Avoid_: queue, dashboard, list
 
-**Browser Renderer**:
-A page in the Reviewer's browser that draws the Step they are on in the TUI, for
-what a terminal can't draw: real tables, images, Mermaid diagrams and typography.
-It shows what the Step shows (its title, the agent's text, every Excerpt,
-Documents and code alike, and the Reviewer's Comments) and follows the Reviewer
-as they move, to the next Step and to the block under the cursor. It only ever
-draws: the Reviewer reads there but does everything else, from commenting to
-Hand Off, in the TUI. It is not a second client, and nothing can be done "in the
-Browser Renderer".
-_Avoid_: Browser App (kept for a full browser client, should one ever exist), mirror,
-browser view, GUI
+**Browser App**:
+A page in the Reviewer's browser for working inside an open Review: a second
+client beside the TUI. It shows what the Step shows (its title, the agent's text,
+every Excerpt, Documents and code alike, and the Reviewer's Comments), drawn with
+what a terminal can't: real tables, images, Mermaid diagrams and typography.
+Everything the TUI does inside a Review can be done there too, from moving between
+Steps to commenting, answering and Hand Off, and the Reviewer can switch between
+the two at any point and carry on where they were. Opening a Review from the
+Inbox, and Dismissal, are done in the TUI.
+_Avoid_: Browser Renderer (its name while it only drew), mirror, browser view, GUI
 
 **Dismissal**:
 The Reviewer discarding a review from the Inbox without handing it off, and with

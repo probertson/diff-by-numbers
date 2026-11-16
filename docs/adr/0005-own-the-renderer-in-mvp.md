@@ -177,3 +177,24 @@ drawing it gets back as an image made in the page (a `blob:` URL), so the author
 apply inside the image without the page allowing any. The page's policy gains only
 `frame-src 'self'` and `blob:` images; it still runs no script and applies no style but its
 own.
+
+## Amendment (#202): the Browser App acts, and still anchors only to what dbn decided
+
+The page that drew the Step now acts as well (#198): it is the Browser App, a second client for
+working inside an open Review, where the Reviewer comments, answers and hands off. So the reason
+#184 and #191 gave for borrowing goldmark and Mermaid, that the page only draws, no longer holds.
+The constraint still does, for a different reason: the page never takes an Anchor from its own
+HTML, or from anything goldmark or Mermaid drew.
+
+- **An Anchor comes from the cursor the daemon holds** (#200, #204), over the blocks and lines the
+  review package decided, exactly as the TUI's does. The page sends only the name of an action;
+  the daemon applies it to that cursor and its selection, and makes the Anchor itself.
+- **The hover button names a block or line by the attributes dbn set** (#201): `data-block` and
+  `data-place`, from the source positions goldmark parsed, never by reading what goldmark
+  rendered. A diagram is commented on as a whole block from beside it, never by a point inside
+  the drawing.
+- **Text dragged across the page is only for copying** (#199, #201). It is the browser's
+  selection, and it never becomes an Anchor, so dbn still never maps a piece of rendered output
+  back to a source line.
+
+#184's rules about what a Document may load or run are unchanged.
