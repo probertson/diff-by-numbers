@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · page controls (#205)</title>
+<style>:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --prose-fg: #3a3f45;
+  --strong: #000000;
+  --dim: #6b6b6b;
+  --rule: #d0d7de;
+  --panel: #f6f8fa;
+  --accent: #005f87;
+  --added: #207520;
+  --added-bg: #e6f4e6;
+  --removed: #a01010;
+  --removed-bg: #fbe9e9;
+  --edited: #8a6d00;
+  --comment: #b05a00;
+  --warn: #af5f00;
+  --cursor-bg: #e8f1f7;
+  --prose: "Iowan Old Style", "Charter", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --fg: #e6e6e6;
+    --prose-fg: #d4d4d4;
+    --strong: #ffffff;
+    --dim: #9a9a9a;
+    --rule: #30363d;
+    --panel: #1e2228;
+    --accent: #5fd7ff;
+    --added: #87d787;
+    --added-bg: #1d3320;
+    --removed: #ff8787;
+    --removed-bg: #3a1e1e;
+    --edited: #e5c07b;
+    --comment: #ffaf5f;
+    --warn: #ffaf5f;
+    --cursor-bg: #1f2b35;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.connection {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  background: var(--panel);
+  color: var(--warn);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.notice { color: var(--dim); }
+.dim { color: var(--dim); }
+.warning { color: var(--warn); font-weight: 600; }
+
+.chapter, .step-number { margin: 0; color: var(--dim); font-size: 0.875rem; }
+
+/* Where the Reviewer is, held at the top of the page as the TUI's header is,
+   across the page's whole column. page.js keeps the TUI's cursor clear of it. */
+.progress {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -1.5rem -1rem 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.25rem 1rem;
+}
+/* The wrap toggle is a switch: a track whose knob slides over and takes the
+   accent when code lines wrap. */
+.wrap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  color: var(--dim);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.wrap-toggle:has(input:checked) { color: var(--fg); }
+.wrap-toggle input {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 2.125em;
+  height: 1.25em;
+  margin: 0;
+  border-radius: 0.625em;
+  background: var(--dim);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.wrap-toggle input::before {
+  content: "";
+  position: absolute;
+  top: 0.1875em;
+  left: 0.1875em;
+  width: 0.875em;
+  height: 0.875em;
+  border-radius: 50%;
+  background: var(--bg);
+  transition: transform 0.15s;
+}
+.wrap-toggle input:checked { background: var(--accent); }
+.wrap-toggle input:checked::before { transform: translateX(0.875em); }
+.wrap-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.step-header h1 { margin: 0.25rem 0 1rem; font-size: 1.5rem; }
+/* What an agent writes around the code, rendered from its Markdown. */
+.explanation { max-width: 48rem; }
+.explanation > :first-child, .question-text > :first-child { margin-top: 0; }
+.explanation > :last-child, .question-text > :last-child { margin-bottom: 0; }
+.explanation code, .question-text code { font-family: var(--mono); font-size: 0.875em; }
+.explanation pre, .question-text pre { padding: 0.75rem; background: var(--panel); overflow-x: auto; }
+.explanation .image, .question-text .image { color: var(--dim); font-style: italic; }
+.oversize { color: var(--warn); }
+
+h2 { font-size: 1rem; }
+
+.questions {
+  margin: 1.5rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+}
+.questions h2 { margin: 0.25rem 0; color: var(--accent); }
+.question-text { margin: 0.5rem 0; }
+.answer .label { color: var(--dim); }
+
+.excerpt, .acknowledgement, .loose-comments { margin-top: 2rem; }
+
+/* The Overview, as the TUI's: the Brief, what became of the last round, and
+   the Round's Steps or Chapters. */
+.overview-section { margin: 1.5rem 0; max-width: 48rem; }
+.overview-section > h2 { margin: 0 0 0.5rem; }
+.overview-section h3 { margin: 1rem 0 0.5rem; font-size: 0.9375rem; }
+.outcome-item { margin: 0 0 1rem 1rem; }
+.outcome-item > p, .outcome-item .field { margin: 0.25rem 0; }
+/* A field's text hangs beside its label, so a note in several lines reads as
+   one block rather than running back under it. */
+.outcome-item .field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5ch;
+  margin-left: 1.5rem;
+}
+.field .value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field .value.question-text { margin: 0; white-space: normal; }
+.field .label { color: var(--dim); }
+.field .label.agent { color: var(--accent); }
+.outcome.declined .outcome-mark, .outcome.agents_call .outcome-mark { color: var(--warn); }
+.outcome.answered .outcome-mark, .outcome.asked_again .outcome-mark,
+.outcome.no_change_needed .outcome-mark { color: var(--accent); }
+.outcome.addressed .outcome-mark { color: var(--added); }
+.outcome-item > .reraised { margin-left: 1.5rem; color: var(--accent); }
+.repositories { margin: 0; padding-left: 1rem; list-style: none; }
+.repositories .file { font-family: var(--mono); font-size: 0.875rem; overflow-wrap: anywhere; }
+.overview-list { margin: 0; padding-left: 2.5rem; }
+.overview-list li { margin: 0.125rem 0; }
+.overview-list .seen { display: inline-block; width: 1.25em; margin-left: -0.25em; color: var(--dim); }
+.asks { color: var(--warn); }
+
+.file-header {
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: normal;
+}
+
+/* Code, in the TUI's source view style: signs and coloured changed text. */
+.source {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  overflow-x: auto;
+}
+.row { display: flex; white-space: pre; }
+.row .mark { width: 1.25em; flex: none; color: var(--comment); }
+.row .number { width: 4em; flex: none; padding-right: 0.75em; text-align: right; color: var(--dim); user-select: none; }
+.row .sign { width: 1.5em; flex: none; user-select: none; }
+.row .text { flex: 1; }
+.row.added .sign, .row.added .changed { color: var(--added); }
+.row.removed .sign, .row.removed .changed { color: var(--removed); }
+.row.added .changed, .row.removed .changed { font-weight: 600; }
+.row.widened, .row.signpost { color: var(--dim); }
+.row.signpost { font-style: italic; }
+/* Long lines wrapped, when the Reviewer asks (page.js): each continuation
+   hangs under its line's code, as the TUI hangs it, by the line's indent
+   (--hang), rather than at the column's left edge. */
+.wrap-lines .row { white-space: pre-wrap; }
+.wrap-lines .row .text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-left: var(--hang, 0ch);
+  text-indent: calc(-1 * var(--hang, 0ch));
+}
+.wrap-lines .explanation pre, .wrap-lines .question-text pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* A Document, rendered. */
+.document {
+  font-family: var(--prose);
+  font-size: 1.0625rem;
+  max-width: 48rem;
+}
+.document h1, .document h2, .document h3, .document h4, .document h5, .document h6 {
+  font-family: var(--sans);
+  line-height: 1.25;
+}
+.document code, .document pre { font-family: var(--mono); font-size: 0.875em; }
+.document pre, .document .raw-html {
+  padding: 0.75rem;
+  background: var(--panel);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.document table { border-collapse: collapse; margin: 1rem 0; font-family: var(--sans); font-size: 0.9375rem; display: block; overflow-x: auto; }
+.document th, .document td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; }
+.document th { background: var(--panel); }
+.document blockquote { margin-left: 0; padding-left: 1rem; border-left: 3px solid var(--rule); color: var(--dim); }
+.document .image { color: var(--dim); font-style: italic; }
+.document img { max-width: 100%; height: auto; border: 1px solid var(--rule); }
+/* A block a Comment is on is marked by a bar in the Document's margin, level
+   with the signs however far the block is indented. page.js draws each bar as
+   tall as its block's own text, so a list nested in a list item is not marked
+   along with the item. */
+.document .comment-bar {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  background: var(--comment);
+  pointer-events: none;
+}
+
+/* The TUI's cursor: its block or line drawn bright, the rest of the Excerpts
+   dimmed. An element holding the cursor (a table holding its row) stays bright.
+   A diagram file's diagram is in no block, but dims as a block does. A
+   signpost is no part of the change the cursor moves through, and is already
+   drawn as quietly as the file's heading, so it is not dimmed further. What
+   the cursor's element holds is bright with it: a code block's lines, on its
+   fence. */
+.stop.following .excerpt .row:not(.cursor):not(.signpost),
+.stop.following .excerpt .document :is([data-block], [data-place]):not(.cursor):not(:has(.cursor)):not(.cursor *) {
+  opacity: 0.4;
+}
+/* A code block's lines, which the cursor goes through one at a time, are each
+   a line of their own, an empty one as tall as any. */
+.document pre .code-line { display: block; min-height: 1lh; }
+.stop .excerpt .row, .stop .excerpt .document :is([data-block], [data-place]) { transition: opacity 120ms ease-out; }
+.row.cursor, .document .cursor { background: var(--cursor-bg); }
+
+/* Each new, edited or removed block marked as the TUI's gutter marks it. The
+   sign is placed against the Document, not its block, so every sign stands in
+   one column however far its block is indented (a list item, a block quote's
+   paragraph); left unset, its top stays level with the block's first line.
+   It is the body text's size on every block, a heading's too, and stands in a
+   line as tall as its block's first line (--block-line, the block's own line
+   height, kept as a length), so it sits level with that line. */
+@property --block-line {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.document { padding-left: 1.5em; position: relative; }
+.document [data-treatment] { --block-line: 1lh; }
+.document [data-treatment="new"] { --mark: var(--added); --sign: "+"; }
+.document [data-treatment="edited"] { --mark: var(--edited); --sign: "±"; }
+.document [data-treatment="removed"] { --mark: var(--removed); --sign: "-"; }
+.document [data-treatment]::before {
+  content: var(--sign);
+  position: absolute;
+  left: 0.25em;
+  color: var(--mark);
+  font-family: var(--mono);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: var(--block-line);
+}
+/* A table row cannot hold a sign beside it, so it is marked by a bar. */
+.document tr[data-treatment]::before, .document thead[data-treatment]::before { content: none; }
+.document tr[data-treatment] > :first-child,
+.document thead[data-treatment] > tr > :first-child { box-shadow: inset 3px 0 0 var(--mark); }
+
+/* An edited or removed block, as track changes over its source: struck and
+   inserted words, and its Markdown markers shown muted rather than rendered. */
+.document div.tracked { margin: 1em 0; }
+.document .tracked .line { white-space: pre-wrap; min-height: 1lh; }
+/* A paragraph's or list item's lines flow as one paragraph, as Markdown (and
+   the TUI) reflows them, joined by a space and broken only after a line that
+   ends in a hard break. */
+.document .tracked.flow .line { display: inline; white-space: normal; }
+.document .tracked.flow .line + .line::before { content: " "; }
+.document .tracked.flow .line.hard-break::after { content: "\A"; white-space: pre; }
+.document .tracked.heading { font-family: var(--sans); font-weight: 600; }
+.document .tracked.table-row, .document .tracked.code, .document .tracked.frontmatter,
+.document .source-row { font-family: var(--mono); font-size: 0.875em; }
+.document .md { color: var(--dim); }
+.document .italic { font-style: italic; }
+.document .code { font-family: var(--mono); font-size: 0.875em; }
+.document del { color: var(--removed); background: var(--removed-bg); text-decoration: line-through; }
+.document ins { color: var(--added); background: var(--added-bg); text-decoration: underline; }
+.document del .md, .document ins .md { color: inherit; opacity: 0.7; }
+
+/* Prose's regular text is a touch softer than the page's, and its bold the
+   strongest, so bold stands out by brightness as well as weight: a serif's
+   bold barely does by weight alone on a dark background. Bold in an edit
+   keeps the edit's color. */
+.document, .explanation, .question-text { color: var(--prose-fg); }
+.document :is(strong, b, .bold), .explanation :is(strong, b), .question-text :is(strong, b) {
+  font-weight: 700;
+  color: var(--strong);
+}
+.document :is(del, ins) :is(strong, b, .bold) { color: inherit; }
+
+/* A Mermaid diagram: its source until it is drawn, then the drawing, shrunk
+   to fit the page and scrolling sideways past where its text stays legible
+   (page.js sets that width). A diagram Mermaid cannot draw shows why, above
+   its source. The diagram may use the page's whole width, beyond the prose,
+   and one wider than that reaches toward the window's right edge (page.js).
+   Padded, so the cursor's highlight frames the drawing and a Comment's bar
+   stands clear of it. */
+.document {
+  --diagram-width: min(calc(62rem - 1.6em), calc(100vw - 3rem - 1.6em));
+  /* The gap between a changed diagram's "before" and "after" side by side,
+     which page.js reads to decide whether both fit. */
+  --diagram-gap: 24px;
+}
+.document figure.diagram {
+  margin: 1rem 0;
+  padding: 0.5rem;
+  width: var(--diagram-width);
+}
+.document .diagram.drawn .diagram-source { display: none; }
+.document .diagram-drawing { overflow-x: auto; }
+.document .diagram-drawing img { display: block; max-width: 100%; height: auto; border: 0; }
+.document .diagram-error {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid var(--removed);
+  background: var(--removed-bg);
+  color: var(--removed);
+  font-family: var(--sans);
+}
+.document .diagram-error-heading { margin: 0 0 0.25rem; font-weight: 700; }
+.document .diagram-error pre { margin: 0; padding: 0; background: none; color: inherit; }
+
+/* A changed diagram: "before" and "after", labelled, one above the other, or
+   side by side when both fit at full size (page.js), with the edit to its
+   source beneath. A removed one: "before" alone, dimmed. "No dbn change marks
+   on diagrams" (#191) is read as nothing drawn on or over a drawing: the
+   block's gutter sign (+, ± or -) stays, since it stands in the margin,
+   outside the drawing, as it does beside any block. The pair's container is
+   the block, padded as a lone diagram is. */
+.document .diagram-change {
+  margin: 1rem 0;
+  padding: 0.5rem;
+  width: var(--diagram-width);
+}
+.document .diagram-change figure.diagram { width: auto; margin: 0 0 1rem; padding: 0; }
+.document .diagram-pair.side-by-side { display: flex; gap: var(--diagram-gap); align-items: flex-start; }
+.document .diagram-pair.side-by-side figure.diagram { flex: 0 1 auto; min-width: 0; }
+.document .diagram-label {
+  margin-bottom: 0.25rem;
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.document figure.diagram.removed { opacity: 0.5; }
+.document .diagram-edit { margin-top: 0; }
+
+/* The frame Mermaid draws in: laid out, so Mermaid can measure its text, but
+   never seen. */
+.diagrams-frame {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: 1200px;
+  height: 800px;
+  border: 0;
+  visibility: hidden;
+}
+
+/* A Document's front matter, as its fields between its fences, muted: each
+   key a label beside its value, a multi-line value rendered as Markdown. */
+.document .frontmatter { margin: 1em 0; }
+.document .frontmatter .fence { font-family: var(--mono); font-size: 0.875em; color: var(--dim); }
+.document .frontmatter dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 1rem;
+  margin: 0.35rem 0;
+}
+.document .frontmatter dt { font-family: var(--sans); font-size: 0.875rem; color: var(--dim); padding-top: 0.15em; }
+.document .frontmatter dd { margin: 0; }
+.document .frontmatter dd.prose > :first-child { margin-top: 0; }
+.document .frontmatter dd.prose > :last-child { margin-bottom: 0; }
+.document .frontmatter dd pre { margin: 0; }
+
+/* What an Excerpt was widened by, so that no block is read in part. */
+.document .widened { color: var(--dim); }
+
+.comment {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-left: 3px solid var(--comment);
+  background: var(--panel);
+}
+.comment .mark { color: var(--comment); }
+.comment p { margin: 0.25rem 0; white-space: pre-wrap; }
+
+.manifest { font-family: var(--mono); font-size: 0.875rem; padding-left: 1.25rem; }
+</style>
+</head>
+<body data-stop-url="/reviews/22e7340f8332/page/stop" data-events-url="/reviews/22e7340f8332/page/events" data-diagrams-url="/browser/diagrams">
+<p id="connection" class="connection" hidden></p>
+<main id="stop"><div class="stop following" data-key="step-1"><div class="progress"><span>Step 1 of 2<span class="dim">  ·  19/31 changed lines seen</span></span><label class="wrap-toggle"><input type="checkbox" role="switch" data-wrap-lines> Wrap code lines</label></div>
+<header class="step-header">
+<h1>The plan</h1>
+</header>
+<div class="explanation"><p>The plan, as a Document.</p>
+</div><section class="questions">
+<h2>Agent Questions</h2>
+<div class="question">
+<div class="question-text"><p>Is five minutes the right refresh interval, or should it follow the finance team's publishing schedule?</p>
+</div>
+</div>
+</section><section class="excerpt" data-excerpt="0">
+<h2 class="file-header">docs/plan.md · new 1–20 · old 3</h2>
+<div class="document"><h1 data-block="1" data-place="1.0.b1">Caching plan</h1>
+<div class="tracked paragraph flow" data-block="2" data-place="1.0.b2" data-treatment="removed"><div class="line"><del>An opening line.</del></div></div>
+<p data-block="3" data-place="1.0.b3" data-treatment="new">The pricing service checks a rate table on every request. This plan caches the
+table in memory and refreshes it on a timer.</p>
+<h2 data-block="4" data-place="1.0.b4" data-treatment="new" class="cursor">Why</h2>
+<table>
+<thead data-block="5" data-place="1.0.b5" data-treatment="new">
+<tr>
+<th>Path</th>
+<th>Today</th>
+<th>Cached</th>
+</tr>
+</thead>
+<tbody>
+<tr data-block="6" data-place="1.0.b6" data-treatment="new">
+<td>p50 latency</td>
+<td>42 ms</td>
+<td>3 ms</td>
+</tr>
+<tr data-block="7" data-place="1.0.b7" data-treatment="new" class="commented">
+<td>p99 latency</td>
+<td>310 ms</td>
+<td>9 ms</td>
+</tr>
+</tbody>
+</table>
+<p data-block="8" data-place="1.0.b8" data-treatment="new">A cached table can be up to <code>refreshInterval</code> old, which the finance team has
+agreed is fine for display prices.</p>
+<h2 data-block="9" data-place="1.0.b9" data-treatment="new">Steps</h2>
+<ol>
+<li data-block="10" data-place="1.0.b10" data-treatment="new">Load the table at start-up.</li>
+<li data-block="11" data-place="1.0.b11" data-treatment="new">Refresh it every five minutes.</li>
+<li data-block="12" data-place="1.0.b12" data-treatment="new">Serve every read from memory.</li>
+</ol>
+</div><aside class="comment"><span class="mark">●</span> <span class="dim">#1 docs/plan.md — after 11-12</span><p>Who on the finance team agreed to this? Link the thread so the next reader can find it.</p></aside>
+</section>
+</div><div class="stop following" data-key="step-2"><div class="progress"><span>Step 2 of 2<span class="dim">  ·  31/31 changed lines seen</span></span><label class="wrap-toggle"><input type="checkbox" role="switch" data-wrap-lines> Wrap code lines</label></div>
+<header class="step-header">
+<h1>The cache</h1>
+</header>
+<div class="explanation"><p>An in-memory cache in front of the rate fetch.</p>
+</div><section class="excerpt" data-excerpt="0">
+<h2 class="file-header">src/rates.ts · new 1–11 · old 1–2</h2>
+<div class="source">
+<div class="row removed" data-side="old" data-line="1" data-place="2.0.old1"><span class="mark"></span><span class="number">1</span><span class="sign">-</span><span class="text"><span class="changed">export</span> function fetchRate(id<span class="changed">) {</span></span></div>
+<div class="row removed" data-side="old" data-line="2" data-place="2.0.old2"><span class="mark"></span><span class="number">2</span><span class="sign">-</span><span class="text">  <span class="changed">return</span> http.get(`/rates/${id}`);</span></div>
+<div class="row added" data-side="new" data-line="1" data-place="2.0.new1"><span class="mark"></span><span class="number">1</span><span class="sign">&#43;</span><span class="text"><span class="changed">const cache = new Map&lt;string, number&gt;();</span></span></div>
+<div class="row added" data-side="new" data-line="2" data-place="2.0.new2"><span class="mark"></span><span class="number">2</span><span class="sign">&#43;</span><span class="text"><span class="changed"></span></span></div>
+<div class="row added" data-side="new" data-line="3" data-place="2.0.new3"><span class="mark"></span><span class="number">3</span><span class="sign">&#43;</span><span class="text"><span class="changed">export async</span> function fetchRate(id<span class="changed">: string): Promise&lt;number&gt; {</span></span></div>
+<div class="row added" data-side="new" data-line="4" data-place="2.0.new4"><span class="mark"></span><span class="number">4</span><span class="sign">&#43;</span><span class="text">  <span class="changed">const hit = cache.get(id);</span></span></div>
+<div class="row added" data-side="new" data-line="5" data-place="2.0.new5"><span class="mark"></span><span class="number">5</span><span class="sign">&#43;</span><span class="text">  <span class="changed">if (hit !== undefined) {</span></span></div>
+<div class="row added" data-side="new" data-line="6" data-place="2.0.new6"><span class="mark"></span><span class="number">6</span><span class="sign">&#43;</span><span class="text">    <span class="changed">return hit;</span></span></div>
+<div class="row added" data-side="new" data-line="7" data-place="2.0.new7"><span class="mark"></span><span class="number">7</span><span class="sign">&#43;</span><span class="text">  <span class="changed">}</span></span></div>
+<div class="row added" data-side="new" data-line="8" data-place="2.0.new8"><span class="mark"></span><span class="number">8</span><span class="sign">&#43;</span><span class="text">  <span class="changed">const rate = await</span> http.get(`/rates/${id}`);</span></div>
+<div class="row added" data-side="new" data-line="9" data-place="2.0.new9"><span class="mark"></span><span class="number">9</span><span class="sign">&#43;</span><span class="text">  <span class="changed">cache.set(id, rate);</span></span></div>
+<div class="row added" data-side="new" data-line="10" data-place="2.0.new10"><span class="mark"></span><span class="number">10</span><span class="sign">&#43;</span><span class="text">  <span class="changed">return rate;</span></span></div>
+<div class="row context" data-side="new" data-line="11" data-place="2.0.new11"><span class="mark"></span><span class="number">11</span><span class="sign"> </span><span class="text">}</span></div>
+</div>
+</section>
+</div></main>
+<!--
+  PROTOTYPE (#205), throwaway: where the Browser App's controls sit beside the
+  review. Three variants of the real rendered page, switchable via ?variant=A|B|C
+  and the floating bar at the top. Nothing here talks to a daemon; every state
+  lives in memory and is lost on reload.
+-->
+<style>
+/* ---------- prototype switcher (not part of the design) ---------- */
+#proto-wrap {
+  position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 100;
+  display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: max-content; max-width: calc(100vw - 1rem);
+}
+#proto-bar {
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 1rem);
+  padding: 0.35rem 0.75rem; border-radius: 12px;
+  background: #222; color: #fff; font: 12px/1.3 var(--sans);
+  box-shadow: 0 4px 16px rgba(0,0,0,.35); border: 2px dashed #f0c000;
+}
+#proto-bar button { font: inherit; color: #fff; background: #444; border: 0; border-radius: 999px; padding: 0.2rem 0.6rem; cursor: pointer; }
+#proto-bar button.on { background: #f0c000; color: #000; }
+#proto-bar .sep { opacity: .4; }
+#proto-state {
+  padding: 0.2rem 0.75rem; border-radius: 6px; background: #222; color: #f0c000;
+  font: 11px/1.4 var(--mono); border: 1px dashed #f0c000; max-width: calc(100vw - 1rem);
+}
+main { padding-top: 6.5rem; }
+.proto-hidden { display: none !important; }
+
+/* ---------- shared bits every variant uses ---------- */
+.ctl-btn {
+  font: 0.8125rem/1.2 var(--sans); padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--bg); color: var(--fg);
+}
+.ctl-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.ctl-btn.danger { color: var(--removed); border-color: transparent; background: transparent; }
+.ctl-btn.danger:hover { border-color: var(--removed); }
+.ctl-hint { color: var(--dim); font: 0.75rem var(--sans); }
+.ctl-anchor { color: var(--dim); font: 0.75rem var(--mono); }
+.ctl-textarea {
+  width: 100%; min-height: 4.5rem; resize: vertical; padding: 0.5rem 0.6rem;
+  font: 0.9375rem/1.45 var(--sans); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--accent); border-radius: 6px; outline: none;
+}
+.ctl-textarea:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.ctl-row { display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; margin-top: 0.4rem; flex-wrap: wrap; }
+.ctl-row .left, .ctl-row .right { display: flex; gap: 0.5rem; align-items: center; }
+kbd {
+  font: 0.6875rem var(--mono); padding: 0.05rem 0.3rem; border-radius: 4px;
+  border: 1px solid var(--rule); border-bottom-width: 2px; background: var(--panel); color: var(--fg);
+}
+/* The block a draft is anchored to, so it stays lit while the window holds still. */
+.draft-anchor { background: color-mix(in srgb, var(--comment) 14%, transparent) !important; opacity: 1 !important; }
+/* Blocks and code lines are the hover targets. */
+.excerpt .document [data-block], .excerpt .row[data-line] { position: relative; }
+
+/* Keybar, as the TUI's: gray persistent keys, accent stateful keys. */
+.keybar { font: 0.8125rem/1.6 var(--sans); color: var(--dim); }
+.keybar .key { white-space: nowrap; margin-right: 1.1rem; cursor: pointer; }
+.keybar .key b { color: var(--fg); font-weight: 600; font-family: var(--mono); font-size: 0.75rem; }
+.keybar .stateful { color: var(--accent); }
+.keybar .stateful b { color: var(--accent); }
+
+/* Hand Off check content, used by each variant's own container. */
+.handoff h2 { margin: 0 0 0.5rem; font-size: 1.125rem; }
+.handoff ul { margin: 0.5rem 0 0.75rem; padding-left: 1.25rem; }
+.handoff li { margin: 0.25rem 0; }
+.handoff li.sel { background: var(--cursor-bg); }
+.handoff .why { color: var(--dim); font-size: 0.875rem; }
+
+/* ================= Variant A: inline, keybar docked at the bottom ================= */
+.vA main { padding-bottom: 6rem; }
+.vA .hover-btn {
+  position: absolute; right: -6.5rem; top: 0; display: none;
+  font: 0.75rem var(--sans); padding: 0.15rem 0.5rem; border-radius: 999px;
+  border: 1px solid var(--comment); color: var(--comment); background: var(--bg); cursor: pointer;
+}
+.vA .excerpt .document [data-block]:hover > .hover-btn,
+.vA .excerpt .row[data-line]:hover > .hover-btn { display: inline-block; }
+.vA .inline-box {
+  margin: 0.5rem 0 0.75rem; padding: 0.6rem 0.75rem; border-left: 3px solid var(--comment);
+  background: var(--panel); border-radius: 0 6px 6px 0; white-space: normal; font-family: var(--sans);
+}
+.vA .keybar-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  padding: 0.4rem 1rem; background: var(--panel); border-top: 1px solid var(--rule);
+}
+.vA .keybar-dock .keybar { max-width: 64rem; margin: 0 auto; }
+.vA .handoff-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: var(--bg); border-top: 3px solid var(--warn);
+  box-shadow: 0 -8px 24px rgba(0,0,0,.18); padding: 1rem 1rem 3rem;
+}
+.vA .handoff-sheet .handoff { max-width: 64rem; margin: 0 auto; }
+
+/* ================= Variant B: margin column, toolbar at the top, modal check ================= */
+.vB main { max-width: 84rem; }
+.vB .stop { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; column-gap: 2rem; }
+.vB .stop > * { grid-column: 1; }
+.vB .margin { grid-column: 2; grid-row: 1 / span 50; position: relative; }
+.vB .margin-card {
+  position: absolute; left: 0; right: 0; padding: 0.5rem 0.65rem; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--rule); box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  font-size: 0.875rem; transition: top 150ms;
+}
+.vB .margin-card.active { border-color: var(--comment); box-shadow: 0 2px 12px color-mix(in srgb, var(--comment) 30%, transparent); }
+.vB .margin-card .who { color: var(--dim); font: 0.75rem var(--mono); }
+.vB .margin-card p { margin: 0.25rem 0; }
+.vB .hover-btn {
+  position: absolute; right: -2.6rem; top: 0; width: 1.8rem; height: 1.8rem; display: none;
+  border-radius: 50%; border: 1px solid var(--rule); background: var(--bg); color: var(--comment);
+  cursor: pointer; font-size: 0.95rem; line-height: 1;
+}
+.vB .excerpt .document [data-block]:hover > .hover-btn,
+.vB .excerpt .row[data-line]:hover > .hover-btn { display: inline-block; }
+.vB .excerpt aside.comment { display: none; }
+.vB .toolbar {
+  /* top clears the prototype bar, which is not part of the design */
+  position: sticky; top: 4.25rem; z-index: 20; margin: 0 -1rem 1rem; padding: 0.35rem 1rem;
+  background: var(--bg); border-bottom: 1px solid var(--rule);
+}
+.vB .modal-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.35); display: grid; place-items: center; }
+.vB .modal { width: min(32rem, calc(100vw - 2rem)); padding: 1.25rem; border-radius: 10px; background: var(--bg); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+
+/* ================= Variant C: one docked composer for every text box ================= */
+.vC main { padding-bottom: 16rem; }
+.vC .hover-btn {
+  position: absolute; right: -2rem; top: 0.1em; display: none;
+  width: 1.4rem; height: 1.4rem; border-radius: 4px; border: 0; background: var(--comment); color: var(--bg);
+  cursor: pointer; font-weight: 700; line-height: 1;
+}
+.vC .excerpt .document [data-block]:hover > .hover-btn,
+.vC .excerpt .row[data-line]:hover > .hover-btn { display: inline-block; }
+.vC .dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--panel); border-top: 1px solid var(--rule);
+}
+.vC .dock-inner { max-width: 64rem; margin: 0 auto; padding: 0.5rem 1rem; }
+.vC .composer { padding: 0.5rem 0 0.25rem; }
+.vC .composer .quote {
+  margin: 0 0 0.4rem; padding: 0.3rem 0.6rem; border-left: 3px solid var(--comment);
+  color: var(--prose-fg); font: 0.8125rem/1.4 var(--prose); max-height: 3.2em; overflow: hidden;
+}
+/* The Hand Off check takes A's orange divider, so it stands out from a draft. */
+.vC .dock.handoff-open { border-top: 3px solid var(--warn); box-shadow: 0 -8px 24px rgba(0,0,0,.18); }
+.vC .dock .handoff { padding: 0.5rem 0 0.25rem; }
+.vC .dock .handoff h2 { color: var(--warn); }
+.vC .comment-actions { margin-top: 0.25rem; }
+</style>
+
+<div id="proto-wrap"><div id="proto-bar">
+  <button data-cycle="-1" title="previous variant ([)">◀</button>
+  <span id="proto-variant">A</span>
+  <button data-cycle="1" title="next variant (])">▶</button>
+  <span class="sep">|</span>
+  <button data-step="1">Document Step</button>
+  <button data-step="2">Code Step</button>
+  <span class="sep">|</span>
+  <button data-state="reading">Reading</button>
+  <button data-state="comment">Comment draft</button>
+  <button data-state="answer">Answer draft</button>
+  <button data-state="edit">Editing #1</button>
+  <button data-state="handoff">Hand Off check</button>
+</div>
+<div id="proto-state"></div></div>
+
+<script>
+(() => {
+  const VARIANTS = {
+    A: 'Inline, keybar docked below',
+    B: 'Margin column, toolbar above',
+    C: 'One composer docked below',
+  };
+  const keys = Object.keys(VARIANTS);
+  const params = new URLSearchParams(location.search);
+  const S = {
+    variant: keys.includes(params.get('variant')) ? params.get('variant') : 'A',
+    step: params.get('step') === '2' ? 2 : 1,
+    mode: 'reading',          // reading | comment | answer | edit | handoff
+    cursor: 0,                // index into the cursor stops of the shown Step
+    anchor: null,             // the element a draft is anchored to
+    draft: '',
+    comments: [],             // {id, el, note}
+    handoffSel: 0,
+    answered: false,
+    flash: '',
+  };
+  const main = document.getElementById('stop');
+  const stops = { 1: main.querySelector('[data-key="step-1"]'), 2: main.querySelector('[data-key="step-2"]') };
+
+  // The comment the real page already showed, as #1, on block 7.
+  const firstAside = stops[1].querySelector('aside.comment');
+  S.comments.push({ id: 1, step: 1, el: stops[1].querySelector('[data-block="7"]'), note: firstAside.querySelector('p').textContent, aside: firstAside });
+
+  const stopEls = (n) => [...stops[n].querySelectorAll('.excerpt .document [data-block], .excerpt .row[data-line]')];
+  const cursorEl = () => stopEls(S.step)[S.cursor];
+  const placeOf = (el) => {
+    if (!el) return '';
+    if (el.dataset.block) return `${S.step === 1 ? 'docs/plan.md' : ''} block ${el.dataset.block}`;
+    return `src/rates.ts ${el.dataset.side} line ${el.dataset.line}`;
+  };
+  const textOf = (el) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  // ---------- keybar tokens, as the TUI's ----------
+  function keybarTokens() {
+    switch (S.mode) {
+      case 'comment': case 'answer': case 'edit':
+        return { persistent: [], stateful: [['⌘↩', 'save'], ['esc', 'cancel'], ['↩', 'new line']] };
+      case 'handoff':
+        return { persistent: [['↑/↓', 'move'], ['enter', 'go to it'], ['h', 'hand off anyway'], ['esc', 'back']], stateful: [] };
+    }
+    const stateful = [['↑/↓', 'move']];
+    if (S.step === 1) stateful.push(['a', 'answer']);
+    stateful.push(['space/v', 'select'], ['y', 'copy'], ['c', 'comment']);
+    if (S.comments.some(c => c.el === cursorEl())) stateful.push(['e', 'edit']);
+    return { persistent: [['←', 'back'], ['→', 'next'], ['g', 'Overview'], ['l', 'list'], ['h', 'hand off'], ['x', 'expand'], ['s', 'source'], ['w', 'wrap']], stateful };
+  }
+  function keybarHTML() {
+    const { persistent, stateful } = keybarTokens();
+    const tok = (cls) => ([k, l]) => `<span class="key ${cls}" data-key="${k}"><b>${k}</b> ${l}</span>`;
+    return `<div class="keybar">${stateful.map(tok('stateful')).join('')}${persistent.map(tok('')).join('')}</div>`;
+  }
+
+  // ---------- pieces every variant draws in its own place ----------
+  function editorHTML({ title, autofocus = true, del = false }) {
+    return `
+      <div class="ctl-anchor">${title}</div>
+      <textarea class="ctl-textarea" id="draft" placeholder="Write a Comment…">${S.draft}</textarea>
+      <div class="ctl-row">
+        <div class="left">${del ? '<button class="ctl-btn danger" data-act="delete">Delete Comment</button>' : ''}</div>
+        <div class="right"><span class="ctl-hint"><kbd>esc</kbd> cancel</span>
+          <button class="ctl-btn" data-act="cancel">Cancel</button>
+          <button class="ctl-btn primary" data-act="save">Save <kbd>⌘↩</kbd></button></div>
+      </div>`;
+  }
+  function handoffHTML() {
+    const items = [];
+    if (!S.answered) items.push(['Step 1 asks you a question you haven’t answered', 'Is five minutes the right refresh interval…']);
+    items.push(['A Comment is being written in another window', 'TUI window, on src/rates.ts line 4']);
+    return `<div class="handoff">
+      <h2>Before you hand off</h2>
+      <div class="why">Your agent can still act on these if you hand off now, but it won’t know what you meant to say.</div>
+      <ul>${items.map(([a, b], i) => `<li class="${i === S.handoffSel ? 'sel' : ''}"><b>${a}</b><br><span class="dim">${b}</span></li>`).join('')}</ul>
+      <div class="ctl-row"><div class="left"></div><div class="right">
+        <button class="ctl-btn" data-act="cancel">Back <kbd>esc</kbd></button>
+        <button class="ctl-btn" data-act="goto">Go to it <kbd>enter</kbd></button>
+        <button class="ctl-btn primary" data-act="handoff">Hand off anyway <kbd>h</kbd></button></div></div>
+    </div>`;
+  }
+  function draftTitle() {
+    if (S.mode === 'answer') return 'Answering the Agent Question';
+    if (S.mode === 'edit') return `Editing #1 · ${placeOf(S.anchor)}`;
+    return `New Comment · ${placeOf(S.anchor)}`;
+  }
+
+  // ---------- render ----------
+  function clearInjected() {
+    document.querySelectorAll('.proto-injected').forEach(n => n.remove());
+    document.querySelectorAll('.draft-anchor').forEach(n => n.classList.remove('draft-anchor'));
+    document.querySelectorAll('.excerpt aside.comment').forEach(n => n.classList.remove('proto-hidden'));
+    document.querySelectorAll('.cursor').forEach(n => n.classList.remove('cursor'));
+  }
+  function inject(where, html, pos = 'afterend', tag = 'div', cls = '') {
+    const n = document.createElement(tag);
+    n.className = 'proto-injected ' + cls;
+    n.innerHTML = html;
+    where.insertAdjacentElement(pos, n);
+    return n;
+  }
+  function addHoverButtons() {
+    const label = { A: '💬 Comment', B: '💬', C: '+' }[S.variant];
+    stopEls(S.step).forEach(el => {
+      const b = document.createElement('button');
+      b.className = 'hover-btn proto-injected';
+      b.title = 'Comment on this ' + (el.dataset.block ? 'block' : 'line');
+      b.textContent = label;
+      b.addEventListener('click', (e) => { e.stopPropagation(); S.cursor = stopEls(S.step).indexOf(el); open('comment'); });
+      // A table row's cell holds the button, so the row stays a row.
+      (el.tagName === 'TR' ? el.lastElementChild : el).appendChild(b);
+    });
+  }
+  // The comments of the shown Step, real page aside plus any saved here.
+  function commentsHere() { return S.comments.filter(c => c.step === S.step); }
+  function savedAsides() {
+    commentsHere().filter(c => !c.aside).forEach(c => {
+      c.aside = inject(stops[S.step].querySelector('.excerpt:last-of-type'), '', 'beforeend', 'aside', 'comment');
+      c.aside.classList.remove('proto-injected'); // kept across renders
+      c.aside.innerHTML = `<span class="mark">●</span> <span class="dim">#${c.id} ${placeOf(c.el)}</span><p></p>`;
+      c.aside.querySelector('p').textContent = c.note;
+    });
+  }
+
+  function render() {
+    document.body.className = 'v' + S.variant;
+    Object.entries(stops).forEach(([n, el]) => el.classList.toggle('proto-hidden', +n !== S.step));
+    clearInjected();
+    savedAsides();
+    const stop = stops[S.step];
+    const cur = cursorEl();
+    const drafting = ['comment', 'answer', 'edit'].includes(S.mode);
+    if (cur) cur.classList.add('cursor');
+    if (drafting && S.anchor) S.anchor.classList.add('draft-anchor');
+    addHoverButtons();
+
+    if (S.variant === 'A') renderA(stop, drafting);
+    if (S.variant === 'B') renderB(stop, drafting);
+    if (S.variant === 'C') renderC(stop, drafting);
+
+    document.querySelectorAll('#proto-bar [data-state]').forEach(b => b.classList.toggle('on', b.dataset.state === S.mode));
+    document.querySelectorAll('#proto-bar [data-step]').forEach(b => b.classList.toggle('on', +b.dataset.step === S.step));
+    document.getElementById('proto-variant').textContent = `${S.variant} (${VARIANTS[S.variant]})`;
+    document.getElementById('proto-state').textContent =
+      `variant=${S.variant} · step=${S.step} · mode=${S.mode} · cursor=${placeOf(cur) || '–'}` +
+      (drafting ? ` · draft on ${placeOf(S.anchor) || 'question'} (window holds still)` : '') +
+      ` · comments=${S.comments.map(c => '#' + c.id).join(',') || 'none'}` + (S.flash ? ` · ${S.flash}` : '');
+    const ta = document.getElementById('draft');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.addEventListener('input', () => { S.draft = ta.value; }); }
+    wireButtons();
+  }
+
+  // A: the text box opens right under its block; the answer box inside the
+  // question; Delete sits in the edit box; the keybar is docked at the bottom
+  // of the window; the Hand Off check slides up over it as a sheet.
+  function renderA(stop, drafting) {
+    if (drafting && S.mode !== 'answer') {
+      const after = S.anchor.tagName === 'TR' ? S.anchor.closest('table') : S.anchor;
+      if (S.mode === 'edit') commentsHere().find(c => c.el === S.anchor)?.aside?.classList.add('proto-hidden');
+      inject(after, editorHTML({ title: draftTitle(), del: S.mode === 'edit' }), 'afterend', 'div', 'inline-box');
+    }
+    if (S.mode === 'answer') {
+      inject(stop.querySelector('.question'), editorHTML({ title: draftTitle() }).replace('Write a Comment…', 'Your Answer…'), 'beforeend', 'div', 'inline-box');
+    }
+    inject(document.body, keybarHTML(), 'beforeend', 'div', 'keybar-dock');
+    if (S.mode === 'handoff') inject(document.body, handoffHTML(), 'beforeend', 'div', 'handoff-sheet');
+  }
+
+  // B: every Comment is a card in a right-hand column level with its block,
+  // and a new one opens there too; the answer box sits in the question; the
+  // keybar is a toolbar at the top; the Hand Off check is a dialog.
+  function renderB(stop, drafting) {
+    const margin = inject(stop, '', 'beforeend', 'div', 'margin');
+    const top = (el) => el.getBoundingClientRect().top - stop.getBoundingClientRect().top;
+    inject(stop, keybarHTML(), 'afterbegin', 'div', 'toolbar');
+    const placeCard = (el, html, active) => {
+      const card = inject(margin, html, 'beforeend', 'div', 'margin-card' + (active ? ' active' : ''));
+      requestAnimationFrame(() => { card.style.top = top(el) + 'px'; });
+      return card;
+    };
+    commentsHere().forEach(c => {
+      if (S.mode === 'edit' && c.el === S.anchor) return;
+      placeCard(c.el, `<div class="who">#${c.id} · ${placeOf(c.el)}</div><p></p>`, c.el === cursorEl()).querySelector('p').textContent = c.note;
+    });
+    if (drafting && S.mode !== 'answer') placeCard(S.anchor, editorHTML({ title: draftTitle(), del: S.mode === 'edit' }), true);
+    if (S.mode === 'answer') {
+      inject(stop.querySelector('.question'), editorHTML({ title: draftTitle() }).replace('Write a Comment…', 'Your Answer…'), 'beforeend', 'div', '');
+    }
+    if (S.mode === 'handoff') inject(document.body, `<div class="modal">${handoffHTML()}</div>`, 'beforeend', 'div', 'modal-scrim');
+  }
+
+  // C: one dock at the bottom of the window holds the keybar and, above it,
+  // whichever text box is open, quoting what it is anchored to; the page
+  // itself never moves. The Hand Off check takes over the same dock.
+  function renderC(stop, drafting) {
+    let body = '';
+    if (drafting) {
+      const quote = S.mode === 'answer' ? 'Is five minutes the right refresh interval, or should it follow the finance team’s publishing schedule?' : textOf(S.anchor);
+      body = `<div class="composer"><div class="quote">${quote}</div>${editorHTML({ title: draftTitle(), del: S.mode === 'edit' })}</div>`;
+      if (S.mode === 'answer') body = body.replace('Write a Comment…', 'Your Answer…');
+    } else if (S.mode === 'handoff') {
+      body = handoffHTML();
+    }
+    inject(document.body, `<div class="dock-inner">${body}${keybarHTML()}</div>`, 'beforeend', 'div', S.mode === 'handoff' ? 'dock handoff-open' : 'dock');
+  }
+
+  // ---------- actions ----------
+  function open(mode) {
+    if (mode === 'answer' && S.step !== 1) S.step = 1;
+    if (mode === 'edit') {
+      const c = S.comments.find(c => c.id === 1);
+      S.step = c.step; S.cursor = stopEls(S.step).indexOf(c.el); S.anchor = c.el; S.draft = c.note;
+    } else if (mode === 'comment') {
+      S.anchor = cursorEl(); S.draft = '';
+    } else if (mode === 'answer') {
+      S.anchor = null; S.draft = '';
+    }
+    if (mode === 'handoff') S.handoffSel = 0;
+    S.mode = mode; S.flash = '';
+    render();
+  }
+  function save() {
+    if (S.mode === 'answer') { S.answered = S.draft.trim() !== ''; S.flash = S.answered ? 'answer saved' : 'empty answer, nothing saved'; }
+    else if (S.mode === 'edit') { const c = S.comments.find(c => c.el === S.anchor); c.note = S.draft; c.aside.querySelector('p').textContent = S.draft; S.flash = 'comment #1 saved'; }
+    else if (S.draft.trim() !== '') { const id = Math.max(0, ...S.comments.map(c => c.id)) + 1; S.comments.push({ id, step: S.step, el: S.anchor, note: S.draft }); S.flash = `comment #${id} saved`; }
+    S.mode = 'reading'; S.anchor = null; S.draft = '';
+    render();
+  }
+  function cancel() { S.mode = 'reading'; S.anchor = null; S.draft = ''; S.flash = 'cancelled'; render(); }
+  function del() {
+    const i = S.comments.findIndex(c => c.el === S.anchor);
+    const [c] = S.comments.splice(i, 1);
+    c.aside?.remove();
+    S.mode = 'reading'; S.anchor = null; S.draft = ''; S.flash = `comment #${c.id} deleted`;
+    render();
+  }
+  function wireButtons() {
+    document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => ({
+      save, cancel, delete: del,
+      goto: () => { S.mode = 'reading'; S.step = 1; S.cursor = 0; S.flash = 'went to the question'; render(); },
+      handoff: () => { S.mode = 'reading'; S.flash = 'handed off (prototype: nothing sent)'; render(); },
+    })[b.dataset.act]());
+    document.querySelectorAll('.keybar .key').forEach(k => k.onclick = () => press(k.dataset.key));
+  }
+  function move(d) {
+    const n = stopEls(S.step).length;
+    S.cursor = Math.max(0, Math.min(n - 1, S.cursor + d));
+    render();
+    cursorEl()?.scrollIntoView({ block: 'nearest' });
+  }
+  function press(k) {
+    const map = { c: () => open('comment'), a: () => open('answer'), e: () => open('edit'), h: () => open('handoff'),
+      '↑/↓': () => {}, '→': () => { S.step = 2; S.cursor = 0; render(); }, '←': () => { S.step = 1; S.cursor = 0; render(); },
+      esc: cancel, '⌘↩': save };
+    (map[k] ?? (() => { S.flash = `${k}: not in this prototype`; render(); }))();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    const typing = e.target.matches('textarea, input, [contenteditable]');
+    if (typing) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+      return;
+    }
+    if (e.key === '[' || e.key === ']') { cycle(e.key === ']' ? 1 : -1); return; }
+    if (S.mode === 'handoff') {
+      if (e.key === 'Escape') cancel();
+      else if (e.key === 'h') { S.mode = 'reading'; S.flash = 'handed off (prototype: nothing sent)'; render(); }
+      else if (e.key === 'ArrowDown' || e.key === 'j') { S.handoffSel = Math.min(1, S.handoffSel + 1); render(); }
+      else if (e.key === 'ArrowUp' || e.key === 'k') { S.handoffSel = Math.max(0, S.handoffSel - 1); render(); }
+      else if (e.key === 'Enter') document.querySelector('[data-act="goto"]').click();
+      return;
+    }
+    const k = { ArrowDown: 'down', j: 'down', ArrowUp: 'up', k: 'up', ArrowRight: '→', ArrowLeft: '←', c: 'c', a: 'a', e: 'e', h: 'h' }[e.key];
+    if (!k) return;
+    e.preventDefault();
+    if (k === 'down') move(1); else if (k === 'up') move(-1);
+    else if (k === 'e' && !S.comments.some(c => c.el === cursorEl())) { S.flash = 'e: no Comment here (try the p99 row)'; render(); }
+    else press(k);
+  });
+
+  function cycle(d) {
+    S.variant = keys[(keys.indexOf(S.variant) + d + keys.length) % keys.length];
+    const u = new URL(location.href); u.searchParams.set('variant', S.variant); history.replaceState(null, '', u);
+    render();
+  }
+  document.querySelectorAll('#proto-bar [data-cycle]').forEach(b => b.onclick = () => cycle(+b.dataset.cycle));
+  document.querySelectorAll('#proto-bar [data-step]').forEach(b => b.onclick = () => { S.step = +b.dataset.step; S.cursor = 0; S.mode = 'reading'; render(); });
+  document.querySelectorAll('#proto-bar [data-state]').forEach(b => b.onclick = () => {
+    const m = b.dataset.state;
+    if (m === 'reading') { S.mode = 'reading'; S.anchor = null; render(); }
+    else { if (m === 'comment' && S.step === 1) S.cursor = 3; open(m); }
+  });
+  window.addEventListener('resize', () => { if (S.variant === 'B') render(); });
+
+  // Step 1 opens with its cursor on "Why", as the real page showed it.
+  S.cursor = Math.max(0, stopEls(1).findIndex(el => el.dataset.block === '4'));
+  render();
+})();
+</script>
+
+</body>
+</html>
