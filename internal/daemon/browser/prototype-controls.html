@@ -665,8 +665,8 @@ kbd {
   margin: 0 0 0.4rem; padding: 0.3rem 0.6rem; border-left: 3px solid var(--comment);
   color: var(--prose-fg); font: 0.8125rem/1.4 var(--prose); max-height: 3.2em; overflow: hidden;
 }
-/* The Hand Off check takes A's orange divider, so it stands out from a draft. */
-.vC .dock.handoff-open { border-top: 3px solid var(--warn); box-shadow: 0 -8px 24px rgba(0,0,0,.18); }
+/* An open composer or Hand Off check takes A's orange divider, so it stands out from the page. */
+.vC .dock.open { border-top: 3px solid var(--warn); box-shadow: 0 -8px 24px rgba(0,0,0,.18); }
 .vC .dock .handoff { padding: 0.5rem 0 0.25rem; }
 .vC .dock .handoff h2 { color: var(--warn); }
 .vC .comment-actions { margin-top: 0.25rem; }
@@ -893,7 +893,7 @@ kbd {
     } else if (S.mode === 'handoff') {
       body = handoffHTML();
     }
-    inject(document.body, `<div class="dock-inner">${body}${keybarHTML()}</div>`, 'beforeend', 'div', S.mode === 'handoff' ? 'dock handoff-open' : 'dock');
+    inject(document.body, `<div class="dock-inner">${body}${keybarHTML()}</div>`, 'beforeend', 'div', S.mode === 'reading' ? 'dock' : 'dock open');
   }
 
   // ---------- actions ----------
